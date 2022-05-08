@@ -20,15 +20,30 @@ import (
 	"context"
 	"fmt"
 	"github.com/go-logr/logr"
+	"github.com/gofrs/flock"
 	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
-	"golang.org/x/tools/go/loader"
-	"os"
-
-	"helm.sh/helm/v3/pkg/action"
+	"github.com/pkg/errors"
+	"helm.sh/helm/v3/pkg/chart/loader"
+	"helm.sh/helm/v3/pkg/cli"
+	"helm.sh/helm/v3/pkg/cli/values"
+	"helm.sh/helm/v3/pkg/downloader"
+	"helm.sh/helm/v3/pkg/getter"
+	"helm.sh/helm/v3/pkg/repo"
+	"helm.sh/helm/v3/pkg/strvals"
+	"io/ioutil"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/yaml"
+	"os"
+	"path/filepath"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"strings"
+	"sync"
+	"time"
+
+	"helm.sh/helm/v3/pkg/action"
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
 )
 
 // ManifestReconciler reconciles a Manifest object
@@ -74,7 +89,7 @@ func (r *ManifestReconciler) GetChart(releaseName string, settings *cli.EnvSetti
 	return result != nil, nil
 }
 
-func (r *HelmReconciler) InstallChart(settings *cli.EnvSettings, logger logr.Logger, releaseName string, namespace string, repoName string, chartName string, args map[string]string) error {
+func (r *ManifestReconciler) InstallChart(settings *cli.EnvSettings, logger logr.Logger, releaseName string, namespace string, repoName string, chartName string, args map[string]string) error {
 	actionConfig := new(action.Configuration)
 	if err := actionConfig.Init(settings.RESTClientGetter(), settings.Namespace(), os.Getenv("HELM_DRIVER"), func(format string, v ...interface{}) {
 		fmt.Sprintf(format, v)
@@ -150,5 +165,114 @@ func (r *HelmReconciler) InstallChart(settings *cli.EnvSettings, logger logr.Log
 		panic(err)
 	}
 	fmt.Println(release.Manifest)
+	return nil
+}
+
+// RepoUpdate
+func (r *ManifestReconciler) RepoUpdate(settings *cli.EnvSettings) error {
+	repoFile := settings.RepositoryConfig
+
+	f, err := repo.LoadFile(repoFile)
+	if os.IsNotExist(errors.Cause(err)) || len(f.Repositories) == 0 {
+		return fmt.Errorf("no repositories found. You must add one before updating")
+	}
+	var repos []*repo.ChartRepository
+	for _, cfg := range f.Repositories {
+		r, err := repo.NewChartRepository(cfg, getter.All(settings))
+		if err != nil {
+			panic(err)
+		}
+		repos = append(repos, r)
+	}
+
+	fmt.Printf("Hang tight while we grab the latest from your chart repositories...\n")
+	var wg sync.WaitGroup
+	for _, re := range repos {
+		wg.Add(1)
+		go func(re *repo.ChartRepository) {
+			defer wg.Done()
+			if _, err := re.DownloadIndexFile(); err != nil {
+				fmt.Printf("...Unable to get an update from the %q chart repository (%s):\n\t%s\n", re.Config.Name, re.Config.URL, err)
+			} else {
+				fmt.Printf("...Successfully got an update from the %q chart repository\n", re.Config.Name)
+			}
+		}(re)
+	}
+	wg.Wait()
+	fmt.Printf("Update Complete. ⎈ Happy Helming!⎈\n")
+	return nil
+}
+
+// AddHelmRepo
+func (r *ManifestReconciler) AddHelmRepo(settings *cli.EnvSettings, repoName string, url string, logger logr.Logger) error {
+	repoFile := settings.RepositoryConfig
+
+	// File locking mechanism
+	if err := os.MkdirAll(filepath.Dir(repoFile), os.ModePerm); err != nil && !os.IsExist(err) {
+		panic(err)
+	}
+	fileLock := flock.New(strings.Replace(repoFile, filepath.Ext(repoFile), ".lock", 1))
+	lockCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	locked, err := fileLock.TryLockContext(lockCtx, time.Second)
+	if err == nil && locked {
+		defer fileLock.Unlock()
+	}
+
+	b, err := ioutil.ReadFile(repoFile)
+	if err != nil && !os.IsNotExist(err) {
+		panic(err)
+	}
+
+	var f repo.File
+	if err := yaml.Unmarshal(b, &f); err != nil {
+		panic(err)
+	}
+
+	if f.Has(repoName) {
+		logger.Info("helm repo already exists", "name", repoName)
+	}
+
+	c := repo.Entry{
+		Name: repoName,
+		URL:  url,
+	}
+
+	chartRepo, err := repo.NewChartRepository(&c, getter.All(settings))
+	if err != nil {
+		return fmt.Errorf("repository name (%s) already exists\n %w", repoName, err)
+	}
+
+	if _, err := chartRepo.DownloadIndexFile(); err != nil {
+		return fmt.Errorf("looks like %s is not a valid chart repository or cannot be reached %w", url, err)
+	}
+
+	f.Update(&c)
+	repoConfig := settings.RepositoryConfig
+	if err := f.WriteFile(repoConfig, 0644); err != nil {
+		return err
+	}
+	fmt.Printf("%q has been added to your repositories\n", repoName)
+	return nil
+}
+
+// UninstallChart
+func (r *ManifestReconciler) UninstallChart(settings *cli.EnvSettings, releaseName string, logger logr.Logger) error {
+	if exists, err := r.GetChart(releaseName, settings); !exists {
+		logger.Info(err.Error(), "response", "chart already deleted")
+		return nil
+	}
+	actionConfig := new(action.Configuration)
+	if err := actionConfig.Init(settings.RESTClientGetter(), settings.Namespace(), os.Getenv("HELM_DRIVER"), func(format string, v ...interface{}) {
+		fmt.Sprintf(format, v)
+	}); err != nil {
+		panic(err)
+	}
+	client := action.NewUninstall(actionConfig)
+	response, err := client.Run(releaseName)
+	if err != nil {
+		panic(err)
+	}
+	logger.Info("", "response", response.Release.Info.Description)
 	return nil
 }
