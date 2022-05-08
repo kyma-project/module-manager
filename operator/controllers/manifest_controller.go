@@ -18,8 +18,13 @@ package controllers
 
 import (
 	"context"
+	"fmt"
+	"github.com/go-logr/logr"
 	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
+	"golang.org/x/tools/go/loader"
+	"os"
 
+	"helm.sh/helm/v3/pkg/action"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -38,13 +43,6 @@ type ManifestReconciler struct {
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the Manifest object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.11.0/pkg/reconcile
 func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 
@@ -58,4 +56,99 @@ func (r *ManifestReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Manifest{}).
 		Complete(r)
+}
+
+func (r *ManifestReconciler) GetChart(releaseName string, settings *cli.EnvSettings) (bool, error) {
+	actionConfig := new(action.Configuration)
+	if err := actionConfig.Init(settings.RESTClientGetter(), settings.Namespace(), os.Getenv("HELM_DRIVER"), func(format string, v ...interface{}) {
+		fmt.Sprintf(format, v)
+	}); err != nil {
+		panic(err)
+	}
+	client := action.NewGet(actionConfig)
+	result, err := client.Run(releaseName)
+	if err != nil {
+
+		return false, err
+	}
+	return result != nil, nil
+}
+
+func (r *HelmReconciler) InstallChart(settings *cli.EnvSettings, logger logr.Logger, releaseName string, namespace string, repoName string, chartName string, args map[string]string) error {
+	actionConfig := new(action.Configuration)
+	if err := actionConfig.Init(settings.RESTClientGetter(), settings.Namespace(), os.Getenv("HELM_DRIVER"), func(format string, v ...interface{}) {
+		fmt.Sprintf(format, v)
+	}); err != nil {
+		panic(err)
+	}
+	client := action.NewInstall(actionConfig)
+	client.CreateNamespace = true
+	client.Namespace = "jet-cert"
+
+	if client.Version == "" && client.Devel {
+		client.Version = ">0.0.0-0"
+	}
+	//name, chart, err := client.NameAndChart(args)
+	client.ReleaseName = releaseName
+	//client.Namespace = ""
+	cp, err := client.ChartPathOptions.LocateChart(fmt.Sprintf("%s/%s", repoName, chartName), settings)
+	if err != nil {
+		panic(err)
+	}
+
+	logger.Info("", "CHART PATH", cp)
+
+	p := getter.All(settings)
+	valueOpts := &values.Options{}
+	vals, err := valueOpts.MergeValues(p)
+	if err != nil {
+		panic(err)
+	}
+
+	// Add args
+	if err := strvals.ParseInto(args["set"], vals); err != nil {
+		panic(err)
+	}
+
+	// Check chart dependencies to make sure all are present in /charts
+	chartRequested, err := loader.Load(cp)
+	if err != nil {
+		panic(err)
+	}
+
+	if chartRequested.Metadata.Type != "" && chartRequested.Metadata.Type != "application" {
+		return fmt.Errorf("%s charts are not installable", chartRequested.Metadata.Type)
+	}
+
+	if req := chartRequested.Metadata.Dependencies; req != nil {
+		// If CheckDependencies returns an error, we have unfulfilled dependencies.
+		// As of Helm 2.4.0, this is treated as a stopping condition:
+		// https://github.com/helm/helm/issues/2209
+		if err := action.CheckDependencies(chartRequested, req); err != nil {
+			if client.DependencyUpdate {
+				man := &downloader.Manager{
+					Out:              os.Stdout,
+					ChartPath:        cp,
+					Keyring:          client.ChartPathOptions.Keyring,
+					SkipUpdate:       false,
+					Getters:          p,
+					RepositoryConfig: settings.RepositoryConfig,
+					RepositoryCache:  settings.RepositoryCache,
+				}
+				if err := man.Update(); err != nil {
+					panic(err)
+				}
+			} else {
+				panic(err)
+			}
+		}
+	}
+
+	//client.Namespace = settings.Namespace()
+	release, err := client.Run(chartRequested, vals)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(release.Manifest)
+	return nil
 }
