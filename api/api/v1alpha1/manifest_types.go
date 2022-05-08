@@ -20,26 +20,43 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // ManifestSpec defines the desired state of Manifest
 type ManifestSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// Foo is an example field of Manifest. Edit manifest_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	RepoName     string            `json:"repoName,omitempty"`
+	Url          string            `json:"url,omitempty"`
+	ChartName    string            `json:"chartName,omitempty"`
+	ReleaseName  string            `json:"releaseName,omitempty"`
+	CreateChart  string            `json:"createChart,omitempty"`
+	ClientConfig map[string]string `json:"clientConfig,omitempty"`
 }
+
+// +kubebuilder:validation:Enum=Processing;Deleting;Ready;Error
+type ManifestState string
+
+// Valid Helm States
+const (
+	// ManifestStateReady signifies Manifest is ready
+	ManifestStateReady ManifestState = "Ready"
+
+	// ManifestStateProcessing signifies Manifest is reconciling
+	ManifestStateProcessing ManifestState = "Processing"
+
+	// ManifestStateError signifies an error for Manifest
+	ManifestStateError ManifestState = "Error"
+
+	// ManifestStateDeleting signifies Manifest is being deleted
+	ManifestStateDeleting ManifestState = "Deleting"
+)
 
 // ManifestStatus defines the observed state of Manifest
 type ManifestStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	State ManifestState `json:"state,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:printcolumn:name="State",type=string,JSONPath=".status.state"
+//+kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // Manifest is the Schema for the manifests API
 type Manifest struct {
