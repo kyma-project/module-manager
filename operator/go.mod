@@ -2,7 +2,10 @@ module github.com/kyma-project/manifest-operator/operator
 
 go 1.17
 
+replace github.com/kyma-project/manifest-operator/api => /Users/d063994/SAPDevelop/go/manifest-operator/api
+
 require (
+	github.com/kyma-project/manifest-operator/api v0.0.0-00010101000000-000000000000
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.17.0
 	k8s.io/apimachinery v0.23.0

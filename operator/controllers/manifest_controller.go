@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -55,7 +56,6 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 // SetupWithManager sets up the controller with the Manager.
 func (r *ManifestReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		// Uncomment the following line adding a pointer to an instance of the controlled resource as an argument
-		// For().
+		For(&v1alpha1.Manifest{}).
 		Complete(r)
 }

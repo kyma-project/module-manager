@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	manifestv1alpha1 "github.com/kyma-project/manifest-operator/api/api/v1alpha1"
 	"github.com/kyma-project/manifest-operator/operator/controllers"
 	//+kubebuilder:scaffold:imports
 )
@@ -42,6 +43,7 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(manifestv1alpha1.AddToScheme(scheme))
 
 	//+kubebuilder:scaffold:scheme
 }
