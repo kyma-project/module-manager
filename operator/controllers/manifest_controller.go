@@ -149,7 +149,7 @@ func (r *ManifestReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *ManifestReconciler) GetChart(releaseName string, settings *cli.EnvSettings, logger logr.Logger) (bool, error) {
 	actionConfig := new(action.Configuration)
 	if err := actionConfig.Init(settings.RESTClientGetter(), settings.Namespace(), os.Getenv("HELM_DRIVER"), func(format string, v ...interface{}) {
-		logger.Info("manifest operator debug", format, v)
+		fmt.Sprintf(format, v)
 	}); err != nil {
 		return false, err
 	}
@@ -165,7 +165,7 @@ func (r *ManifestReconciler) InstallChart(settings *cli.EnvSettings, logger logr
 	// setup helm client
 	actionConfig := new(action.Configuration)
 	if err := actionConfig.Init(settings.RESTClientGetter(), settings.Namespace(), os.Getenv("HELM_DRIVER"), func(format string, v ...interface{}) {
-		logger.Info("manifest operator debug", format, v)
+		fmt.Sprintf(format, v)
 	}); err != nil {
 		return err
 	}
@@ -356,7 +356,7 @@ func (r *ManifestReconciler) UninstallChart(settings *cli.EnvSettings, releaseNa
 	}
 	actionConfig := new(action.Configuration)
 	if err := actionConfig.Init(settings.RESTClientGetter(), settings.Namespace(), os.Getenv("HELM_DRIVER"), func(format string, v ...interface{}) {
-		logger.Info("manifest operator debug", format, v)
+		fmt.Sprintf(format, v)
 	}); err != nil {
 		return err
 	}
