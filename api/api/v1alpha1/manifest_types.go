@@ -22,12 +22,12 @@ import (
 
 // ManifestSpec defines the desired state of Manifest
 type ManifestSpec struct {
-	RepoName     string            `json:"repoName,omitempty"`
-	Url          string            `json:"url,omitempty"`
-	ChartName    string            `json:"chartName,omitempty"`
-	ReleaseName  string            `json:"releaseName,omitempty"`
-	CreateChart  string            `json:"createChart,omitempty"`
-	ClientConfig map[string]string `json:"clientConfig,omitempty"`
+	RepoName     string `json:"repoName,omitempty"`
+	Url          string `json:"url,omitempty"`
+	ChartName    string `json:"chartName,omitempty"`
+	ReleaseName  string `json:"releaseName,omitempty"`
+	CreateChart  string `json:"createChart,omitempty"`
+	ClientConfig string `json:"clientConfig,omitempty"`
 }
 
 // +kubebuilder:validation:Enum=Processing;Deleting;Ready;Error

@@ -45,9 +45,7 @@ spec:
               chartName:
                 type: string
               clientConfig:
-                additionalProperties:
-                  type: string
-                type: object
+                type: string
               createChart:
                 type: string
               releaseName:
