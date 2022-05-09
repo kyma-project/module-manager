@@ -5,9 +5,12 @@ go 1.17
 replace github.com/kyma-project/manifest-operator/api => /Users/d063994/SAPDevelop/go/manifest-operator/api
 
 require (
+	github.com/go-logr/logr v1.2.2
+	github.com/gofrs/flock v0.8.1
 	github.com/kyma-project/manifest-operator/api v0.0.0-00010101000000-000000000000
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.17.0
+	github.com/pkg/errors v0.9.1
 	helm.sh/helm/v3 v3.8.2
 	k8s.io/apimachinery v0.23.5
 	k8s.io/client-go v0.23.5
@@ -50,7 +53,6 @@ require (
 	github.com/fatih/color v1.13.0 // indirect
 	github.com/fsnotify/fsnotify v1.5.1 // indirect
 	github.com/go-errors/errors v1.0.1 // indirect
-	github.com/go-logr/logr v1.2.2 // indirect
 	github.com/go-logr/zapr v1.2.0 // indirect
 	github.com/go-openapi/jsonpointer v0.19.5 // indirect
 	github.com/go-openapi/jsonreference v0.19.5 // indirect
@@ -99,7 +101,6 @@ require (
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.0.2 // indirect
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
-	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/client_golang v1.11.0 // indirect
 	github.com/prometheus/client_model v0.2.0 // indirect
