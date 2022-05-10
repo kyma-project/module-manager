@@ -2,12 +2,10 @@ module github.com/kyma-project/manifest-operator/operator
 
 go 1.17
 
-replace github.com/kyma-project/manifest-operator/api => /Users/d063994/SAPDevelop/go/manifest-operator/api
-
 require (
 	github.com/go-logr/logr v1.2.2
 	github.com/gofrs/flock v0.8.1
-	github.com/kyma-project/manifest-operator/api v0.0.0-00010101000000-000000000000
+	github.com/kyma-project/manifest-operator/api v0.0.0-20220509125915-03b5ce455787
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.17.0
 	github.com/pkg/errors v0.9.1
