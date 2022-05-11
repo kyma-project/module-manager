@@ -77,55 +77,57 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 
-	var (
-		args = map[string]string{
-			// check --set flags parameter from helm
-			"set": "",
-			// comma seperated values of helm command line flags
-			"flags": manifestObj.Spec.ClientConfig,
-		}
-		repoName    = manifestObj.Spec.RepoName
-		url         = manifestObj.Spec.Url
-		chartName   = manifestObj.Spec.ChartName
-		releaseName = manifestObj.Spec.ReleaseName
-	)
+	for _, chart := range manifestObj.Spec.Charts {
+		var (
+			args = map[string]string{
+				// check --set flags parameter from helm
+				"set": "",
+				// comma seperated values of helm command line flags
+				"flags": chart.ClientConfig,
+			}
+			repoName    = chart.RepoName
+			url         = chart.Url
+			chartName   = chart.ChartName
+			releaseName = chart.ReleaseName
+		)
 
-	settings := cli.New()
+		settings := cli.New()
 
-	// evaluate create or delete chart
-	create, err := strconv.ParseBool(manifestObj.Spec.CreateChart)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	if create {
-		if err := r.AddHelmRepo(settings, repoName, url, logger); err != nil {
+		// evaluate create or delete chart
+		create, err := strconv.ParseBool(chart.CreateChart)
+		if err != nil {
 			return ctrl.Result{}, err
 		}
 
-		if exists, err := r.GetChart(releaseName, settings, logger); !exists {
-			logger.Info(err.Error(), "chart", "not found, installing now..")
-			if err := r.InstallChart(settings, logger, releaseName, repoName, chartName, args); err != nil {
+		if create {
+			if err := r.AddHelmRepo(settings, repoName, url, logger); err != nil {
+				return ctrl.Result{}, err
+			}
+
+			if exists, err := r.GetChart(releaseName, settings, logger); !exists {
+				logger.Info(err.Error(), "chart", "not found, installing now..")
+				if err := r.InstallChart(settings, logger, releaseName, repoName, chartName, args); err != nil {
+					return ctrl.Result{}, err
+				}
+			} else {
+				logger.Info("release already exists for", "chart name", releaseName)
+			}
+
+			// update helm chart in a separate go-routine
+			if err := r.RepoUpdate(settings, logger); err != nil {
 				return ctrl.Result{}, err
 			}
 		} else {
-			logger.Info("release already exists for", "chart name", releaseName)
+			if err := r.UninstallChart(settings, releaseName, logger); err != nil {
+				return ctrl.Result{}, err
+			}
 		}
 
-		// update helm chart in a separate go-routine
-		if err := r.RepoUpdate(settings, logger); err != nil {
+		// if no errors are reported update status of manifest object to "Ready"
+		manifestObj = v1alpha1.Manifest{}
+		if err := r.Get(ctx, client.ObjectKey{Name: req.Name, Namespace: req.Namespace}, &manifestObj); err != nil {
 			return ctrl.Result{}, err
 		}
-	} else {
-		if err := r.UninstallChart(settings, releaseName, logger); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-
-	// if no errors are reported update status of manifest object to "Ready"
-	manifestObj = v1alpha1.Manifest{}
-	if err := r.Get(ctx, client.ObjectKey{Name: req.Name, Namespace: req.Namespace}, &manifestObj); err != nil {
-		return ctrl.Result{}, err
 	}
 
 	if manifestObj.Status.State == v1alpha1.ManifestStateProcessing {
