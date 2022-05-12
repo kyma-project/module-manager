@@ -20,14 +20,19 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// ManifestSpec defines the desired state of Manifest
-type ManifestSpec struct {
+// ChartInfo defines chart information
+type ChartInfo struct {
 	RepoName     string `json:"repoName,omitempty"`
 	Url          string `json:"url,omitempty"`
 	ChartName    string `json:"chartName,omitempty"`
 	ReleaseName  string `json:"releaseName,omitempty"`
 	CreateChart  string `json:"createChart,omitempty"`
 	ClientConfig string `json:"clientConfig,omitempty"`
+}
+
+// ManifestSpec defines the specification of Manifest
+type ManifestSpec struct {
+	Charts []ChartInfo `json:"charts,omitempty"`
 }
 
 // +kubebuilder:validation:Enum=Processing;Deleting;Ready;Error

@@ -48,6 +48,8 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 )
 
+const maxWorkerCount = 4
+
 // ManifestReconciler reconciles a Manifest object
 type ManifestReconciler struct {
 	client.Client
@@ -62,6 +64,7 @@ type ManifestReconciler struct {
 // move the current state of the cluster closer to the desired state.
 func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx).WithName(req.NamespacedName.String())
+	settings := cli.New()
 
 	// get manifest object
 	manifestObj := v1alpha1.Manifest{}
@@ -77,48 +80,42 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 
-	var (
-		args = map[string]string{
-			// check --set flags parameter from helm
-			"set": "",
-			// comma seperated values of helm command line flags
-			"flags": manifestObj.Spec.ClientConfig,
-		}
-		repoName    = manifestObj.Spec.RepoName
-		url         = manifestObj.Spec.Url
-		chartName   = manifestObj.Spec.ChartName
-		releaseName = manifestObj.Spec.ReleaseName
-	)
-
-	settings := cli.New()
-
-	// evaluate create or delete chart
-	create, err := strconv.ParseBool(manifestObj.Spec.CreateChart)
-	if err != nil {
-		return ctrl.Result{}, err
+	chartCount := len(manifestObj.Spec.Charts)
+	workerCount := maxWorkerCount
+	if chartCount <= maxWorkerCount {
+		workerCount = chartCount
 	}
 
-	if create {
-		if err := r.AddHelmRepo(settings, repoName, url, logger); err != nil {
-			return ctrl.Result{}, err
-		}
+	deployJob := make(chan v1alpha1.ChartInfo, chartCount)
+	results := make(chan error, chartCount)
 
-		if exists, err := r.GetChart(releaseName, settings, logger); !exists {
-			logger.Info(err.Error(), "chart", "not found, installing now..")
-			if err := r.InstallChart(settings, logger, releaseName, repoName, chartName, args); err != nil {
-				return ctrl.Result{}, err
+	for worker := 1; worker <= workerCount; worker++ {
+		go func(id int, deployJob <-chan v1alpha1.ChartInfo, results chan<- error) {
+			logger.Info(fmt.Sprintf("Starting manifest-operator worker with id:%d", id))
+			for chartInfo := range deployJob {
+				results <- r.HandleCharts(chartInfo, logger, settings)
 			}
-		} else {
-			logger.Info("release already exists for", "chart name", releaseName)
-		}
+		}(worker, deployJob, results)
+	}
 
+	for _, chart := range manifestObj.Spec.Charts {
+		deployJob <- chart
+	}
+
+	close(deployJob)
+
+	endState := v1alpha1.ManifestStateReady
+	for a := 1; a <= chartCount; a++ {
+		if <-results != nil {
+			endState = v1alpha1.ManifestStateError
+			break
+		}
+	}
+
+	if endState != v1alpha1.ManifestStateError {
 		// update helm chart in a separate go-routine
 		if err := r.RepoUpdate(settings, logger); err != nil {
-			return ctrl.Result{}, err
-		}
-	} else {
-		if err := r.UninstallChart(settings, releaseName, logger); err != nil {
-			return ctrl.Result{}, err
+			endState = v1alpha1.ManifestStateError
 		}
 	}
 
@@ -129,7 +126,7 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if manifestObj.Status.State == v1alpha1.ManifestStateProcessing {
-		manifestObj.Status.State = v1alpha1.ManifestStateReady
+		manifestObj.Status.State = endState
 		if err := r.Status().Update(ctx, &manifestObj); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -137,6 +134,48 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	// should not be reconciled again
 	return ctrl.Result{}, nil
+}
+
+func (r *ManifestReconciler) HandleCharts(chart v1alpha1.ChartInfo, logger logr.Logger, settings *cli.EnvSettings) error {
+	var (
+		args = map[string]string{
+			// check --set flags parameter from helm
+			"set": "",
+			// comma seperated values of helm command line flags
+			"flags": chart.ClientConfig,
+		}
+		repoName    = chart.RepoName
+		url         = chart.Url
+		chartName   = chart.ChartName
+		releaseName = chart.ReleaseName
+	)
+
+	// evaluate create or delete chart
+	create, err := strconv.ParseBool(chart.CreateChart)
+	if err != nil {
+		return err
+	}
+
+	if create {
+		if err := r.AddHelmRepo(settings, repoName, url, logger); err != nil {
+			return err
+		}
+
+		if exists, err := r.GetChart(releaseName, settings, logger); !exists {
+			logger.Info(err.Error(), "chart", "not found, installing now..")
+			if err := r.InstallChart(settings, logger, releaseName, repoName, chartName, args); err != nil {
+				return err
+			}
+		} else {
+			logger.Info("release already exists for", "chart name", releaseName)
+		}
+	} else {
+		if err := r.UninstallChart(settings, releaseName, logger); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -256,7 +295,8 @@ func (r *ManifestReconciler) InstallChart(settings *cli.EnvSettings, logger logr
 	if err != nil {
 		return err
 	}
-	logger.Info("release", "manifest", release.Manifest)
+	fmt.Println(release.Manifest)
+	logger.Info("Install Complete!! Happy Manifesting!", "release", releaseName, "chart", chartName)
 	return nil
 }
 

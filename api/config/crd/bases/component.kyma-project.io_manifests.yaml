@@ -40,20 +40,26 @@ spec:
           metadata:
             type: object
           spec:
-            description: ManifestSpec defines the desired state of Manifest
+            description: ManifestSpec defines the specification of Manifest
             properties:
-              chartName:
-                type: string
-              clientConfig:
-                type: string
-              createChart:
-                type: string
-              releaseName:
-                type: string
-              repoName:
-                type: string
-              url:
-                type: string
+              charts:
+                items:
+                  description: ChartInfo defines chart information
+                  properties:
+                    chartName:
+                      type: string
+                    clientConfig:
+                      type: string
+                    createChart:
+                      type: string
+                    releaseName:
+                      type: string
+                    repoName:
+                      type: string
+                    url:
+                      type: string
+                  type: object
+                type: array
             type: object
           status:
             description: ManifestStatus defines the observed state of Manifest
