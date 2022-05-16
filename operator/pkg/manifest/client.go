@@ -3,7 +3,7 @@ package manifest
 import (
 	"bytes"
 	"fmt"
-	"github.com/kyma-project/manifest-operator/pkg/util"
+	"github.com/kyma-project/manifest-operator/operator/pkg/util"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/kube"
