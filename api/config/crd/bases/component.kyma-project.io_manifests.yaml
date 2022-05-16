@@ -50,8 +50,6 @@ spec:
                       type: string
                     clientConfig:
                       type: string
-                    createChart:
-                      type: string
                     releaseName:
                       type: string
                     repoName:
@@ -64,6 +62,41 @@ spec:
           status:
             description: ManifestStatus defines the observed state of Manifest
             properties:
+              conditions:
+                description: List of status conditions to indicate the status of Manifest.
+                items:
+                  description: ManifestCondition describes condition information for
+                    Manifest.
+                  properties:
+                    lastTransitionTime:
+                      description: Timestamp for when Manifest last transitioned from
+                        one status to another.
+                      format: date-time
+                      type: string
+                    message:
+                      description: Human-readable message indicating details about
+                        the last status transition.
+                      type: string
+                    reason:
+                      description: Machine-readable text indicating the reason for
+                        the condition's last transition.
+                      type: string
+                    status:
+                      description: Status of the ManifestCondition. Value can be one
+                        of ("True", "False", "Unknown").
+                      type: string
+                    type:
+                      description: Type of ManifestCondition
+                      type: string
+                  required:
+                  - status
+                  - type
+                  type: object
+                type: array
+              observedGeneration:
+                description: Observed generation
+                format: int64
+                type: integer
               state:
                 enum:
                 - Processing
