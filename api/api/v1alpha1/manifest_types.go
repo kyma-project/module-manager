@@ -20,13 +20,19 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const ManifestKind = "Manifest"
+
+func (manifest *Manifest) SetObservedGeneration() *Manifest {
+	manifest.Status.ObservedGeneration = manifest.Generation
+	return manifest
+}
+
 // ChartInfo defines chart information
 type ChartInfo struct {
 	RepoName     string `json:"repoName,omitempty"`
 	Url          string `json:"url,omitempty"`
 	ChartName    string `json:"chartName,omitempty"`
 	ReleaseName  string `json:"releaseName,omitempty"`
-	CreateChart  string `json:"createChart,omitempty"`
 	ClientConfig string `json:"clientConfig,omitempty"`
 }
 
@@ -56,7 +62,58 @@ const (
 // ManifestStatus defines the observed state of Manifest
 type ManifestStatus struct {
 	State ManifestState `json:"state,omitempty"`
+
+	// List of status conditions to indicate the status of Manifest.
+	// +optional
+	Conditions []ManifestCondition `json:"conditions,omitempty"`
+
+	// Observed generation
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
+
+// ManifestCondition describes condition information for Manifest.
+type ManifestCondition struct {
+	//Type of ManifestCondition
+	Type ManifestConditionType `json:"type"`
+
+	// Status of the ManifestCondition.
+	// Value can be one of ("True", "False", "Unknown").
+	Status ManifestConditionStatus `json:"status"`
+
+	// Human-readable message indicating details about the last status transition.
+	// +optional
+	Message string `json:"message,omitempty"`
+
+	// Machine-readable text indicating the reason for the condition's last transition.
+	// +optional
+	Reason string `json:"reason,omitempty"`
+
+	// Timestamp for when Manifest last transitioned from one status to another.
+	// +optional
+	LastTransitionTime *metav1.Time `json:"lastTransitionTime,omitempty"`
+}
+
+type ManifestConditionType string
+
+const (
+	// ConditionTypeReady represents ManifestConditionType Ready
+	ConditionTypeReady ManifestConditionType = "Ready"
+)
+
+type ManifestConditionStatus string
+
+// Valid ManifestCondition Status
+const (
+	// ConditionStatusTrue signifies KymaConditionStatus true
+	ConditionStatusTrue ManifestConditionStatus = "True"
+
+	// ConditionStatusFalse signifies KymaConditionStatus false
+	ConditionStatusFalse ManifestConditionStatus = "False"
+
+	// ConditionStatusUnknown signifies KymaConditionStatus unknown
+	ConditionStatusUnknown ManifestConditionStatus = "Unknown"
+)
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
