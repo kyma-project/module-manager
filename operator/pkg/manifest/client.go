@@ -3,13 +3,13 @@ package manifest
 import (
 	"bytes"
 	"fmt"
+	manifestRest "github.com/kyma-project/manifest-operator/operator/pkg/rest"
 	"github.com/kyma-project/manifest-operator/operator/pkg/util"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/kube"
 	"helm.sh/helm/v3/pkg/strvals"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"reflect"
 )
 
@@ -25,20 +25,20 @@ const (
 type HelmClient struct {
 	kubeClient *kube.Client
 	settings   *cli.EnvSettings
+	restGetter *manifestRest.ManifestRESTClientGetter
 }
 
-func NewClient(kubeClient *kube.Client, settings *cli.EnvSettings) *HelmClient {
+func NewClient(kubeClient *kube.Client, restGetter *manifestRest.ManifestRESTClientGetter, settings *cli.EnvSettings) *HelmClient {
 	return &HelmClient{
 		kubeClient: kubeClient,
 		settings:   settings,
+		restGetter: restGetter,
 	}
 }
 
 func (h *HelmClient) getGenericConfig(namespace string) (*action.Configuration, error) {
 	actionConfig := new(action.Configuration)
-	clientGetter := genericclioptions.NewConfigFlags(false)
-	clientGetter.Namespace = &namespace
-	if err := actionConfig.Init(clientGetter, namespace, "secrets", func(format string, v ...interface{}) {
+	if err := actionConfig.Init(h.restGetter, namespace, "secrets", func(format string, v ...interface{}) {
 		fmt.Printf(format, v)
 	}); err != nil {
 		return nil, err

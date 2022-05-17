@@ -22,9 +22,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
 	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
-	manifestRest "github.com/kyma-project/manifest-operator/operator/pkg/rest"
 	"helm.sh/helm/v3/pkg/cli"
-	"helm.sh/helm/v3/pkg/kube"
 	"k8s.io/apimachinery/pkg/runtime"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
@@ -41,7 +39,6 @@ type ManifestReconciler struct {
 	Scheme     *runtime.Scheme
 	RestConfig *rest.Config
 	RestMapper *restmapper.DeferredDiscoveryRESTMapper
-	KubeClient *kube.Client
 	Workers    *ManifestWorkers
 }
 
@@ -188,7 +185,7 @@ func (r *ManifestReconciler) HandleCharts(chart v1alpha1.ChartInfo, logger logr.
 	}
 
 	// TODO: implement better settings handling
-	manifestOperations := manifest.NewOperations(logger, r.KubeClient, cli.New())
+	manifestOperations := manifest.NewOperations(logger, r.RestConfig, cli.New())
 	if create {
 		if err := manifestOperations.Install("", releaseName, fmt.Sprintf("%s/%s", repoName, chartName), repoName, url, args); err != nil {
 			return err
@@ -204,10 +201,7 @@ func (r *ManifestReconciler) HandleCharts(chart v1alpha1.ChartInfo, logger logr.
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ManifestReconciler) SetupWithManager(mgr ctrl.Manager) error {
-
 	r.RestConfig = mgr.GetConfig()
-	r.KubeClient = kube.New(manifestRest.NewRESTClientGetter(r.RestConfig))
-
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Manifest{}).
 		Complete(r)

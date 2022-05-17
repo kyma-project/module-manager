@@ -3,6 +3,7 @@ package manifest
 import (
 	"fmt"
 	"github.com/go-logr/logr"
+	manifestRest "github.com/kyma-project/manifest-operator/operator/pkg/rest"
 	"github.com/kyma-project/manifest-operator/operator/pkg/util"
 	"github.com/pkg/errors"
 	"helm.sh/helm/v3/pkg/action"
@@ -10,6 +11,7 @@ import (
 	"helm.sh/helm/v3/pkg/kube"
 	"helm.sh/helm/v3/pkg/strvals"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/rest"
 )
 
 type Operations struct {
@@ -17,15 +19,18 @@ type Operations struct {
 	kubeClient  *kube.Client
 	helmClient  *HelmClient
 	repoHandler *RepoHandler
+	restGetter  *manifestRest.ManifestRESTClientGetter
 }
 
-func NewOperations(logger logr.Logger, kubeClient *kube.Client, settings *cli.EnvSettings) *Operations {
-	return &Operations{
+func NewOperations(logger logr.Logger, restConfig *rest.Config, settings *cli.EnvSettings) *Operations {
+	operations := &Operations{
 		logger:      logger,
-		kubeClient:  kubeClient,
-		helmClient:  NewClient(kubeClient, settings),
+		restGetter:  manifestRest.NewRESTClientGetter(restConfig),
 		repoHandler: NewRepoHandler(logger, settings),
 	}
+	operations.helmClient = NewClient(operations.kubeClient, operations.restGetter, settings)
+	operations.kubeClient = kube.New(operations.restGetter)
+	return operations
 }
 
 func (o *Operations) Install(chartPath, releaseName, chartName, repoName, url string, args map[string]string) error {
