@@ -1,12 +1,19 @@
 package util
 
 import (
+	"flag"
+	"fmt"
 	"github.com/pkg/errors"
 	"helm.sh/helm/v3/pkg/kube"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cli-runtime/pkg/resource"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"os"
+	"path"
 	yaml2 "sigs.k8s.io/yaml"
 )
 
@@ -50,4 +57,50 @@ func FilterExistingResources(resources kube.ResourceList) ([]*resource.Info, err
 	})
 
 	return requireUpdate, err
+}
+
+func GetConfig(kubeConfig string) (*rest.Config, error) {
+	if kubeConfig != "" {
+		// parameter string
+		return clientcmd.BuildConfigFromKubeconfigGetter("", func() (config *clientcmdapi.Config, e error) {
+			fmt.Println("Found config from passed kubeconfig")
+			return clientcmd.Load([]byte(kubeConfig))
+		})
+	}
+	// in-cluster config
+	config, err := rest.InClusterConfig()
+	if err == nil {
+		fmt.Println("Found config in-cluster")
+		return config, err
+	}
+
+	// kubeconfig flag
+	if flag.Lookup("kubeconfig") != nil {
+		if kubeconfig := flag.Lookup("kubeconfig").Value.String(); kubeconfig != "" {
+			fmt.Println("Found config from flags")
+			return clientcmd.BuildConfigFromFlags("", kubeconfig)
+		}
+	}
+
+	// env variable
+	if len(os.Getenv("KUBECONFIG")) > 0 {
+		fmt.Println("Found config from env")
+		return clientcmd.BuildConfigFromFlags("masterURL", os.Getenv("KUBECONFIG"))
+	}
+
+	// working directory
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	pwd, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("error reading current working directory %w", err)
+	}
+	loadingRules.Precedence = append(loadingRules.Precedence, path.Join(pwd, ".kubeconfig"))
+	clientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, &clientcmd.ConfigOverrides{})
+	config, err = clientConfig.ClientConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	fmt.Printf("Found config file in: %s", clientConfig.ConfigAccess().GetDefaultFilename())
+	return config, nil
 }
