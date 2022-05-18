@@ -10,6 +10,7 @@ import (
 	"helm.sh/helm/v3/pkg/kube"
 	"helm.sh/helm/v3/pkg/strvals"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"reflect"
 )
 
@@ -68,7 +69,6 @@ func (h *HelmClient) SetDefaultClientConfig(actionClient *action.Install, releas
 	actionClient.DryRun = true
 	actionClient.Atomic = true
 	actionClient.Wait = true
-	actionClient.CreateNamespace = true
 	actionClient.DryRun = true
 	actionClient.Replace = true     // Skip the name check
 	actionClient.IncludeCRDs = true //include CRDs in the templated output
@@ -113,6 +113,10 @@ func (h *HelmClient) DownloadChart(actionClient *action.Install, chartName strin
 func (h *HelmClient) HandleNamespace(actionClient *action.Install, operationType HelmOperation) error {
 	// create namespace
 	if actionClient.CreateNamespace {
+		// validate namespace parameters
+		if actionClient.Namespace == v1.NamespaceDefault {
+			return nil
+		}
 		buf, err := util.GetNamespaceObjBytes(actionClient.Namespace)
 		if err != nil {
 			return err
