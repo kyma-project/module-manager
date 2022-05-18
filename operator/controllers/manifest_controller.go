@@ -98,8 +98,11 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, logger *
 
 	go func() {
 		endState := v1alpha1.ManifestStateReady
+		var err error
 		for a := 1; a <= chartCount; a++ {
-			if <-results != nil {
+			err = <-results
+			if err != nil {
+				logger.Error(err, "chart installation failure!!!")
 				endState = v1alpha1.ManifestStateError
 				break
 			}
