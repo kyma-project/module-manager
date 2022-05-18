@@ -20,6 +20,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const ManifestKind = "Manifest"
+
 func (manifest *Manifest) SetObservedGeneration() *Manifest {
 	manifest.Status.ObservedGeneration = manifest.Generation
 	return manifest
