@@ -28,8 +28,8 @@ func NewOperations(logger logr.Logger, restConfig *rest.Config, settings *cli.En
 		restGetter:  manifestRest.NewRESTClientGetter(restConfig),
 		repoHandler: NewRepoHandler(logger, settings),
 	}
-	operations.helmClient = NewClient(operations.kubeClient, operations.restGetter, settings)
 	operations.kubeClient = kube.New(operations.restGetter)
+	operations.helmClient = NewClient(operations.kubeClient, operations.restGetter, settings)
 	return operations
 }
 
