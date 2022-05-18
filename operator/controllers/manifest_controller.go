@@ -29,6 +29,7 @@ import (
 	"k8s.io/client-go/restmapper"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"strconv"
 )
@@ -69,6 +70,11 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, r.updateManifestStatus(ctx, &manifestObj, v1alpha1.ManifestStateDeleting, "deletion timestamp set")
 	}
 
+	// check finalizer
+	if !controllerutil.ContainsFinalizer(&manifestObj, manifestFinalizer) {
+		controllerutil.AddFinalizer(&manifestObj, manifestFinalizer)
+	}
+
 	// state handling
 	switch manifestObj.Status.State {
 	case "":
@@ -101,8 +107,10 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, logger *
 		for a := 1; a <= chartCount; a++ {
 			if <-results != nil {
 				endState = v1alpha1.ManifestStateError
+				close(results)
 				break
 			}
+			close(results)
 		}
 
 		latestManifestObj := &v1alpha1.Manifest{}
@@ -114,9 +122,11 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, logger *
 		if err := r.updateManifestStatus(ctx, latestManifestObj, endState, "manifest charts installed!"); err != nil {
 			logger.Error(err, "error updating status", "resource", namespacedName)
 		}
+		return
 	}()
 
-	r.Workers.StartWorkers(deployJob, results, r.HandleCharts)
+	ctx, cancel := context.WithCancel(context.TODO())
+	r.Workers.StartWorkers(ctx, deployJob, results, r.HandleCharts)
 
 	// send job to workers
 	for _, chart := range manifestObj.Spec.Charts {
@@ -124,6 +134,7 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, logger *
 	}
 
 	close(deployJob)
+	cancel()
 	return nil
 }
 

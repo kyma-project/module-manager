@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+const manifestFinalizer = "component.kyma-project.io/manifest"
+
 func getReadyConditionForComponent(kymaObj *v1alpha1.Manifest, componentName string) (*v1alpha1.ManifestCondition, bool) {
 	status := &kymaObj.Status
 	for _, existingCondition := range status.Conditions {

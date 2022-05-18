@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"context"
 	"fmt"
 	"github.com/go-logr/logr"
 	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
@@ -27,16 +28,19 @@ func NewManifestWorkers(logger logr.Logger) *ManifestWorkers {
 	}
 }
 
-func (mw *ManifestWorkers) StartWorkers(jobChan chan v1alpha1.ChartInfo, resultChan chan error, handlerFn func(info v1alpha1.ChartInfo, logger logr.Logger) error) {
+func (mw *ManifestWorkers) StartWorkers(ctx context.Context, jobChan chan v1alpha1.ChartInfo, resultChan chan error, handlerFn func(info v1alpha1.ChartInfo, logger logr.Logger) error) {
 	for worker := 1; worker <= mw.GetWorkerPoolSize(); worker++ {
-
-		go func(id int, deployJob <-chan v1alpha1.ChartInfo, results chan<- error) {
+		go func(ctx context.Context, id int, deployJob <-chan v1alpha1.ChartInfo, results chan<- error) {
 			mw.logger.Info(fmt.Sprintf("Starting manifest-operator worker with id:%d", id))
-			for chartInfo := range deployJob {
-				results <- handlerFn(chartInfo, mw.logger)
+			for {
+				select {
+				case chartInfo := <-deployJob:
+					results <- handlerFn(chartInfo, mw.logger)
+				case <-ctx.Done():
+					return
+				}
 			}
-		}(worker, jobChan, resultChan)
-
+		}(ctx, worker, jobChan, resultChan)
 	}
 }
 
