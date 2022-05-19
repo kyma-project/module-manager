@@ -37,10 +37,12 @@ import (
 // ManifestReconciler reconciles a Manifest object
 type ManifestReconciler struct {
 	client.Client
-	Scheme     *runtime.Scheme
-	RestConfig *rest.Config
-	RestMapper *restmapper.DeferredDiscoveryRESTMapper
-	Workers    *ManifestWorkers
+	Scheme       *runtime.Scheme
+	RestConfig   *rest.Config
+	RestMapper   *restmapper.DeferredDiscoveryRESTMapper
+	Workers      *ManifestWorkers
+	DeployChan   chan *v1alpha1.ChartInfo
+	ResponseChan chan error
 }
 
 //+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests,verbs=get;list;watch;create;update;patch;delete
@@ -73,6 +75,7 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// check finalizer
 	if !controllerutil.ContainsFinalizer(&manifestObj, manifestFinalizer) {
 		controllerutil.AddFinalizer(&manifestObj, manifestFinalizer)
+		return ctrl.Result{}, r.updateManifest(ctx, &manifestObj)
 	}
 
 	// state handling
@@ -99,18 +102,15 @@ func (r *ManifestReconciler) HandleInitialState(ctx context.Context, _ *logr.Log
 
 func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest) error {
 	chartCount := len(manifestObj.Spec.Charts)
-	deployJob := make(chan v1alpha1.ChartInfo, chartCount)
-	results := make(chan error, chartCount)
 
 	go func() {
 		endState := v1alpha1.ManifestStateReady
 		for a := 1; a <= chartCount; a++ {
-			if <-results != nil {
+			if <-r.ResponseChan != nil {
 				endState = v1alpha1.ManifestStateError
-				close(results)
 				break
 			}
-			close(results)
+			close(r.ResponseChan)
 		}
 
 		latestManifestObj := &v1alpha1.Manifest{}
@@ -125,16 +125,11 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, logger *
 		return
 	}()
 
-	ctx, cancel := context.WithCancel(context.TODO())
-	r.Workers.StartWorkers(ctx, deployJob, results, r.HandleCharts)
-
 	// send job to workers
 	for _, chart := range manifestObj.Spec.Charts {
-		deployJob <- chart
+		r.DeployChan <- &chart
 	}
 
-	close(deployJob)
-	cancel()
 	return nil
 }
 
@@ -175,7 +170,7 @@ func (r *ManifestReconciler) updateManifestStatus(ctx context.Context, manifestO
 	return r.Status().Update(ctx, manifestObj.SetObservedGeneration())
 }
 
-func (r *ManifestReconciler) HandleCharts(chart v1alpha1.ChartInfo, logger logr.Logger) error {
+func (r *ManifestReconciler) HandleCharts(chart *v1alpha1.ChartInfo, logger logr.Logger) error {
 	var (
 		args = map[string]string{
 			// check --set flags parameter from manifest
@@ -190,7 +185,7 @@ func (r *ManifestReconciler) HandleCharts(chart v1alpha1.ChartInfo, logger logr.
 	)
 
 	// evaluate create or delete chart
-	create, err := strconv.ParseBool("true")
+	create, err := strconv.ParseBool("false")
 	if err != nil {
 		return err
 	}
@@ -212,7 +207,18 @@ func (r *ManifestReconciler) HandleCharts(chart v1alpha1.ChartInfo, logger logr.
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ManifestReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	ctx, cancel := context.WithCancel(context.TODO())
+
+	r.DeployChan = make(chan *v1alpha1.ChartInfo, DefaultWorkersCount)
+	r.ResponseChan = make(chan error, DefaultWorkersCount)
+
+	r.Workers.StartWorkers(ctx, r.DeployChan, r.ResponseChan, r.HandleCharts)
 	r.RestConfig = mgr.GetConfig()
+
+	defer close(r.DeployChan)
+	defer close(r.ResponseChan)
+	defer cancel()
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Manifest{}).
 		Complete(r)
