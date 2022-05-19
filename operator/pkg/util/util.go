@@ -33,7 +33,7 @@ func GetNamespaceObjBytes(clientNs string) ([]byte, error) {
 	return yaml2.Marshal(ns)
 }
 
-func FilterExistingResources(resources kube.ResourceList) ([]*resource.Info, error) {
+func FilterExistingResources(resources kube.ResourceList) (kube.ResourceList, error) {
 	var requireUpdate kube.ResourceList
 
 	err := resources.Visit(func(info *resource.Info, err error) error {

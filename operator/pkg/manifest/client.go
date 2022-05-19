@@ -10,7 +10,10 @@ import (
 	"helm.sh/helm/v3/pkg/kube"
 	"helm.sh/helm/v3/pkg/strvals"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/cli-runtime/pkg/resource"
 	"reflect"
 )
 
@@ -114,14 +117,18 @@ func (h *HelmClient) HandleNamespace(actionClient *action.Install, operationType
 	// create namespace
 	if actionClient.CreateNamespace {
 		// validate namespace parameters
+		// proceed only if not default namespace since it already exists
 		if actionClient.Namespace == v1.NamespaceDefault {
 			return nil
 		}
-		buf, err := util.GetNamespaceObjBytes(actionClient.Namespace)
+		ns := actionClient.Namespace
+		fmt.Println("-------------------before" + actionClient.Namespace)
+		buf, err := util.GetNamespaceObjBytes(ns)
 		if err != nil {
 			return err
 		}
 		resourceList, err := h.kubeClient.Build(bytes.NewBuffer(buf), true)
+		fmt.Println("-------------------after" + actionClient.Namespace)
 		if err != nil {
 			return err
 		}
@@ -144,8 +151,16 @@ func (h *HelmClient) HandleNamespace(actionClient *action.Install, operationType
 	return nil
 }
 
-func (h *HelmClient) GetTargetResources(manifest string) (kube.ResourceList, error) {
-	return h.kubeClient.Build(bytes.NewBufferString(manifest), true)
+func (h *HelmClient) GetTargetResources(manifest string, targetNamespace string) (kube.ResourceList, error) {
+	resourceList, err := h.kubeClient.Build(bytes.NewBufferString(manifest), true)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = h.overrideNamespace(resourceList, targetNamespace); err != nil {
+		return nil, err
+	}
+	return resourceList, nil
 }
 
 func (h *HelmClient) PerformUpdate(existingResources, targetResources kube.ResourceList, force bool) (*kube.Result, error) {
@@ -154,4 +169,37 @@ func (h *HelmClient) PerformUpdate(existingResources, targetResources kube.Resou
 
 func (h *HelmClient) PerformCreate(targetResources kube.ResourceList) (*kube.Result, error) {
 	return h.kubeClient.Create(targetResources)
+}
+
+func (h *HelmClient) setNamespaceIfNotPresent(targetNamespace string, resourceInfo *resource.Info, helper *resource.Helper, runtimeObject runtime.Object) error {
+	// check if resource is scoped to namespaces
+	if helper.NamespaceScoped && resourceInfo.Namespace == "" {
+		// check existing namespace - continue only if not set
+		if targetNamespace == "" {
+			targetNamespace = v1.NamespaceDefault
+		}
+
+		// set namespace on request
+		resourceInfo.Namespace = targetNamespace
+		metaObject, err := meta.Accessor(runtimeObject)
+		if err != nil {
+			return err
+		}
+
+		// set namespace on runtime object
+		metaObject.SetNamespace(targetNamespace)
+
+	}
+	return nil
+}
+
+func (h *HelmClient) overrideNamespace(resourceList kube.ResourceList, targetNamespace string) error {
+	return resourceList.Visit(func(info *resource.Info, err error) error {
+		if err != nil {
+			return err
+		}
+
+		helper := resource.NewHelper(info.Client, info.Mapping)
+		return h.setNamespaceIfNotPresent(targetNamespace, info, helper, info.Object)
+	})
 }

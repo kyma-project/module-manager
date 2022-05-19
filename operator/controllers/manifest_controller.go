@@ -113,7 +113,6 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, logger *
 				endState = v1alpha1.ManifestStateError
 				break
 			}
-			close(r.ResponseChan)
 		}
 
 		latestManifestObj := &v1alpha1.Manifest{}
@@ -188,7 +187,7 @@ func (r *ManifestReconciler) HandleCharts(chart *v1alpha1.ChartInfo, logger logr
 	)
 
 	// evaluate create or delete chart
-	create, err := strconv.ParseBool("false")
+	create, err := strconv.ParseBool("true")
 	if err != nil {
 		return err
 	}
@@ -209,18 +208,12 @@ func (r *ManifestReconciler) HandleCharts(chart *v1alpha1.ChartInfo, logger logr
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *ManifestReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	ctx, cancel := context.WithCancel(context.TODO())
-
+func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
 	r.DeployChan = make(chan *v1alpha1.ChartInfo, DefaultWorkersCount)
 	r.ResponseChan = make(chan error, DefaultWorkersCount)
 
 	r.Workers.StartWorkers(ctx, r.DeployChan, r.ResponseChan, r.HandleCharts)
 	r.RestConfig = mgr.GetConfig()
-
-	defer close(r.DeployChan)
-	defer close(r.ResponseChan)
-	defer cancel()
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Manifest{}).

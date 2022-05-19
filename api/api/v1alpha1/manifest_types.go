@@ -38,7 +38,7 @@ type ChartInfo struct {
 
 // ManifestSpec defines the specification of Manifest
 type ManifestSpec struct {
-	Chart ChartInfo `json:"chart,omitempty"`
+	Charts []ChartInfo `json:"charts,omitempty"`
 }
 
 // +kubebuilder:validation:Enum=Processing;Deleting;Ready;Error

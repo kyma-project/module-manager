@@ -35,7 +35,9 @@ func (mw *ManifestWorkers) StartWorkers(ctx context.Context, jobChan chan *v1alp
 			for {
 				select {
 				case chartInfo := <-deployJob:
-					results <- handlerFn(chartInfo, mw.logger)
+					if chartInfo != nil {
+						results <- handlerFn(chartInfo, mw.logger)
+					}
 				case <-ctx.Done():
 					return
 				}
