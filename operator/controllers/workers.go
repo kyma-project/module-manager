@@ -28,15 +28,15 @@ func NewManifestWorkers(logger logr.Logger) *ManifestWorkers {
 	}
 }
 
-func (mw *ManifestWorkers) StartWorkers(ctx context.Context, jobChan chan *v1alpha1.ChartInfo, resultChan chan error, handlerFn func(info *v1alpha1.ChartInfo, logger logr.Logger) error) {
+func (mw *ManifestWorkers) StartWorkers(ctx context.Context, jobChan chan DeployInfo, resultChan chan error, handlerFn func(info DeployInfo, logger logr.Logger) error) {
 	for worker := 1; worker <= mw.GetWorkerPoolSize(); worker++ {
-		go func(ctx context.Context, id int, deployJob <-chan *v1alpha1.ChartInfo, results chan<- error) {
+		go func(ctx context.Context, id int, deployJob <-chan DeployInfo, results chan<- error) {
 			mw.logger.Info(fmt.Sprintf("Starting manifest-operator worker with id:%d", id))
 			for {
 				select {
-				case chartInfo := <-deployJob:
-					if chartInfo != nil {
-						results <- handlerFn(chartInfo, mw.logger)
+				case deployInfo := <-deployJob:
+					if deployInfo.ChartInfo != nil {
+						results <- handlerFn(deployInfo, mw.logger)
 					}
 				case <-ctx.Done():
 					return

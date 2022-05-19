@@ -122,13 +122,11 @@ func (h *HelmClient) HandleNamespace(actionClient *action.Install, operationType
 			return nil
 		}
 		ns := actionClient.Namespace
-		fmt.Println("-------------------before" + actionClient.Namespace)
 		buf, err := util.GetNamespaceObjBytes(ns)
 		if err != nil {
 			return err
 		}
 		resourceList, err := h.kubeClient.Build(bytes.NewBuffer(buf), true)
-		fmt.Println("-------------------after" + actionClient.Namespace)
 		if err != nil {
 			return err
 		}
@@ -148,6 +146,8 @@ func (h *HelmClient) HandleNamespace(actionClient *action.Install, operationType
 			}
 		}
 	}
+	// set kubeclient namespace for override
+	h.kubeClient.Namespace = actionClient.Namespace
 	return nil
 }
 
@@ -157,6 +157,7 @@ func (h *HelmClient) GetTargetResources(manifest string, targetNamespace string)
 		return nil, err
 	}
 
+	// verify namespace override if not done by kubeclient
 	if err = h.overrideNamespace(resourceList, targetNamespace); err != nil {
 		return nil, err
 	}

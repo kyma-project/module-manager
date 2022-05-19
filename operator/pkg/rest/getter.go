@@ -53,5 +53,7 @@ func (c *ManifestRESTClientGetter) ToRawKubeConfigLoader() clientcmd.ClientConfi
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	loadingRules.DefaultClientConfig = &clientcmd.DefaultClientConfig
 	overrides := &clientcmd.ConfigOverrides{ClusterDefaults: clientcmd.ClusterDefaults}
+	// to prevent namespace override to default!
+	overrides.Context.Namespace = ""
 	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, overrides)
 }
