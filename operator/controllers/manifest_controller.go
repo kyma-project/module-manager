@@ -112,26 +112,21 @@ func (r *ManifestReconciler) HandleInitialState(ctx context.Context, _ *logr.Log
 }
 
 func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest) error {
-	chartCount := len(manifestObj.Spec.Charts)
-
-	go r.ResponseHandlerFunc(ctx, chartCount, logger, client.ObjectKey{Namespace: manifestObj.Namespace, Name: manifestObj.Name})
-
-	// send job to workers
-	for _, chart := range manifestObj.Spec.Charts {
-		r.DeployChan <- DeployInfo{&chart, CreateMode}
-	}
-
-	return nil
+	return r.jobAllocator(ctx, logger, manifestObj, CreateMode)
 }
 
 func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest) error {
+	return r.jobAllocator(ctx, logger, manifestObj, DeletionMode)
+}
+
+func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest, mode Mode) error {
 	chartCount := len(manifestObj.Spec.Charts)
 
 	go r.ResponseHandlerFunc(ctx, chartCount, logger, client.ObjectKey{Namespace: manifestObj.Namespace, Name: manifestObj.Name})
 
 	// send job to workers
 	for _, chart := range manifestObj.Spec.Charts {
-		r.DeployChan <- DeployInfo{&chart, DeletionMode}
+		r.DeployChan <- DeployInfo{&chart, mode}
 	}
 
 	return nil
