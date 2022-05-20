@@ -52,7 +52,7 @@ func (o *Operations) Install(chartPath, releaseName, chartName, repoName, url st
 		return err
 	}
 
-	targetResources, err := o.helmClient.GetTargetResources(manifest)
+	targetResources, err := o.helmClient.GetTargetResources(manifest, actionClient.Namespace)
 	if err != nil {
 		return err
 	}
@@ -93,7 +93,7 @@ func (o *Operations) Uninstall(chartPath, chartName, releaseName string, args ma
 		return err
 	}
 
-	targetResources, err := o.helmClient.GetTargetResources(manifest)
+	targetResources, err := o.helmClient.GetTargetResources(manifest, actionClient.Namespace)
 	if err != nil {
 		return err
 	}
