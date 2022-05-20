@@ -210,8 +210,9 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, chartCount
 	}
 
 	latestManifestObj := &v1alpha1.Manifest{}
-	if err := r.Get(ctx, namespacedName, latestManifestObj); client.IgnoreNotFound(err) != nil {
-		logger.Error(err, "unexpected error", "resource", namespacedName)
+	if err := r.Get(ctx, namespacedName, latestManifestObj); err != nil {
+		logger.Error(err, "error while locating", "resource", namespacedName)
+		return
 	}
 
 	switch endState {
