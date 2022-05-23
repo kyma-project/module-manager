@@ -1,6 +1,6 @@
 # manifest-operator
 
-This repository offers an operator and relevant package to perform installation, update and uninstallation of helm charts.
+This repository offers an operator and relevant packages to perform installation, update and uninstallation of helm charts.
 The packages could be used independent of the operator.
 
 **Disclaimer**: This repository is still in development and implementation details can change quickly.
