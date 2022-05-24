@@ -248,7 +248,13 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 	r.ResponseChan = make(chan error, DefaultWorkersCount)
 
 	r.Workers.StartWorkers(ctx, r.DeployChan, r.ResponseChan, r.HandleCharts)
-	r.RestConfig = mgr.GetConfig()
+
+	// TODO: Uncomment below lines to get your custom kubeconfig
+	//var err error
+	//r.RestConfig, err = util.GetConfig("")
+	//if err != nil {
+	//	return err
+	//}
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Manifest{}).
