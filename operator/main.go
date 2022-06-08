@@ -78,7 +78,7 @@ func main() {
 	}
 
 	workersLogger := ctrl.Log.WithName("workers")
-	manifestWorkers := controllers.NewManifestWorkers(workersLogger)
+	manifestWorkers := controllers.NewManifestWorkers(&workersLogger)
 	context := ctrl.SetupSignalHandler()
 
 	if err = (&controllers.ManifestReconciler{
