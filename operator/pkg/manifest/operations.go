@@ -15,14 +15,14 @@ import (
 )
 
 type Operations struct {
-	logger      logr.Logger
+	logger      *logr.Logger
 	kubeClient  *kube.Client
 	helmClient  *HelmClient
 	repoHandler *RepoHandler
 	restGetter  *manifestRest.ManifestRESTClientGetter
 }
 
-func NewOperations(logger logr.Logger, restConfig *rest.Config, settings *cli.EnvSettings) *Operations {
+func NewOperations(logger *logr.Logger, restConfig *rest.Config, settings *cli.EnvSettings) *Operations {
 	operations := &Operations{
 		logger:      logger,
 		restGetter:  manifestRest.NewRESTClientGetter(restConfig),

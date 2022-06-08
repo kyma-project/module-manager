@@ -29,6 +29,7 @@ import (
 	"k8s.io/client-go/restmapper"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -40,9 +41,12 @@ const (
 	DeletionMode
 )
 
+const DefaultWorkersCount = 4
+
 type DeployInfo struct {
 	*v1alpha1.ChartInfo
 	Mode
+	client.ObjectKey
 }
 
 // ManifestReconciler reconciles a Manifest object
@@ -52,8 +56,16 @@ type ManifestReconciler struct {
 	RestConfig   *rest.Config
 	RestMapper   *restmapper.DeferredDiscoveryRESTMapper
 	Workers      *ManifestWorkers
-	DeployChan   chan DeployInfo
-	ResponseChan chan error
+	ResponseChan chan *RequestError
+}
+
+type RequestError struct {
+	ResNamespacedName client.ObjectKey
+	Err               error
+}
+
+func (r *RequestError) Error() string {
+	return r.Err.Error()
 }
 
 //+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests,verbs=get;list;watch;create;update;patch;delete
@@ -120,13 +132,18 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, logger *lo
 }
 
 func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest, mode Mode) error {
+	namespacedName := client.ObjectKeyFromObject(manifestObj)
+	responseChan := make(chan *RequestError)
 	chartCount := len(manifestObj.Spec.Charts)
 
-	go r.ResponseHandlerFunc(ctx, chartCount, logger, client.ObjectKey{Namespace: manifestObj.Namespace, Name: manifestObj.Name})
+	doneChan := make(chan struct{})
+	defer close(doneChan)
+
+	go r.ResponseHandlerFunc(ctx, logger, chartCount, responseChan, doneChan, namespacedName)
 
 	// send job to workers
 	for _, chart := range manifestObj.Spec.Charts {
-		r.DeployChan <- DeployInfo{&chart, mode}
+		responseChan <- r.HandleCharts(DeployInfo{&chart, mode, namespacedName}, logger)
 	}
 
 	return nil
@@ -165,7 +182,7 @@ func (r *ManifestReconciler) updateManifestStatus(ctx context.Context, manifestO
 	return r.Status().Update(ctx, manifestObj.SetObservedGeneration())
 }
 
-func (r *ManifestReconciler) HandleCharts(deployInfo DeployInfo, logger logr.Logger) error {
+func (r *ManifestReconciler) HandleCharts(deployInfo DeployInfo, logger *logr.Logger) *RequestError {
 	var (
 		args = map[string]string{
 			// check --set flags parameter from manifest
@@ -184,28 +201,35 @@ func (r *ManifestReconciler) HandleCharts(deployInfo DeployInfo, logger logr.Log
 
 	// TODO: implement better settings handling
 	manifestOperations := manifest.NewOperations(logger, r.RestConfig, cli.New())
+	var err error
+
 	if create {
-		if err := manifestOperations.Install("", releaseName, fmt.Sprintf("%s/%s", repoName, chartName), repoName, url, args); err != nil {
-			return err
-		}
+		err = manifestOperations.Install("", releaseName, fmt.Sprintf("%s/%s", repoName, chartName), repoName, url, args)
 	} else {
-		if err := manifestOperations.Uninstall("", fmt.Sprintf("%s/%s", repoName, chartName), releaseName, args); err != nil {
-			return err
-		}
+		err = manifestOperations.Uninstall("", fmt.Sprintf("%s/%s", repoName, chartName), releaseName, args)
 	}
 
-	return nil
+	return &RequestError{
+		ResNamespacedName: deployInfo.ObjectKey,
+		Err:               err,
+	}
 }
 
-func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, chartCount int, logger *logr.Logger, namespacedName client.ObjectKey) {
-	endState := v1alpha1.ManifestStateReady
-	var err error
+func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *logr.Logger, chartCount int, responseChan chan *RequestError, doneChan chan struct{}, namespacedName client.ObjectKey) {
+	errorState := false
 	for a := 1; a <= chartCount; a++ {
-		err = <-r.ResponseChan
-		if err != nil {
-			logger.Error(err, "chart installation failure!!!")
-			endState = v1alpha1.ManifestStateError
-			break
+		select {
+		case <-ctx.Done():
+			logger.Error(ctx.Err(), fmt.Sprintf("context closed, error occured while handling response for %s", namespacedName.String()))
+			return
+		case <-doneChan:
+			return
+		case response := <-responseChan:
+			if response.Err != nil {
+				logger.Error(response.Err, fmt.Sprintf("chart installation failure for %s!!!", response.ResNamespacedName.String()))
+				errorState = true
+				break
+			}
 		}
 	}
 
@@ -215,24 +239,25 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, chartCount
 		return
 	}
 
-	switch endState {
-	case v1alpha1.ManifestStateReady:
-		// handle deletion if no previous error occurred
-		if !latestManifestObj.DeletionTimestamp.IsZero() {
-
-			// remove finalizer
-			controllerutil.RemoveFinalizer(latestManifestObj, manifestFinalizer)
-			if err = r.updateManifest(ctx, latestManifestObj); err != nil {
-				// finalizer removal failure
-				logger.Error(err, "unexpected error while deleting", "resource", namespacedName)
-				endState = v1alpha1.ManifestStateError
-			} else {
-				// finalizer successfully removed
-				return
-			}
-
+	// handle deletion if no previous error occurred
+	if !errorState && !latestManifestObj.DeletionTimestamp.IsZero() {
+		// remove finalizer
+		controllerutil.RemoveFinalizer(latestManifestObj, manifestFinalizer)
+		if err := r.updateManifest(ctx, latestManifestObj); err != nil {
+			// finalizer removal failure
+			logger.Error(err, "unexpected error while deleting", "resource", namespacedName)
+			errorState = true
+		} else {
+			// finalizer successfully removed
+			return
 		}
-	default:
+	}
+
+	var endState v1alpha1.ManifestState
+	if errorState {
+		endState = v1alpha1.ManifestStateError
+	} else {
+		endState = v1alpha1.ManifestStateReady
 	}
 
 	// update status for non-deletion scenarios
@@ -244,10 +269,8 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, chartCount
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
-	r.DeployChan = make(chan DeployInfo, DefaultWorkersCount)
-	r.ResponseChan = make(chan error, DefaultWorkersCount)
-
-	r.Workers.StartWorkers(ctx, r.DeployChan, r.ResponseChan, r.HandleCharts)
+	// default config from kubebuilder
+	r.RestConfig = mgr.GetConfig()
 
 	// TODO: Uncomment below lines to get your custom kubeconfig
 	//var err error
@@ -258,5 +281,8 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Manifest{}).
+		WithOptions(controller.Options{
+			MaxConcurrentReconciles: DefaultWorkersCount,
+		}).
 		Complete(r)
 }

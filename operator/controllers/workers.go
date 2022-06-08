@@ -7,8 +7,6 @@ import (
 	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
 )
 
-const DefaultWorkersCount = 4
-
 type Workers interface {
 	GetWorkerPoolSize() int
 	SetWorkerPoolSize(newSize int)
