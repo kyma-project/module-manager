@@ -43,20 +43,23 @@ const (
 
 const DefaultWorkersCount = 4
 
+type RequestErrChan chan *RequestError
+
 type DeployInfo struct {
 	*v1alpha1.ChartInfo
 	Mode
 	client.ObjectKey
+	RequestErrChan
 }
 
 // ManifestReconciler reconciles a Manifest object
 type ManifestReconciler struct {
 	client.Client
-	Scheme       *runtime.Scheme
-	RestConfig   *rest.Config
-	RestMapper   *restmapper.DeferredDiscoveryRESTMapper
-	Workers      *ManifestWorkers
-	ResponseChan chan *RequestError
+	Scheme     *runtime.Scheme
+	RestConfig *rest.Config
+	RestMapper *restmapper.DeferredDiscoveryRESTMapper
+	DeployChan chan DeployInfo
+	Workers    *ManifestWorkers
 }
 
 type RequestError struct {
@@ -133,7 +136,7 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, logger *lo
 
 func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest, mode Mode) error {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
-	responseChan := make(chan *RequestError)
+	responseChan := make(RequestErrChan)
 	chartCount := len(manifestObj.Spec.Charts)
 
 	doneChan := make(chan struct{})
@@ -143,7 +146,7 @@ func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logg
 
 	// send job to workers
 	for _, chart := range manifestObj.Spec.Charts {
-		responseChan <- r.HandleCharts(DeployInfo{&chart, mode, namespacedName}, logger)
+		r.DeployChan <- DeployInfo{&chart, mode, namespacedName, responseChan}
 	}
 
 	return nil
@@ -215,7 +218,7 @@ func (r *ManifestReconciler) HandleCharts(deployInfo DeployInfo, logger *logr.Lo
 	}
 }
 
-func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *logr.Logger, chartCount int, responseChan chan *RequestError, doneChan chan struct{}, namespacedName client.ObjectKey) {
+func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *logr.Logger, chartCount int, responseChan RequestErrChan, doneChan chan struct{}, namespacedName client.ObjectKey) {
 	errorState := false
 	for a := 1; a <= chartCount; a++ {
 		select {
@@ -269,6 +272,9 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+	r.DeployChan = make(chan DeployInfo, DefaultWorkersCount)
+	r.Workers.StartWorkers(ctx, r.DeployChan, r.HandleCharts)
+
 	// default config from kubebuilder
 	r.RestConfig = mgr.GetConfig()
 

@@ -76,12 +76,15 @@ func main() {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
-	
+
+	workersLogger := ctrl.Log.WithName("workers")
+	manifestWorkers := controllers.NewManifestWorkers(workersLogger)
 	context := ctrl.SetupSignalHandler()
 
 	if err = (&controllers.ManifestReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:  mgr.GetClient(),
+		Scheme:  mgr.GetScheme(),
+		Workers: manifestWorkers,
 	}).SetupWithManager(context, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Manifest")
 		os.Exit(1)

@@ -15,32 +15,32 @@ type Workers interface {
 
 type ManifestWorkers struct {
 	Workers
-	logger logr.Logger
+	logger *logr.Logger
 	size   int
 }
 
-func NewManifestWorkers(logger logr.Logger) *ManifestWorkers {
+func NewManifestWorkers(logger *logr.Logger) *ManifestWorkers {
 	return &ManifestWorkers{
 		logger: logger,
 		size:   DefaultWorkersCount,
 	}
 }
 
-func (mw *ManifestWorkers) StartWorkers(ctx context.Context, jobChan chan DeployInfo, resultChan chan error, handlerFn func(info DeployInfo, logger logr.Logger) error) {
+func (mw *ManifestWorkers) StartWorkers(ctx context.Context, jobChan chan DeployInfo, handlerFn func(info DeployInfo, logger *logr.Logger) *RequestError) {
 	for worker := 1; worker <= mw.GetWorkerPoolSize(); worker++ {
-		go func(ctx context.Context, id int, deployJob <-chan DeployInfo, results chan<- error) {
+		go func(ctx context.Context, id int, deployJob <-chan DeployInfo) {
 			mw.logger.Info(fmt.Sprintf("Starting manifest-operator worker with id:%d", id))
 			for {
 				select {
 				case deployInfo := <-deployJob:
 					if deployInfo.ChartInfo != nil {
-						results <- handlerFn(deployInfo, mw.logger)
+						deployInfo.RequestErrChan <- handlerFn(deployInfo, mw.logger)
 					}
 				case <-ctx.Done():
 					return
 				}
 			}
-		}(ctx, worker, jobChan, resultChan)
+		}(ctx, worker, jobChan)
 	}
 }
 
