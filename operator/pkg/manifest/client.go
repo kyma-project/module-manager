@@ -74,7 +74,8 @@ func (h *HelmClient) NewUninstallActionClient(namespace string) (*action.Uninsta
 func (h *HelmClient) SetDefaultClientConfig(actionClient *action.Install, releaseName string) {
 	actionClient.DryRun = true
 	actionClient.Atomic = true
-	actionClient.Wait = true
+	actionClient.Wait = false
+	actionClient.WaitForJobs = false
 	actionClient.DryRun = true
 	actionClient.Replace = true     // Skip the name check
 	actionClient.IncludeCRDs = true //include CRDs in the templated output
