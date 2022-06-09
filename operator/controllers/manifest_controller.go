@@ -50,7 +50,7 @@ const (
 type RequestErrChan chan *RequestError
 
 type DeployInfo struct {
-	*v1alpha1.ChartInfo
+	v1alpha1.ChartInfo
 	Mode
 	client.ObjectKey
 	RequestErrChan
@@ -143,15 +143,12 @@ func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logg
 	responseChan := make(RequestErrChan)
 	chartCount := len(manifestObj.Spec.Charts)
 
-	doneChan := make(chan struct{})
-	defer close(doneChan)
-
-	go r.ResponseHandlerFunc(ctx, logger, chartCount, responseChan, doneChan, namespacedName)
+	go r.ResponseHandlerFunc(ctx, logger, chartCount, responseChan, namespacedName)
 
 	// send job to workers
 	for _, chart := range manifestObj.Spec.Charts {
 		r.DeployChan <- DeployInfo{
-			ChartInfo:      &chart,
+			ChartInfo:      chart,
 			Mode:           mode,
 			ObjectKey:      namespacedName,
 			RequestErrChan: responseChan,
@@ -227,14 +224,12 @@ func (r *ManifestReconciler) HandleCharts(deployInfo DeployInfo, logger *logr.Lo
 	}
 }
 
-func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *logr.Logger, chartCount int, responseChan RequestErrChan, doneChan chan struct{}, namespacedName client.ObjectKey) {
+func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *logr.Logger, chartCount int, responseChan RequestErrChan, namespacedName client.ObjectKey) {
 	errorState := false
 	for a := 1; a <= chartCount; a++ {
 		select {
 		case <-ctx.Done():
 			logger.Error(ctx.Err(), fmt.Sprintf("context closed, error occured while handling response for %s", namespacedName.String()))
-			return
-		case <-doneChan:
 			return
 		case response := <-responseChan:
 			if response.Err != nil {
@@ -281,7 +276,7 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
-	r.DeployChan = make(chan DeployInfo, DefaultWorkersCount)
+	r.DeployChan = make(chan DeployInfo)
 	r.Workers.StartWorkers(ctx, r.DeployChan, r.HandleCharts)
 
 	// default config from kubebuilder

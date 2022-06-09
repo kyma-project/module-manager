@@ -4,13 +4,12 @@ import (
 	"context"
 	"fmt"
 	"github.com/go-logr/logr"
-	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
 )
 
 type Workers interface {
 	GetWorkerPoolSize() int
 	SetWorkerPoolSize(newSize int)
-	StartWorkers(jobChan chan v1alpha1.ChartInfo, resultChan chan error, handlerFn func(info v1alpha1.ChartInfo, logger logr.Logger) error)
+	StartWorkers(ctx context.Context, jobChan <-chan DeployInfo, handlerFn func(info DeployInfo, logger *logr.Logger) *RequestError)
 }
 
 type ManifestWorkers struct {
@@ -26,16 +25,15 @@ func NewManifestWorkers(logger *logr.Logger) *ManifestWorkers {
 	}
 }
 
-func (mw *ManifestWorkers) StartWorkers(ctx context.Context, jobChan chan DeployInfo, handlerFn func(info DeployInfo, logger *logr.Logger) *RequestError) {
+func (mw *ManifestWorkers) StartWorkers(ctx context.Context, jobChan <-chan DeployInfo, handlerFn func(info DeployInfo, logger *logr.Logger) *RequestError) {
 	for worker := 1; worker <= mw.GetWorkerPoolSize(); worker++ {
 		go func(ctx context.Context, id int, deployJob <-chan DeployInfo) {
-			mw.logger.Info(fmt.Sprintf("Starting manifest-operator worker with id:%d", id))
+			mw.logger.Info(fmt.Sprintf("Starting manifest-operator worker with id %d", id))
 			for {
 				select {
 				case deployInfo := <-deployJob:
-					if deployInfo.ChartInfo != nil {
-						deployInfo.RequestErrChan <- handlerFn(deployInfo, mw.logger)
-					}
+					mw.logger.Info(fmt.Sprintf("Processing chart with name %s by worker with id %d", deployInfo.ChartName, id))
+					deployInfo.RequestErrChan <- handlerFn(deployInfo, mw.logger)
 				case <-ctx.Done():
 					return
 				}

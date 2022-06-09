@@ -155,6 +155,7 @@ func (o *Operations) getManifestForChartPath(chartPath, chartName string, action
 	if err != nil {
 		return "", err
 	}
-	fmt.Println(release.Manifest)
+	// TODO: Uncomment below to print manifest
+	//fmt.Println(release.Manifest)
 	return release.Manifest, nil
 }
