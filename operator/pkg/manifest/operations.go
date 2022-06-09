@@ -12,6 +12,7 @@ import (
 	"helm.sh/helm/v3/pkg/strvals"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
+	"time"
 )
 
 type Operations struct {
@@ -22,14 +23,14 @@ type Operations struct {
 	restGetter  *manifestRest.ManifestRESTClientGetter
 }
 
-func NewOperations(logger *logr.Logger, restConfig *rest.Config, settings *cli.EnvSettings) *Operations {
+func NewOperations(logger *logr.Logger, restConfig *rest.Config, settings *cli.EnvSettings, waitTimeout time.Duration) *Operations {
 	operations := &Operations{
 		logger:      logger,
 		restGetter:  manifestRest.NewRESTClientGetter(restConfig),
 		repoHandler: NewRepoHandler(logger, settings),
 	}
 	operations.kubeClient = kube.New(operations.restGetter)
-	operations.helmClient = NewClient(operations.kubeClient, operations.restGetter, settings)
+	operations.helmClient = NewClient(operations.kubeClient, operations.restGetter, settings, waitTimeout)
 	return operations
 }
 
@@ -70,6 +71,10 @@ func (o *Operations) Install(chartPath, releaseName, chartName, repoName, url st
 		if _, err = o.helmClient.PerformUpdate(existingResources, targetResources, true); err != nil {
 			return err
 		}
+	}
+
+	if err = o.helmClient.CheckWaitForResources(targetResources, actionClient, OperationCreate); err != nil {
+		return err
 	}
 
 	o.logger.Info("Install Complete!! Happy Manifesting!", "release", releaseName, "chart", chartName)
@@ -114,6 +119,10 @@ func (o *Operations) Uninstall(chartPath, chartName, releaseName string, args ma
 		}
 
 		o.logger.Info("component deletion executed", "resource count", len(response.Deleted))
+	}
+
+	if err = o.helmClient.CheckWaitForResources(targetResources, actionClient, OperationDelete); err != nil {
+		return err
 	}
 
 	// update manifest chart in a separate go-routine

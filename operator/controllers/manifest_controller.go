@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"time"
 )
 
 type Mode int
@@ -41,7 +42,10 @@ const (
 	DeletionMode
 )
 
-const DefaultWorkersCount = 4
+const (
+	DefaultWorkersCount               = 4
+	WaitTimeout         time.Duration = 5 * time.Minute
+)
 
 type RequestErrChan chan *RequestError
 
@@ -146,7 +150,12 @@ func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logg
 
 	// send job to workers
 	for _, chart := range manifestObj.Spec.Charts {
-		r.DeployChan <- DeployInfo{&chart, mode, namespacedName, responseChan}
+		r.DeployChan <- DeployInfo{
+			ChartInfo:      &chart,
+			Mode:           mode,
+			ObjectKey:      namespacedName,
+			RequestErrChan: responseChan,
+		}
 	}
 
 	return nil
@@ -203,7 +212,7 @@ func (r *ManifestReconciler) HandleCharts(deployInfo DeployInfo, logger *logr.Lo
 	create := deployInfo.Mode == CreateMode
 
 	// TODO: implement better settings handling
-	manifestOperations := manifest.NewOperations(logger, r.RestConfig, cli.New())
+	manifestOperations := manifest.NewOperations(logger, r.RestConfig, cli.New(), WaitTimeout)
 	var err error
 
 	if create {

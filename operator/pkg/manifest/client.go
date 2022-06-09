@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/resource"
 	"reflect"
+	"time"
 )
 
 type OperationType string
@@ -27,16 +28,18 @@ const (
 )
 
 type HelmClient struct {
-	kubeClient *kube.Client
-	settings   *cli.EnvSettings
-	restGetter *manifestRest.ManifestRESTClientGetter
+	kubeClient  *kube.Client
+	settings    *cli.EnvSettings
+	restGetter  *manifestRest.ManifestRESTClientGetter
+	waitTimeout time.Duration
 }
 
-func NewClient(kubeClient *kube.Client, restGetter *manifestRest.ManifestRESTClientGetter, settings *cli.EnvSettings) *HelmClient {
+func NewClient(kubeClient *kube.Client, restGetter *manifestRest.ManifestRESTClientGetter, settings *cli.EnvSettings, waitTimeout time.Duration) *HelmClient {
 	return &HelmClient{
-		kubeClient: kubeClient,
-		settings:   settings,
-		restGetter: restGetter,
+		kubeClient:  kubeClient,
+		settings:    settings,
+		restGetter:  restGetter,
+		waitTimeout: waitTimeout,
 	}
 }
 
@@ -170,6 +173,21 @@ func (h *HelmClient) PerformUpdate(existingResources, targetResources kube.Resou
 
 func (h *HelmClient) PerformCreate(targetResources kube.ResourceList) (*kube.Result, error) {
 	return h.kubeClient.Create(targetResources)
+}
+
+func (h *HelmClient) CheckWaitForResources(targetResources kube.ResourceList, actionClient *action.Install, operation HelmOperation) error {
+	if actionClient.Wait {
+		if operation == OperationDelete {
+			return h.kubeClient.WaitForDelete(targetResources, h.waitTimeout)
+		} else {
+			if actionClient.WaitForJobs {
+				return h.kubeClient.WaitWithJobs(targetResources, h.waitTimeout)
+			} else {
+				return h.kubeClient.Wait(targetResources, h.waitTimeout)
+			}
+		}
+	}
+	return nil
 }
 
 func (h *HelmClient) setNamespaceIfNotPresent(targetNamespace string, resourceInfo *resource.Info, helper *resource.Helper, runtimeObject runtime.Object) error {
