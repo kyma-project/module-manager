@@ -80,7 +80,7 @@ func (r *RequestError) Error() string {
 }
 
 //+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests/custom,verbs=get;update;patch
+//+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -102,7 +102,7 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	// check if deletionTimestamp is set, retry until it gets fully deleted
 	if !manifestObj.DeletionTimestamp.IsZero() && manifestObj.Status.State != v1alpha1.ManifestStateDeleting {
-		// if the custom is not yet set to deleting, also update the custom
+		// if the status is not yet set to deleting, also update the status
 		return ctrl.Result{}, r.updateManifestStatus(ctx, &manifestObj, v1alpha1.ManifestStateDeleting, "deletion timestamp set")
 	}
 
@@ -290,9 +290,9 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 		endState = v1alpha1.ManifestStateReady
 	}
 
-	// update custom for non-deletion scenarios
+	// update status for non-deletion scenarios
 	if err := r.updateManifestStatus(ctx, latestManifestObj, endState, "manifest charts installed!"); err != nil {
-		logger.Error(err, "error updating custom", "resource", namespacedName)
+		logger.Error(err, "error updating status", "resource", namespacedName)
 	}
 	return
 }
@@ -319,11 +319,11 @@ func (r *ManifestReconciler) AreCustomResourcesReady(ctx context.Context, kymaOw
 	}
 
 	// check custom resource for custom
-	customStatus := &custom.CustomStatus{
+	customStatus := &custom.Status{
 		Reader: customClient,
 	}
 
-	ready, err := customStatus.WaitForCustomResources(ctx, []custom.CustomWaitResource{
+	ready, err := customStatus.WaitForCustomResources(ctx, []custom.WaitResource{
 		{
 			GroupVersionKind: schema.GroupVersionKind{
 				Group:   "operator.kyma-project.io",

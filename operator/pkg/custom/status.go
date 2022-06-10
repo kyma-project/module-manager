@@ -8,17 +8,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type CustomStatus struct {
+type Status struct {
 	client.Reader
 }
 
-type CustomWaitResource struct {
+type WaitResource struct {
 	schema.GroupVersionKind
 	client.ObjectKey
 	ResStatus string
 }
 
-func (c *CustomStatus) WaitForCustomResources(ctx context.Context, customWaitResource []CustomWaitResource) (bool, error) {
+func (c *Status) WaitForCustomResources(ctx context.Context, customWaitResource []WaitResource) (bool, error) {
 	for _, res := range customWaitResource {
 		obj := unstructured.Unstructured{}
 		obj.SetGroupVersionKind(res.GroupVersionKind)
@@ -27,9 +27,9 @@ func (c *CustomStatus) WaitForCustomResources(ctx context.Context, customWaitRes
 			return false, err
 		}
 
-		status, ok := obj.Object["custom"]
+		status, ok := obj.Object["status"]
 		if !ok {
-			return false, fmt.Errorf("custom object not found for %s", res.ObjectKey.String())
+			return false, fmt.Errorf("status object not found for %s", res.ObjectKey.String())
 		}
 
 		state, ok := status.(map[string]interface{})["state"]

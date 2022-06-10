@@ -26,7 +26,7 @@ rules:
 - apiGroups:
   - component.kyma-project.io
   resources:
-  - manifests/custom
+  - manifests/status
   verbs:
   - get
   - patch
