@@ -1,4 +1,4 @@
-package status
+package custom
 
 import (
 	"context"
@@ -27,9 +27,9 @@ func (c *CustomStatus) WaitForCustomResources(ctx context.Context, customWaitRes
 			return false, err
 		}
 
-		status, ok := obj.Object["status"]
+		status, ok := obj.Object["custom"]
 		if !ok {
-			return false, fmt.Errorf("status object not found for %s", res.ObjectKey.String())
+			return false, fmt.Errorf("custom object not found for %s", res.ObjectKey.String())
 		}
 
 		state, ok := status.(map[string]interface{})["state"]

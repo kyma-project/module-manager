@@ -21,10 +21,9 @@ import (
 	"fmt"
 	"github.com/go-logr/logr"
 	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
-	customClient "github.com/kyma-project/manifest-operator/operator/pkg/client"
+	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
 	"github.com/kyma-project/manifest-operator/operator/pkg/labels"
 	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
-	"github.com/kyma-project/manifest-operator/operator/pkg/status"
 	"helm.sh/helm/v3/pkg/cli"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -81,7 +80,7 @@ func (r *RequestError) Error() string {
 }
 
 //+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests/custom,verbs=get;update;patch
 //+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -103,7 +102,7 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	// check if deletionTimestamp is set, retry until it gets fully deleted
 	if !manifestObj.DeletionTimestamp.IsZero() && manifestObj.Status.State != v1alpha1.ManifestStateDeleting {
-		// if the status is not yet set to deleting, also update the status
+		// if the custom is not yet set to deleting, also update the custom
 		return ctrl.Result{}, r.updateManifestStatus(ctx, &manifestObj, v1alpha1.ManifestStateDeleting, "deletion timestamp set")
 	}
 
@@ -153,7 +152,7 @@ func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logg
 	}
 
 	// evaluate rest config
-	clusterClient := &customClient.ClusterClient{DefaultClient: r.Client}
+	clusterClient := &custom.ClusterClient{DefaultClient: r.Client}
 	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, manifestObj.Namespace)
 	if err != nil {
 		return err
@@ -291,9 +290,9 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 		endState = v1alpha1.ManifestStateReady
 	}
 
-	// update status for non-deletion scenarios
+	// update custom for non-deletion scenarios
 	if err := r.updateManifestStatus(ctx, latestManifestObj, endState, "manifest charts installed!"); err != nil {
-		logger.Error(err, "error updating status", "resource", namespacedName)
+		logger.Error(err, "error updating custom", "resource", namespacedName)
 	}
 	return
 }
@@ -306,7 +305,7 @@ func (r *ManifestReconciler) AreCustomResourcesReady(ctx context.Context, kymaOw
 	}
 
 	// evaluate rest config
-	clusterClient := &customClient.ClusterClient{DefaultClient: r.Client}
+	clusterClient := &custom.ClusterClient{DefaultClient: r.Client}
 	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, namespacedName.Namespace)
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("error while evaluating rest config for manifest resource %s", namespacedName))
@@ -319,12 +318,12 @@ func (r *ManifestReconciler) AreCustomResourcesReady(ctx context.Context, kymaOw
 		return false, true
 	}
 
-	// check custom resource for status
-	customStatus := &status.CustomStatus{
+	// check custom resource for custom
+	customStatus := &custom.CustomStatus{
 		Reader: customClient,
 	}
 
-	ready, err := customStatus.WaitForCustomResources(ctx, []status.CustomWaitResource{
+	ready, err := customStatus.WaitForCustomResources(ctx, []custom.CustomWaitResource{
 		{
 			GroupVersionKind: schema.GroupVersionKind{
 				Group:   "operator.kyma-project.io",
@@ -339,7 +338,7 @@ func (r *ManifestReconciler) AreCustomResourcesReady(ctx context.Context, kymaOw
 		},
 	})
 	if err != nil {
-		logger.Error(err, fmt.Sprintf("error while tracking status of custom resources for manifest resource %s", namespacedName))
+		logger.Error(err, fmt.Sprintf("error while tracking custom of custom resources for manifest resource %s", namespacedName))
 		return false, true
 	}
 
