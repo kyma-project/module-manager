@@ -21,10 +21,12 @@ import (
 	"fmt"
 	"github.com/go-logr/logr"
 	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
+	"github.com/kyma-project/manifest-operator/operator/pkg/labels"
 	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
 	"github.com/kyma-project/manifest-operator/operator/pkg/status"
 	"github.com/kyma-project/manifest-operator/operator/pkg/util"
 	"helm.sh/helm/v3/pkg/cli"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -57,6 +59,7 @@ type DeployInfo struct {
 	Mode
 	client.ObjectKey
 	RequestErrChan
+	RestConfig *rest.Config
 }
 
 // ManifestReconciler reconciles a Manifest object
@@ -145,6 +148,22 @@ func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logg
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 	responseChan := make(RequestErrChan)
 	chartCount := len(manifestObj.Spec.Charts)
+	kymaOwnerLabel, ok := manifestObj.Labels[labels.ComponentOwner]
+	if !ok {
+		return fmt.Errorf("label %s not set for manifest resource %s", labels.ComponentOwner, namespacedName)
+	}
+
+	// evaluate rest config
+	kubeConfigSecret := v1.Secret{}
+	if err := r.Get(context.TODO(), client.ObjectKey{Name: kymaOwnerLabel, Namespace: manifestObj.Namespace}, &kubeConfigSecret); err != nil {
+		return err
+	}
+
+	kubeconfigString := string(kubeConfigSecret.Data["config"])
+	restConfig, err := util.GetConfig(kubeconfigString, "")
+	if err != nil {
+		return err
+	}
 
 	go r.ResponseHandlerFunc(ctx, logger, chartCount, responseChan, namespacedName)
 
@@ -155,6 +174,7 @@ func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logg
 			Mode:           mode,
 			ObjectKey:      namespacedName,
 			RequestErrChan: responseChan,
+			RestConfig:     restConfig,
 		}
 	}
 
@@ -212,7 +232,7 @@ func (r *ManifestReconciler) HandleCharts(deployInfo DeployInfo, logger *logr.Lo
 	create := deployInfo.Mode == CreateMode
 
 	// TODO: implement better settings handling
-	manifestOperations := manifest.NewOperations(logger, r.RestConfig, cli.New(), WaitTimeout)
+	manifestOperations := manifest.NewOperations(logger, deployInfo.RestConfig, cli.New(), WaitTimeout)
 	var err error
 
 	if create {

@@ -88,7 +88,7 @@ func GetConfig(kubeConfig string, explicitPath string) (*rest.Config, error) {
 		return clientcmd.BuildConfigFromFlags("masterURL", os.Getenv("KUBECONFIG"))
 	}
 
-	// working directory
+	// default directory + working directory + explicit path -> merged
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	loadingRules.ExplicitPath = explicitPath
 	pwd, err := os.Getwd()

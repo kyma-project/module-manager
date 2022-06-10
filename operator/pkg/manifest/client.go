@@ -73,7 +73,7 @@ func (h *HelmClient) NewUninstallActionClient(namespace string) (*action.Uninsta
 
 func (h *HelmClient) SetDefaultClientConfig(actionClient *action.Install, releaseName string) {
 	actionClient.DryRun = true
-	actionClient.Atomic = true
+	actionClient.Atomic = false
 	actionClient.Wait = false
 	actionClient.WaitForJobs = false
 	actionClient.DryRun = true
