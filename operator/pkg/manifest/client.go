@@ -208,7 +208,6 @@ func (h *HelmClient) setNamespaceIfNotPresent(targetNamespace string, resourceIn
 
 		// set namespace on runtime object
 		metaObject.SetNamespace(targetNamespace)
-
 	}
 	return nil
 }

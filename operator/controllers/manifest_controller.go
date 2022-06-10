@@ -22,8 +22,11 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
 	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
+	"github.com/kyma-project/manifest-operator/operator/pkg/status"
+	"github.com/kyma-project/manifest-operator/operator/pkg/util"
 	"helm.sh/helm/v3/pkg/cli"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
@@ -264,6 +267,24 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 	if errorState {
 		endState = v1alpha1.ManifestStateError
 	} else {
+		// check custom resource for status
+		customStatus := &status.CustomStatus{
+			r.Client,
+		}
+		customStatus.WaitForCustomResources(ctx, []status.CustomWaitResource{
+			{
+				GroupVersionKind: schema.GroupVersionKind{
+					Group:   "",
+					Version: "",
+					Kind:    "",
+				},
+				ObjectKey: client.ObjectKey{
+					Name:      "",
+					Namespace: "",
+				},
+				ResStatus: status.ResStatus("ready"),
+			},
+		})
 		endState = v1alpha1.ManifestStateReady
 	}
 
@@ -280,14 +301,14 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 	r.Workers.StartWorkers(ctx, r.DeployChan, r.HandleCharts)
 
 	// default config from kubebuilder
-	r.RestConfig = mgr.GetConfig()
+	//r.RestConfig = mgr.GetConfig()
 
 	// TODO: Uncomment below lines to get your custom kubeconfig
-	//var err error
-	//r.RestConfig, err = util.GetConfig("")
-	//if err != nil {
-	//	return err
-	//}
+	var err error
+	r.RestConfig, err = util.GetConfig("", "/Users/d063994/SAPDevelop/go/manifest-operator/operator/kcfg.yaml")
+	if err != nil {
+		return err
+	}
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Manifest{}).
