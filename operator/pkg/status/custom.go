@@ -12,12 +12,10 @@ type CustomStatus struct {
 	client.Reader
 }
 
-type ResStatus string
-
 type CustomWaitResource struct {
 	schema.GroupVersionKind
 	client.ObjectKey
-	ResStatus
+	ResStatus string
 }
 
 func (c *CustomStatus) WaitForCustomResources(ctx context.Context, customWaitResource []CustomWaitResource) (bool, error) {
@@ -39,7 +37,7 @@ func (c *CustomStatus) WaitForCustomResources(ctx context.Context, customWaitRes
 			return false, fmt.Errorf("state not found for %s", res.ObjectKey.String())
 		}
 
-		if state.(ResStatus) != res.ResStatus {
+		if state.(string) != res.ResStatus {
 			return false, nil
 		}
 	}

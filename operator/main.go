@@ -18,6 +18,7 @@ package main
 
 import (
 	"flag"
+	manifestv1alpha1 "github.com/kyma-project/manifest-operator/api/api/v1alpha1"
 	"os"
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -30,7 +31,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	manifestv1alpha1 "github.com/kyma-project/manifest-operator/api/api/v1alpha1"
 	"github.com/kyma-project/manifest-operator/operator/controllers"
 	//+kubebuilder:scaffold:imports
 )

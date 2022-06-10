@@ -21,12 +21,11 @@ import (
 	"fmt"
 	"github.com/go-logr/logr"
 	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
+	customClient "github.com/kyma-project/manifest-operator/operator/pkg/client"
 	"github.com/kyma-project/manifest-operator/operator/pkg/labels"
 	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
 	"github.com/kyma-project/manifest-operator/operator/pkg/status"
-	"github.com/kyma-project/manifest-operator/operator/pkg/util"
 	"helm.sh/helm/v3/pkg/cli"
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -154,13 +153,8 @@ func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logg
 	}
 
 	// evaluate rest config
-	kubeConfigSecret := v1.Secret{}
-	if err := r.Get(context.TODO(), client.ObjectKey{Name: kymaOwnerLabel, Namespace: manifestObj.Namespace}, &kubeConfigSecret); err != nil {
-		return err
-	}
-
-	kubeconfigString := string(kubeConfigSecret.Data["config"])
-	restConfig, err := util.GetConfig(kubeconfigString, "")
+	clusterClient := &customClient.ClusterClient{DefaultClient: r.Client}
+	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, manifestObj.Namespace)
 	if err != nil {
 		return err
 	}
@@ -283,28 +277,17 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 		}
 	}
 
+	var customResourcesReady bool
+	if !errorState {
+		customResourcesReady, errorState = r.AreCustomResourcesReady(ctx, latestManifestObj.Labels, namespacedName, logger)
+	}
+
 	var endState v1alpha1.ManifestState
 	if errorState {
 		endState = v1alpha1.ManifestStateError
+	} else if !customResourcesReady {
+		endState = v1alpha1.ManifestStateProcessing
 	} else {
-		// check custom resource for status
-		customStatus := &status.CustomStatus{
-			r.Client,
-		}
-		customStatus.WaitForCustomResources(ctx, []status.CustomWaitResource{
-			{
-				GroupVersionKind: schema.GroupVersionKind{
-					Group:   "",
-					Version: "",
-					Kind:    "",
-				},
-				ObjectKey: client.ObjectKey{
-					Name:      "",
-					Namespace: "",
-				},
-				ResStatus: status.ResStatus("ready"),
-			},
-		})
 		endState = v1alpha1.ManifestStateReady
 	}
 
@@ -315,6 +298,54 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 	return
 }
 
+func (r *ManifestReconciler) AreCustomResourcesReady(ctx context.Context, kymaOwnerLabels map[string]string, namespacedName client.ObjectKey, logger *logr.Logger) (bool, bool) {
+	kymaOwnerLabel, ok := kymaOwnerLabels[labels.ComponentOwner]
+	if !ok {
+		logger.Error(fmt.Errorf("label %s not set for manifest resource %s", labels.ComponentOwner, namespacedName), "")
+		return false, true
+	}
+
+	// evaluate rest config
+	clusterClient := &customClient.ClusterClient{DefaultClient: r.Client}
+	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, namespacedName.Namespace)
+	if err != nil {
+		logger.Error(err, fmt.Sprintf("error while evaluating rest config for manifest resource %s", namespacedName))
+		return false, true
+	}
+
+	customClient, err := clusterClient.GetNewClient(restConfig)
+	if err != nil {
+		logger.Error(err, fmt.Sprintf("error while evaluating target client for manifest resource %s", namespacedName))
+		return false, true
+	}
+
+	// check custom resource for status
+	customStatus := &status.CustomStatus{
+		Reader: customClient,
+	}
+
+	ready, err := customStatus.WaitForCustomResources(ctx, []status.CustomWaitResource{
+		{
+			GroupVersionKind: schema.GroupVersionKind{
+				Group:   "operator.kyma-project.io",
+				Version: "v1alpha1",
+				Kind:    "Kyma",
+			},
+			ObjectKey: client.ObjectKey{
+				Name:      "kyma-sample",
+				Namespace: "default",
+			},
+			ResStatus: "Processing",
+		},
+	})
+	if err != nil {
+		logger.Error(err, fmt.Sprintf("error while tracking status of custom resources for manifest resource %s", namespacedName))
+		return false, true
+	}
+
+	return ready, false
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
 	r.DeployChan = make(chan DeployInfo)
@@ -322,13 +353,6 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 
 	// default config from kubebuilder
 	//r.RestConfig = mgr.GetConfig()
-
-	// TODO: Uncomment below lines to get your custom kubeconfig
-	var err error
-	r.RestConfig, err = util.GetConfig("", "/Users/d063994/SAPDevelop/go/manifest-operator/operator/kcfg.yaml")
-	if err != nil {
-		return err
-	}
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Manifest{}).
