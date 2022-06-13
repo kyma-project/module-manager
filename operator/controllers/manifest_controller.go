@@ -26,7 +26,6 @@ import (
 	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
 	"helm.sh/helm/v3/pkg/cli"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
@@ -278,7 +277,7 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 
 	var customResourcesReady bool
 	if !errorState {
-		customResourcesReady, errorState = r.AreCustomResourcesReady(ctx, latestManifestObj.Labels, namespacedName, logger)
+		customResourcesReady, errorState = r.AreCustomResourcesReady(ctx, latestManifestObj, namespacedName, logger)
 	}
 
 	var endState v1alpha1.ManifestState
@@ -297,8 +296,8 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 	return
 }
 
-func (r *ManifestReconciler) AreCustomResourcesReady(ctx context.Context, kymaOwnerLabels map[string]string, namespacedName client.ObjectKey, logger *logr.Logger) (bool, bool) {
-	kymaOwnerLabel, ok := kymaOwnerLabels[labels.ComponentOwner]
+func (r *ManifestReconciler) AreCustomResourcesReady(ctx context.Context, manifestObj *v1alpha1.Manifest, namespacedName client.ObjectKey, logger *logr.Logger) (bool, bool) {
+	kymaOwnerLabel, ok := manifestObj.Labels[labels.ComponentOwner]
 	if !ok {
 		logger.Error(fmt.Errorf("label %s not set for manifest resource %s", labels.ComponentOwner, namespacedName), "")
 		return false, true
@@ -318,27 +317,14 @@ func (r *ManifestReconciler) AreCustomResourcesReady(ctx context.Context, kymaOw
 		return false, true
 	}
 
-	// check custom resource for custom
+	// check custom resource for states
 	customStatus := &custom.Status{
 		Reader: customClient,
 	}
 
-	ready, err := customStatus.WaitForCustomResources(ctx, []custom.WaitResource{
-		{
-			GroupVersionKind: schema.GroupVersionKind{
-				Group:   "operator.kyma-project.io",
-				Version: "v1alpha1",
-				Kind:    "Kyma",
-			},
-			ObjectKey: client.ObjectKey{
-				Name:      "kyma-sample",
-				Namespace: "default",
-			},
-			ResStatus: "Processing",
-		},
-	})
+	ready, err := customStatus.WaitForCustomResources(ctx, manifestObj.Spec.CustomResStates)
 	if err != nil {
-		logger.Error(err, fmt.Sprintf("error while tracking custom of custom resources for manifest resource %s", namespacedName))
+		logger.Error(err, fmt.Sprintf("error while tracking status of custom resources for manifest resource %s", namespacedName))
 		return false, true
 	}
 
