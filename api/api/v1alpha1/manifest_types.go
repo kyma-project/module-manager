@@ -38,6 +38,7 @@ type CustomResState struct {
 
 // ChartInfo defines chart information
 type ChartInfo struct {
+	ChartPath    string `json:"chartPath,omitempty"`
 	RepoName     string `json:"repoName,omitempty"`
 	Url          string `json:"url,omitempty"`
 	ChartName    string `json:"chartName,omitempty"`
