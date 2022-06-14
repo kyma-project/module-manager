@@ -3,6 +3,7 @@ package custom
 import (
 	"context"
 	"fmt"
+	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -12,32 +13,30 @@ type Status struct {
 	client.Reader
 }
 
-type WaitResource struct {
-	schema.GroupVersionKind
-	client.ObjectKey
-	ResStatus string
-}
-
-func (c *Status) WaitForCustomResources(ctx context.Context, customWaitResource []WaitResource) (bool, error) {
+func (c *Status) WaitForCustomResources(ctx context.Context, customWaitResource []v1alpha1.CustomResState) (bool, error) {
 	for _, res := range customWaitResource {
 		obj := unstructured.Unstructured{}
-		obj.SetGroupVersionKind(res.GroupVersionKind)
-
-		if err := c.Get(ctx, res.ObjectKey, &obj); client.IgnoreNotFound(err) != nil {
+		obj.SetGroupVersionKind(schema.GroupVersionKind{
+			Group:   res.Group,
+			Version: res.Version,
+			Kind:    res.Kind,
+		})
+		namespacedName := client.ObjectKey{Name: res.Name, Namespace: res.Namespace}
+		if err := c.Get(ctx, namespacedName, &obj); client.IgnoreNotFound(err) != nil {
 			return false, err
 		}
 
 		status, ok := obj.Object["status"]
 		if !ok {
-			return false, fmt.Errorf("status object not found for %s", res.ObjectKey.String())
+			return false, fmt.Errorf("status object not found for %s", namespacedName.String())
 		}
 
 		state, ok := status.(map[string]interface{})["state"]
 		if !ok {
-			return false, fmt.Errorf("state not found for %s", res.ObjectKey.String())
+			return false, fmt.Errorf("state not found for %s", namespacedName.String())
 		}
 
-		if state.(string) != res.ResStatus {
+		if state.(string) != res.State {
 			return false, nil
 		}
 	}
