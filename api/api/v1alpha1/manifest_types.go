@@ -27,13 +27,12 @@ func (manifest *Manifest) SetObservedGeneration() *Manifest {
 	return manifest
 }
 
-type CustomResState struct {
-	Group     string `json:"group,omitempty"`
-	Version   string `json:"version,omitempty"`
-	Kind      string `json:"kind,omitempty"`
-	Name      string `json:"name,omitempty"`
-	Namespace string `json:"namespace,omitempty"`
-	State     string `json:"state,omitempty"`
+type CustomState struct {
+	APIVersion string `json:"apiVersion,omitempty"`
+	Kind       string `json:"kind,omitempty"`
+	Name       string `json:"name,omitempty"`
+	Namespace  string `json:"namespace,omitempty"`
+	State      string `json:"state,omitempty"`
 }
 
 // ChartInfo defines chart information
@@ -48,8 +47,8 @@ type ChartInfo struct {
 
 // ManifestSpec defines the specification of Manifest
 type ManifestSpec struct {
-	Charts          []ChartInfo      `json:"charts,omitempty"`
-	CustomResStates []CustomResState `json:"customResStates,omitempty"`
+	Charts       []ChartInfo   `json:"charts,omitempty"`
+	CustomStates []CustomState `json:"customStates,omitempty"`
 }
 
 // +kubebuilder:validation:Enum=Processing;Deleting;Ready;Error

@@ -48,6 +48,8 @@ spec:
                   properties:
                     chartName:
                       type: string
+                    chartPath:
+                      type: string
                     clientConfig:
                       type: string
                     releaseName:
@@ -58,10 +60,10 @@ spec:
                       type: string
                   type: object
                 type: array
-              customResStates:
+              customStates:
                 items:
                   properties:
-                    group:
+                    apiVersion:
                       type: string
                     kind:
                       type: string
@@ -70,8 +72,6 @@ spec:
                     namespace:
                       type: string
                     state:
-                      type: string
-                    version:
                       type: string
                   type: object
                 type: array
