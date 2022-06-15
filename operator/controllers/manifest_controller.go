@@ -133,16 +133,19 @@ func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logg
 
 	go r.ResponseHandlerFunc(ctx, logger, chartCount, responseChan, namespacedName)
 
+	customResCheck := &CustomResourceCheck{DefaultClient: r.Client}
+
 	// send job to workers
 	for _, chart := range manifestObj.Spec.Charts {
 		r.DeployChan <- manifest.DeployInfo{
 			Ctx:            ctx,
+			ManifestLabels: manifestObj.Labels,
 			ChartInfo:      manifest.ChartInfo(chart),
 			Mode:           mode,
 			ObjectKey:      namespacedName,
 			RequestErrChan: responseChan,
 			RestConfig:     restConfig,
-			CheckFn:        CustomResourceCheck{DefaultClient: r.Client}.CheckFn,
+			CheckFn:        customResCheck.CheckFn,
 		}
 	}
 
@@ -205,6 +208,7 @@ func (r *ManifestReconciler) HandleCharts(deployInfo manifest.DeployInfo, logger
 		//ready, err = manifestOperations.Install(ctx, "", releaseName, fmt.Sprintf("%s/%s", repoName, chartName), repoName, url, args)
 		ready, err = manifestOperations.Install(deployInfo, args)
 	} else {
+		deployInfo.CheckFn = nil
 		ready, err = manifestOperations.Uninstall(deployInfo, args)
 	}
 
@@ -263,7 +267,7 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 
 	// only update to processing, ready if deletion has not been triggered
 	if latestManifestObj.DeletionTimestamp.IsZero() {
-		if !processing {
+		if processing {
 			endState = v1alpha1.ManifestStateProcessing
 		} else {
 			endState = v1alpha1.ManifestStateReady

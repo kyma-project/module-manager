@@ -78,7 +78,6 @@ func NewOperations(logger *logr.Logger, restConfig *rest.Config, settings *cli.E
 }
 
 func (o *Operations) Install(deployInfo DeployInfo, args map[string]string) (bool, error) {
-	chartName := fmt.Sprintf("%s/%s", deployInfo.RepoName, deployInfo.ChartName)
 	if err := o.repoHandler.Add(deployInfo.RepoName, deployInfo.Url); err != nil {
 		return false, err
 	}
@@ -88,7 +87,7 @@ func (o *Operations) Install(deployInfo DeployInfo, args map[string]string) (boo
 		return false, err
 	}
 
-	manifest, err := o.getManifestForChartPath(deployInfo.ChartPath, chartName, actionClient, args)
+	manifest, err := o.getManifestForChartPath(deployInfo.ChartPath, deployInfo.ChartName, actionClient, args)
 	if err != nil {
 		return false, err
 	}
@@ -121,7 +120,7 @@ func (o *Operations) Install(deployInfo DeployInfo, args map[string]string) (boo
 		return false, err
 	}
 
-	o.logger.Info("Install Complete!! Happy Manifesting!", "release", deployInfo.ReleaseName, "chart", chartName)
+	o.logger.Info("Install Complete!! Happy Manifesting!", "release", deployInfo.ReleaseName, "chart", deployInfo.ChartName)
 
 	// update manifest chart in a separate go-routine
 	if err = o.repoHandler.Update(); err != nil {

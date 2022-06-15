@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -13,14 +12,11 @@ type Status struct {
 	client.Reader
 }
 
-func (c *Status) WaitForCustomResources(ctx context.Context, customWaitResource []v1alpha1.CustomResState) (bool, error) {
+func (c *Status) WaitForCustomResources(ctx context.Context, customWaitResource []v1alpha1.CustomState) (bool, error) {
 	for _, res := range customWaitResource {
 		obj := unstructured.Unstructured{}
-		obj.SetGroupVersionKind(schema.GroupVersionKind{
-			Group:   res.Group,
-			Version: res.Version,
-			Kind:    res.Kind,
-		})
+		obj.SetAPIVersion(res.APIVersion)
+		obj.SetKind(res.Kind)
 		namespacedName := client.ObjectKey{Name: res.Name, Namespace: res.Namespace}
 		if err := c.Get(ctx, namespacedName, &obj); client.IgnoreNotFound(err) != nil {
 			return false, err

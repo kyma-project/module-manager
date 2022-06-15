@@ -4,12 +4,13 @@ import (
 	"context"
 	"fmt"
 	"github.com/go-logr/logr"
+	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
 )
 
 type Workers interface {
 	GetWorkerPoolSize() int
 	SetWorkerPoolSize(newSize int)
-	StartWorkers(ctx context.Context, jobChan <-chan DeployInfo, handlerFn func(info DeployInfo, logger *logr.Logger) *RequestError)
+	StartWorkers(ctx context.Context, jobChan <-chan manifest.DeployInfo, handlerFn func(info manifest.DeployInfo, logger *logr.Logger) *manifest.RequestError)
 }
 
 type ManifestWorkers struct {
@@ -25,9 +26,9 @@ func NewManifestWorkers(logger *logr.Logger) *ManifestWorkers {
 	}
 }
 
-func (mw *ManifestWorkers) StartWorkers(ctx context.Context, jobChan <-chan DeployInfo, handlerFn func(info DeployInfo, logger *logr.Logger) *RequestError) {
+func (mw *ManifestWorkers) StartWorkers(ctx context.Context, jobChan <-chan manifest.DeployInfo, handlerFn func(info manifest.DeployInfo, logger *logr.Logger) *manifest.RequestError) {
 	for worker := 1; worker <= mw.GetWorkerPoolSize(); worker++ {
-		go func(ctx context.Context, id int, deployJob <-chan DeployInfo) {
+		go func(ctx context.Context, id int, deployJob <-chan manifest.DeployInfo) {
 			mw.logger.Info(fmt.Sprintf("Starting manifest-operator worker with id %d", id))
 			for {
 				select {
