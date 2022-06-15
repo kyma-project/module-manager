@@ -73,7 +73,7 @@ func (h *HelmClient) NewUninstallActionClient(namespace string) (*action.Uninsta
 
 func (h *HelmClient) SetDefaultClientConfig(actionClient *action.Install, releaseName string) {
 	actionClient.DryRun = true
-	actionClient.Atomic = true
+	actionClient.Atomic = false
 	actionClient.Wait = false
 	actionClient.WaitForJobs = false
 	actionClient.DryRun = true
@@ -208,7 +208,6 @@ func (h *HelmClient) setNamespaceIfNotPresent(targetNamespace string, resourceIn
 
 		// set namespace on runtime object
 		metaObject.SetNamespace(targetNamespace)
-
 	}
 	return nil
 }

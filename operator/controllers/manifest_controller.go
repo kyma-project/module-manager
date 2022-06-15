@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"github.com/go-logr/logr"
 	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
+	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
+	"github.com/kyma-project/manifest-operator/operator/pkg/labels"
 	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
 	"helm.sh/helm/v3/pkg/cli"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -35,26 +37,10 @@ import (
 	"time"
 )
 
-type Mode int
-
-const (
-	CreateMode Mode = iota
-	DeletionMode
-)
-
 const (
 	DefaultWorkersCount               = 4
 	WaitTimeout         time.Duration = 5 * time.Minute
 )
-
-type RequestErrChan chan *RequestError
-
-type DeployInfo struct {
-	v1alpha1.ChartInfo
-	Mode
-	client.ObjectKey
-	RequestErrChan
-}
 
 // ManifestReconciler reconciles a Manifest object
 type ManifestReconciler struct {
@@ -62,17 +48,8 @@ type ManifestReconciler struct {
 	Scheme     *runtime.Scheme
 	RestConfig *rest.Config
 	RestMapper *restmapper.DeferredDiscoveryRESTMapper
-	DeployChan chan DeployInfo
+	DeployChan chan manifest.DeployInfo
 	Workers    *ManifestWorkers
-}
-
-type RequestError struct {
-	ResNamespacedName client.ObjectKey
-	Err               error
-}
-
-func (r *RequestError) Error() string {
-	return r.Err.Error()
 }
 
 //+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests,verbs=get;list;watch;create;update;patch;delete
@@ -131,27 +108,44 @@ func (r *ManifestReconciler) HandleInitialState(ctx context.Context, _ *logr.Log
 }
 
 func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest) error {
-	return r.jobAllocator(ctx, logger, manifestObj, CreateMode)
+	return r.jobAllocator(ctx, logger, manifestObj, manifest.CreateMode)
 }
 
 func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest) error {
-	return r.jobAllocator(ctx, logger, manifestObj, DeletionMode)
+	return r.jobAllocator(ctx, logger, manifestObj, manifest.DeletionMode)
 }
 
-func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest, mode Mode) error {
+func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest, mode manifest.Mode) error {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
-	responseChan := make(RequestErrChan)
+	responseChan := make(manifest.RequestErrChan)
 	chartCount := len(manifestObj.Spec.Charts)
+	kymaOwnerLabel, ok := manifestObj.Labels[labels.ComponentOwner]
+	if !ok {
+		return fmt.Errorf("label %s not set for manifest resource %s", labels.ComponentOwner, namespacedName)
+	}
+
+	// evaluate rest config
+	clusterClient := &custom.ClusterClient{DefaultClient: r.Client}
+	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, manifestObj.Namespace)
+	if err != nil {
+		return err
+	}
 
 	go r.ResponseHandlerFunc(ctx, logger, chartCount, responseChan, namespacedName)
 
+	customResCheck := &CustomResourceCheck{DefaultClient: r.Client}
+
 	// send job to workers
 	for _, chart := range manifestObj.Spec.Charts {
-		r.DeployChan <- DeployInfo{
-			ChartInfo:      chart,
+		r.DeployChan <- manifest.DeployInfo{
+			Ctx:            ctx,
+			ManifestLabels: manifestObj.Labels,
+			ChartInfo:      manifest.ChartInfo(chart),
 			Mode:           mode,
 			ObjectKey:      namespacedName,
 			RequestErrChan: responseChan,
+			RestConfig:     restConfig,
+			CheckFn:        customResCheck.CheckFn,
 		}
 	}
 
@@ -191,7 +185,7 @@ func (r *ManifestReconciler) updateManifestStatus(ctx context.Context, manifestO
 	return r.Status().Update(ctx, manifestObj.SetObservedGeneration())
 }
 
-func (r *ManifestReconciler) HandleCharts(deployInfo DeployInfo, logger *logr.Logger) *RequestError {
+func (r *ManifestReconciler) HandleCharts(deployInfo manifest.DeployInfo, logger *logr.Logger) *manifest.RequestError {
 	var (
 		args = map[string]string{
 			// check --set flags parameter from manifest
@@ -199,33 +193,35 @@ func (r *ManifestReconciler) HandleCharts(deployInfo DeployInfo, logger *logr.Lo
 			// comma seperated values of manifest command line flags
 			"flags": deployInfo.ClientConfig,
 		}
-		repoName    = deployInfo.RepoName
-		url         = deployInfo.Url
-		chartName   = deployInfo.ChartName
-		releaseName = deployInfo.ReleaseName
 	)
+	deployInfo.ChartName = fmt.Sprintf("%s/%s", deployInfo.RepoName, deployInfo.ChartName)
 
 	// evaluate create or delete chart
-	create := deployInfo.Mode == CreateMode
+	create := deployInfo.Mode == manifest.CreateMode
 
 	// TODO: implement better settings handling
-	manifestOperations := manifest.NewOperations(logger, r.RestConfig, cli.New(), WaitTimeout)
+	manifestOperations := manifest.NewOperations(logger, deployInfo.RestConfig, cli.New(), WaitTimeout)
 	var err error
+	var ready bool
 
 	if create {
-		err = manifestOperations.Install("", releaseName, fmt.Sprintf("%s/%s", repoName, chartName), repoName, url, args)
+		//ready, err = manifestOperations.Install(ctx, "", releaseName, fmt.Sprintf("%s/%s", repoName, chartName), repoName, url, args)
+		ready, err = manifestOperations.Install(deployInfo, args)
 	} else {
-		err = manifestOperations.Uninstall("", fmt.Sprintf("%s/%s", repoName, chartName), releaseName, args)
+		deployInfo.CheckFn = nil
+		ready, err = manifestOperations.Uninstall(deployInfo, args)
 	}
 
-	return &RequestError{
+	return &manifest.RequestError{
+		Ready:             ready,
 		ResNamespacedName: deployInfo.ObjectKey,
 		Err:               err,
 	}
 }
 
-func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *logr.Logger, chartCount int, responseChan RequestErrChan, namespacedName client.ObjectKey) {
+func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *logr.Logger, chartCount int, responseChan manifest.RequestErrChan, namespacedName client.ObjectKey) {
 	errorState := false
+	processing := false
 	for a := 1; a <= chartCount; a++ {
 		select {
 		case <-ctx.Done():
@@ -235,6 +231,10 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 			if response.Err != nil {
 				logger.Error(response.Err, fmt.Sprintf("chart installation failure for %s!!!", response.ResNamespacedName.String()))
 				errorState = true
+				break
+			} else if !response.Ready {
+				logger.Info(fmt.Sprintf("chart checks still processing %s!!!", response.ResNamespacedName.String()))
+				processing = true
 				break
 			}
 		}
@@ -247,7 +247,7 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 	}
 
 	// handle deletion if no previous error occurred
-	if !errorState && !latestManifestObj.DeletionTimestamp.IsZero() {
+	if !errorState && !latestManifestObj.DeletionTimestamp.IsZero() && !processing {
 		// remove finalizer
 		controllerutil.RemoveFinalizer(latestManifestObj, manifestFinalizer)
 		if err := r.updateManifest(ctx, latestManifestObj); err != nil {
@@ -260,11 +260,18 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 		}
 	}
 
-	var endState v1alpha1.ManifestState
+	endState := v1alpha1.ManifestStateDeleting
 	if errorState {
 		endState = v1alpha1.ManifestStateError
-	} else {
-		endState = v1alpha1.ManifestStateReady
+	}
+
+	// only update to processing, ready if deletion has not been triggered
+	if latestManifestObj.DeletionTimestamp.IsZero() {
+		if processing {
+			endState = v1alpha1.ManifestStateProcessing
+		} else {
+			endState = v1alpha1.ManifestStateReady
+		}
 	}
 
 	// update status for non-deletion scenarios
@@ -276,18 +283,11 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
-	r.DeployChan = make(chan DeployInfo)
+	r.DeployChan = make(chan manifest.DeployInfo)
 	r.Workers.StartWorkers(ctx, r.DeployChan, r.HandleCharts)
 
 	// default config from kubebuilder
-	r.RestConfig = mgr.GetConfig()
-
-	// TODO: Uncomment below lines to get your custom kubeconfig
-	//var err error
-	//r.RestConfig, err = util.GetConfig("")
-	//if err != nil {
-	//	return err
-	//}
+	//r.RestConfig = mgr.GetConfig()
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Manifest{}).

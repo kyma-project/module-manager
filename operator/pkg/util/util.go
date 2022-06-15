@@ -59,7 +59,7 @@ func FilterExistingResources(resources kube.ResourceList) (kube.ResourceList, er
 	return requireUpdate, err
 }
 
-func GetConfig(kubeConfig string) (*rest.Config, error) {
+func GetConfig(kubeConfig string, explicitPath string) (*rest.Config, error) {
 	if kubeConfig != "" {
 		// parameter string
 		return clientcmd.BuildConfigFromKubeconfigGetter("", func() (config *clientcmdapi.Config, e error) {
@@ -88,8 +88,9 @@ func GetConfig(kubeConfig string) (*rest.Config, error) {
 		return clientcmd.BuildConfigFromFlags("masterURL", os.Getenv("KUBECONFIG"))
 	}
 
-	// working directory
+	// default directory + working directory + explicit path -> merged
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	loadingRules.ExplicitPath = explicitPath
 	pwd, err := os.Getwd()
 	if err != nil {
 		return nil, fmt.Errorf("error reading current working directory %w", err)

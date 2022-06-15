@@ -1,8 +1,10 @@
 package manifest
 
 import (
+	"context"
 	"fmt"
 	"github.com/go-logr/logr"
+	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
 	manifestRest "github.com/kyma-project/manifest-operator/operator/pkg/rest"
 	"github.com/kyma-project/manifest-operator/operator/pkg/util"
 	"github.com/pkg/errors"
@@ -12,8 +14,49 @@ import (
 	"helm.sh/helm/v3/pkg/strvals"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"time"
 )
+
+type Mode int
+
+const (
+	CreateMode Mode = iota
+	DeletionMode
+)
+
+// ChartInfo defines chart information
+type ChartInfo struct {
+	ChartPath    string
+	RepoName     string
+	Url          string
+	ChartName    string
+	ReleaseName  string
+	ClientConfig string
+}
+
+type DeployInfo struct {
+	Ctx            context.Context
+	ManifestLabels map[string]string
+	ChartInfo
+	Mode
+	client.ObjectKey
+	RequestErrChan
+	RestConfig *rest.Config
+	CheckFn    custom.CheckFnType
+}
+
+type RequestErrChan chan *RequestError
+
+type RequestError struct {
+	Ready             bool
+	ResNamespacedName client.ObjectKey
+	Err               error
+}
+
+func (r *RequestError) Error() string {
+	return r.Err.Error()
+}
 
 type Operations struct {
 	logger      *logr.Logger
@@ -34,78 +77,87 @@ func NewOperations(logger *logr.Logger, restConfig *rest.Config, settings *cli.E
 	return operations
 }
 
-func (o *Operations) Install(chartPath, releaseName, chartName, repoName, url string, args map[string]string) error {
-	if err := o.repoHandler.Add(repoName, url); err != nil {
-		return err
+func (o *Operations) Install(deployInfo DeployInfo, args map[string]string) (bool, error) {
+	if err := o.repoHandler.Add(deployInfo.RepoName, deployInfo.Url); err != nil {
+		return false, err
 	}
 
-	actionClient, err := o.helmClient.NewInstallActionClient(v1.NamespaceDefault, releaseName, args)
+	actionClient, err := o.helmClient.NewInstallActionClient(v1.NamespaceDefault, deployInfo.ReleaseName, args)
 	if err != nil {
-		return err
+		return false, err
 	}
 
-	manifest, err := o.getManifestForChartPath(chartPath, chartName, actionClient, args)
+	manifest, err := o.getManifestForChartPath(deployInfo.ChartPath, deployInfo.ChartName, actionClient, args)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	if err = o.helmClient.HandleNamespace(actionClient, OperationCreate); err != nil {
-		return err
+		return false, err
 	}
 
 	targetResources, err := o.helmClient.GetTargetResources(manifest, actionClient.Namespace)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	existingResources, err := util.FilterExistingResources(targetResources)
 	if err != nil {
-		return errors.Wrap(err, "could not render current resources from manifest")
+		return false, errors.Wrap(err, "could not render current resources from manifest")
 	}
 
 	if existingResources == nil && len(targetResources) > 0 {
 		if _, err = o.helmClient.PerformCreate(targetResources); err != nil {
-			return err
+			return false, err
 		}
 	} else {
 		if _, err = o.helmClient.PerformUpdate(existingResources, targetResources, true); err != nil {
-			return err
+			return false, err
 		}
 	}
 
 	if err = o.helmClient.CheckWaitForResources(targetResources, actionClient, OperationCreate); err != nil {
-		return err
+		return false, err
 	}
 
-	o.logger.Info("Install Complete!! Happy Manifesting!", "release", releaseName, "chart", chartName)
+	o.logger.Info("Install Complete!! Happy Manifesting!", "release", deployInfo.ReleaseName, "chart", deployInfo.ChartName)
 
 	// update manifest chart in a separate go-routine
-	return o.repoHandler.Update()
-}
-
-func (o *Operations) Uninstall(chartPath, chartName, releaseName string, args map[string]string) error {
-	actionClient, err := o.helmClient.NewInstallActionClient(v1.NamespaceDefault, releaseName, args)
-	if err != nil {
-		return err
+	if err = o.repoHandler.Update(); err != nil {
+		return false, err
 	}
 
-	manifest, err := o.getManifestForChartPath(chartPath, chartName, actionClient, args)
+	// check custom function, if provided
+	if deployInfo.CheckFn != nil {
+		return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.ManifestLabels, deployInfo.ObjectKey, o.logger)
+	}
+
+	return true, nil
+}
+
+func (o *Operations) Uninstall(deployInfo DeployInfo, args map[string]string) (bool, error) {
+	actionClient, err := o.helmClient.NewInstallActionClient(v1.NamespaceDefault, deployInfo.ReleaseName, args)
 	if err != nil {
-		return err
+		return false, err
+	}
+
+	manifest, err := o.getManifestForChartPath(deployInfo.ChartPath, deployInfo.ChartName, actionClient, args)
+	if err != nil {
+		return false, err
 	}
 
 	if err = o.helmClient.HandleNamespace(actionClient, OperationDelete); err != nil {
-		return err
+		return false, err
 	}
 
 	targetResources, err := o.helmClient.GetTargetResources(manifest, actionClient.Namespace)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	existingResources, err := util.FilterExistingResources(targetResources)
 	if err != nil {
-		return errors.Wrap(err, "could not render current resources from manifest")
+		return false, errors.Wrap(err, "could not render current resources from manifest")
 	}
 
 	if existingResources != nil {
@@ -115,18 +167,27 @@ func (o *Operations) Uninstall(chartPath, chartName, releaseName string, args ma
 			for _, err = range delErrors {
 				wrappedError = fmt.Errorf("%w", err)
 			}
-			return wrappedError
+			return false, wrappedError
 		}
 
 		o.logger.Info("component deletion executed", "resource count", len(response.Deleted))
 	}
 
 	if err = o.helmClient.CheckWaitForResources(targetResources, actionClient, OperationDelete); err != nil {
-		return err
+		return false, err
 	}
 
 	// update manifest chart in a separate go-routine
-	return o.repoHandler.Update()
+	if err = o.repoHandler.Update(); err != nil {
+		return false, err
+	}
+
+	// check custom function, if provided
+	if deployInfo.CheckFn != nil {
+		return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.ManifestLabels, deployInfo.ObjectKey, o.logger)
+	}
+
+	return true, nil
 }
 
 func (o *Operations) getManifestForChartPath(chartPath, chartName string, actionClient *action.Install, args map[string]string) (string, error) {
