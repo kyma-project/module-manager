@@ -48,6 +48,8 @@ spec:
                   properties:
                     chartName:
                       type: string
+                    chartPath:
+                      type: string
                     clientConfig:
                       type: string
                     releaseName:
@@ -55,6 +57,21 @@ spec:
                     repoName:
                       type: string
                     url:
+                      type: string
+                  type: object
+                type: array
+              customStates:
+                items:
+                  properties:
+                    apiVersion:
+                      type: string
+                    kind:
+                      type: string
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                    state:
                       type: string
                   type: object
                 type: array
