@@ -2,6 +2,7 @@ package manifest
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	manifestRest "github.com/kyma-project/manifest-operator/operator/pkg/rest"
 	"github.com/kyma-project/manifest-operator/operator/pkg/util"
@@ -14,6 +15,7 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/resource"
+	"k8s.io/client-go/kubernetes"
 	"reflect"
 	"time"
 )
@@ -31,15 +33,17 @@ type HelmClient struct {
 	kubeClient  *kube.Client
 	settings    *cli.EnvSettings
 	restGetter  *manifestRest.ManifestRESTClientGetter
+	clientSet   *kubernetes.Clientset
 	waitTimeout time.Duration
 }
 
-func NewClient(kubeClient *kube.Client, restGetter *manifestRest.ManifestRESTClientGetter, settings *cli.EnvSettings, waitTimeout time.Duration) *HelmClient {
+func NewClient(kubeClient *kube.Client, restGetter *manifestRest.ManifestRESTClientGetter, clientSet *kubernetes.Clientset, settings *cli.EnvSettings, waitTimeout time.Duration) *HelmClient {
 	return &HelmClient{
 		kubeClient:  kubeClient,
 		settings:    settings,
 		restGetter:  restGetter,
 		waitTimeout: waitTimeout,
+		clientSet:   clientSet,
 	}
 }
 
@@ -191,6 +195,11 @@ func (h *HelmClient) CheckWaitForResources(targetResources kube.ResourceList, ac
 	return nil
 }
 
+func (h *HelmClient) CheckReadyState(ctx context.Context, targetResources kube.ResourceList) (bool, error) {
+	readyChecker := kube.NewReadyChecker(h.clientSet, func(format string, v ...interface{}) {}, kube.PausedAsReady(true), kube.CheckJobs(true))
+	return h.checkReady(ctx, targetResources, readyChecker)
+}
+
 func (h *HelmClient) setNamespaceIfNotPresent(targetNamespace string, resourceInfo *resource.Info, helper *resource.Helper, runtimeObject runtime.Object) error {
 	// check if resource is scoped to namespaces
 	if helper.NamespaceScoped && resourceInfo.Namespace == "" {
@@ -221,4 +230,20 @@ func (h *HelmClient) overrideNamespace(resourceList kube.ResourceList, targetNam
 		helper := resource.NewHelper(info.Client, info.Mapping)
 		return h.setNamespaceIfNotPresent(targetNamespace, info, helper, info.Object)
 	})
+}
+
+func (h *HelmClient) checkReady(ctx context.Context, resourceList kube.ResourceList, readyChecker kube.ReadyChecker) (bool, error) {
+	resourcesReady := true
+	err := resourceList.Visit(func(info *resource.Info, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if ready, err := readyChecker.IsReady(ctx, info); !ready || err != nil {
+			resourcesReady = ready
+			return err
+		}
+		return nil
+	})
+	return resourcesReady, err
 }

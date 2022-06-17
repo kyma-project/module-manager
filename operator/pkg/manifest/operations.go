@@ -13,6 +13,7 @@ import (
 	"helm.sh/helm/v3/pkg/kube"
 	"helm.sh/helm/v3/pkg/strvals"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"time"
@@ -64,15 +65,20 @@ type Operations struct {
 	restGetter  *manifestRest.ManifestRESTClientGetter
 }
 
-func NewOperations(logger *logr.Logger, restConfig *rest.Config, settings *cli.EnvSettings, waitTimeout time.Duration) *Operations {
+func NewOperations(logger *logr.Logger, restConfig *rest.Config, settings *cli.EnvSettings, waitTimeout time.Duration) (*Operations, error) {
 	operations := &Operations{
 		logger:      logger,
 		restGetter:  manifestRest.NewRESTClientGetter(restConfig),
 		repoHandler: NewRepoHandler(logger, settings),
 	}
+
+	clientSet, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return &Operations{}, err
+	}
 	operations.kubeClient = kube.New(operations.restGetter)
-	operations.helmClient = NewClient(operations.kubeClient, operations.restGetter, settings, waitTimeout)
-	return operations
+	operations.helmClient = NewClient(operations.kubeClient, operations.restGetter, clientSet, settings, waitTimeout)
+	return operations, nil
 }
 
 func (o *Operations) Install(deployInfo DeployInfo, args map[string]string) (bool, error) {
@@ -114,8 +120,14 @@ func (o *Operations) Install(deployInfo DeployInfo, args map[string]string) (boo
 		}
 	}
 
+	// if Wait or WaitForJobs is enabled, wait for resources to be ready with a timeout
 	if err = o.helmClient.CheckWaitForResources(targetResources, actionClient, OperationCreate); err != nil {
 		return false, err
+	}
+
+	// check target resources are ready without waiting
+	if ready, err := o.helmClient.CheckReadyState(deployInfo.Ctx, targetResources); !ready || err != nil {
+		return ready, err
 	}
 
 	o.logger.Info("Install Complete!! Happy Manifesting!", "release", deployInfo.ReleaseName, "chart", deployInfo.ChartName)

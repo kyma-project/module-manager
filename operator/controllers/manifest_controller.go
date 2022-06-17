@@ -207,16 +207,17 @@ func (r *ManifestReconciler) HandleCharts(deployInfo manifest.DeployInfo, mode m
 	// evaluate create or delete chart
 	create := mode == manifest.CreateMode
 
-	// TODO: implement better settings handling
-	manifestOperations := manifest.NewOperations(logger, deployInfo.RestConfig, cli.New(), WaitTimeout)
-	var err error
 	var ready bool
+	// TODO: implement better settings handling
+	manifestOperations, err := manifest.NewOperations(logger, deployInfo.RestConfig, cli.New(), WaitTimeout)
 
-	if create {
-		ready, err = manifestOperations.Install(deployInfo, args)
-	} else {
-		deployInfo.CheckFn = nil
-		ready, err = manifestOperations.Uninstall(deployInfo, args)
+	if err == nil {
+		if create {
+			ready, err = manifestOperations.Install(deployInfo, args)
+		} else {
+			deployInfo.CheckFn = nil
+			ready, err = manifestOperations.Uninstall(deployInfo, args)
+		}
 	}
 
 	return &manifest.RequestError{
