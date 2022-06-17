@@ -39,9 +39,7 @@ type DeployInfo struct {
 	Ctx            context.Context
 	ManifestLabels map[string]string
 	ChartInfo
-	Mode
 	client.ObjectKey
-	RequestErrChan
 	RestConfig *rest.Config
 	CheckFn    custom.CheckFnType
 }

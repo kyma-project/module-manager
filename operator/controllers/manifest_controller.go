@@ -38,9 +38,15 @@ import (
 )
 
 const (
-	DefaultWorkersCount               = 4
-	WaitTimeout         time.Duration = 5 * time.Minute
+	DefaultWorkersCount = 4
+	WaitTimeout         = 5 * time.Minute
 )
+
+type ManifestDeploy struct {
+	Info           manifest.DeployInfo
+	Mode           manifest.Mode
+	RequestErrChan manifest.RequestErrChan
+}
 
 // ManifestReconciler reconciles a Manifest object
 type ManifestReconciler struct {
@@ -48,7 +54,7 @@ type ManifestReconciler struct {
 	Scheme     *runtime.Scheme
 	RestConfig *rest.Config
 	RestMapper *restmapper.DeferredDiscoveryRESTMapper
-	DeployChan chan manifest.DeployInfo
+	DeployChan chan ManifestDeploy
 	Workers    *ManifestWorkers
 }
 
@@ -137,15 +143,17 @@ func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logg
 
 	// send job to workers
 	for _, chart := range manifestObj.Spec.Charts {
-		r.DeployChan <- manifest.DeployInfo{
-			Ctx:            ctx,
-			ManifestLabels: manifestObj.Labels,
-			ChartInfo:      manifest.ChartInfo(chart),
+		r.DeployChan <- ManifestDeploy{
+			Info: manifest.DeployInfo{
+				Ctx:            ctx,
+				ManifestLabels: manifestObj.Labels,
+				ChartInfo:      manifest.ChartInfo(chart),
+				ObjectKey:      namespacedName,
+				RestConfig:     restConfig,
+				CheckFn:        customResCheck.CheckFn,
+			},
 			Mode:           mode,
-			ObjectKey:      namespacedName,
 			RequestErrChan: responseChan,
-			RestConfig:     restConfig,
-			CheckFn:        customResCheck.CheckFn,
 		}
 	}
 
@@ -185,7 +193,7 @@ func (r *ManifestReconciler) updateManifestStatus(ctx context.Context, manifestO
 	return r.Status().Update(ctx, manifestObj.SetObservedGeneration())
 }
 
-func (r *ManifestReconciler) HandleCharts(deployInfo manifest.DeployInfo, logger *logr.Logger) *manifest.RequestError {
+func (r *ManifestReconciler) HandleCharts(deployInfo manifest.DeployInfo, mode manifest.Mode, logger *logr.Logger) *manifest.RequestError {
 	var (
 		args = map[string]string{
 			// check --set flags parameter from manifest
@@ -197,7 +205,7 @@ func (r *ManifestReconciler) HandleCharts(deployInfo manifest.DeployInfo, logger
 	deployInfo.ChartName = fmt.Sprintf("%s/%s", deployInfo.RepoName, deployInfo.ChartName)
 
 	// evaluate create or delete chart
-	create := deployInfo.Mode == manifest.CreateMode
+	create := mode == manifest.CreateMode
 
 	// TODO: implement better settings handling
 	manifestOperations := manifest.NewOperations(logger, deployInfo.RestConfig, cli.New(), WaitTimeout)
@@ -205,7 +213,6 @@ func (r *ManifestReconciler) HandleCharts(deployInfo manifest.DeployInfo, logger
 	var ready bool
 
 	if create {
-		//ready, err = manifestOperations.Install(ctx, "", releaseName, fmt.Sprintf("%s/%s", repoName, chartName), repoName, url, args)
 		ready, err = manifestOperations.Install(deployInfo, args)
 	} else {
 		deployInfo.CheckFn = nil
@@ -283,7 +290,7 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
-	r.DeployChan = make(chan manifest.DeployInfo)
+	r.DeployChan = make(chan ManifestDeploy)
 	r.Workers.StartWorkers(ctx, r.DeployChan, r.HandleCharts)
 
 	// default config from kubebuilder
