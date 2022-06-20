@@ -24,23 +24,32 @@ import (
 	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
 	"github.com/kyma-project/manifest-operator/operator/pkg/labels"
 	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
+	"golang.org/x/time/rate"
 	"helm.sh/helm/v3/pkg/cli"
 	"k8s.io/apimachinery/pkg/runtime"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
+	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/ratelimiter"
 	"time"
 )
 
 const (
-	DefaultWorkersCount               = 4
-	WaitTimeout         time.Duration = 5 * time.Minute
+	DefaultWorkersCount = 4
+	ReadyCheck          = false
 )
+
+type ManifestDeploy struct {
+	Info           manifest.DeployInfo
+	Mode           manifest.Mode
+	RequestErrChan manifest.RequestErrChan
+}
 
 // ManifestReconciler reconciles a Manifest object
 type ManifestReconciler struct {
@@ -48,7 +57,7 @@ type ManifestReconciler struct {
 	Scheme     *runtime.Scheme
 	RestConfig *rest.Config
 	RestMapper *restmapper.DeferredDiscoveryRESTMapper
-	DeployChan chan manifest.DeployInfo
+	DeployChan chan ManifestDeploy
 	Workers    *ManifestWorkers
 }
 
@@ -96,7 +105,7 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	case v1alpha1.ManifestStateError:
 		return ctrl.Result{}, r.HandleErrorState(ctx, &logger, &manifestObj)
 	case v1alpha1.ManifestStateReady:
-		return ctrl.Result{}, r.HandleReadyState(ctx, &logger, &manifestObj)
+		return ctrl.Result{RequeueAfter: time.Second * 10}, r.HandleReadyState(ctx, &logger, &manifestObj)
 	}
 
 	// should not be reconciled again
@@ -137,15 +146,18 @@ func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logg
 
 	// send job to workers
 	for _, chart := range manifestObj.Spec.Charts {
-		r.DeployChan <- manifest.DeployInfo{
-			Ctx:            ctx,
-			ManifestLabels: manifestObj.Labels,
-			ChartInfo:      manifest.ChartInfo(chart),
+		r.DeployChan <- ManifestDeploy{
+			Info: manifest.DeployInfo{
+				Ctx:            ctx,
+				ManifestLabels: manifestObj.Labels,
+				ChartInfo:      manifest.ChartInfo(chart),
+				ObjectKey:      namespacedName,
+				RestConfig:     restConfig,
+				CheckFn:        customResCheck.CheckProcessingFn,
+				ReadyCheck:     ReadyCheck,
+			},
 			Mode:           mode,
-			ObjectKey:      namespacedName,
 			RequestErrChan: responseChan,
-			RestConfig:     restConfig,
-			CheckFn:        customResCheck.CheckFn,
 		}
 	}
 
@@ -161,11 +173,46 @@ func (r *ManifestReconciler) HandleErrorState(ctx context.Context, logger *logr.
 }
 
 func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest) error {
-	if manifestObj.Status.ObservedGeneration == manifestObj.Generation {
-		logger.Info("skipping reconciliation for " + manifestObj.Name + ", already reconciled!")
-		return nil
+	logger.Info("checking consistent state for " + manifestObj.Name)
+
+	namespacedName := client.ObjectKeyFromObject(manifestObj)
+	kymaOwnerLabel, ok := manifestObj.Labels[labels.ComponentOwner]
+	if !ok {
+		return fmt.Errorf("label %s not set for manifest resource %s", labels.ComponentOwner, namespacedName)
 	}
-	return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing, "observed generation change")
+	customResCheck := &CustomResourceCheck{DefaultClient: r.Client}
+
+	// evaluate rest config
+	clusterClient := &custom.ClusterClient{DefaultClient: r.Client}
+	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, manifestObj.Namespace)
+	if err != nil {
+		return err
+	}
+	for _, chart := range manifestObj.Spec.Charts {
+		deployInfo := manifest.DeployInfo{
+			Ctx:            ctx,
+			ManifestLabels: manifestObj.Labels,
+			ChartInfo:      manifest.ChartInfo(chart),
+			ObjectKey:      namespacedName,
+			RestConfig:     restConfig,
+			CheckFn:        customResCheck.CheckReadyFn,
+			ReadyCheck:     ReadyCheck,
+		}
+		args := PrepareArgs(&deployInfo)
+		manifestOperations, err := manifest.NewOperations(logger, deployInfo.RestConfig, deployInfo.ReleaseName, cli.New(), args)
+		if err != nil {
+			logger.Error(err, fmt.Sprintf("error while creating library operations for manifest %s", namespacedName))
+			return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error())
+		}
+
+		if ready, err := manifestOperations.VerifyResources(deployInfo); !ready {
+			return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing, "resources not ready")
+		} else if err != nil {
+			logger.Error(err, fmt.Sprintf("error while performing consistency check on manifest %s", namespacedName))
+			return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error())
+		}
+	}
+	return nil
 }
 
 func (r *ManifestReconciler) updateManifest(ctx context.Context, manifestObj *v1alpha1.Manifest) error {
@@ -185,31 +232,23 @@ func (r *ManifestReconciler) updateManifestStatus(ctx context.Context, manifestO
 	return r.Status().Update(ctx, manifestObj.SetObservedGeneration())
 }
 
-func (r *ManifestReconciler) HandleCharts(deployInfo manifest.DeployInfo, logger *logr.Logger) *manifest.RequestError {
-	var (
-		args = map[string]string{
-			// check --set flags parameter from manifest
-			"set": "",
-			// comma seperated values of manifest command line flags
-			"flags": deployInfo.ClientConfig,
-		}
-	)
-	deployInfo.ChartName = fmt.Sprintf("%s/%s", deployInfo.RepoName, deployInfo.ChartName)
+func (r *ManifestReconciler) HandleCharts(deployInfo manifest.DeployInfo, mode manifest.Mode, logger *logr.Logger) *manifest.RequestError {
+	args := PrepareArgs(&deployInfo)
 
 	// evaluate create or delete chart
-	create := deployInfo.Mode == manifest.CreateMode
+	create := mode == manifest.CreateMode
 
-	// TODO: implement better settings handling
-	manifestOperations := manifest.NewOperations(logger, deployInfo.RestConfig, cli.New(), WaitTimeout)
-	var err error
 	var ready bool
+	// TODO: implement better settings handling
+	manifestOperations, err := manifest.NewOperations(logger, deployInfo.RestConfig, deployInfo.ReleaseName, cli.New(), args)
 
-	if create {
-		//ready, err = manifestOperations.Install(ctx, "", releaseName, fmt.Sprintf("%s/%s", repoName, chartName), repoName, url, args)
-		ready, err = manifestOperations.Install(deployInfo, args)
-	} else {
-		deployInfo.CheckFn = nil
-		ready, err = manifestOperations.Uninstall(deployInfo, args)
+	if err == nil {
+		if create {
+			ready, err = manifestOperations.Install(deployInfo)
+		} else {
+			deployInfo.CheckFn = nil
+			ready, err = manifestOperations.Uninstall(deployInfo)
+		}
 	}
 
 	return &manifest.RequestError{
@@ -283,7 +322,7 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
-	r.DeployChan = make(chan manifest.DeployInfo)
+	r.DeployChan = make(chan ManifestDeploy)
 	r.Workers.StartWorkers(ctx, r.DeployChan, r.HandleCharts)
 
 	// default config from kubebuilder
@@ -292,7 +331,27 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Manifest{}).
 		WithOptions(controller.Options{
+			RateLimiter:             ManifestRateLimiter(),
 			MaxConcurrentReconciles: DefaultWorkersCount,
 		}).
 		Complete(r)
+}
+
+func ManifestRateLimiter() ratelimiter.RateLimiter {
+	return workqueue.NewMaxOfRateLimiter(
+		workqueue.NewItemExponentialFailureRateLimiter(1*time.Second, 1000*time.Second),
+		&workqueue.BucketRateLimiter{Limiter: rate.NewLimiter(rate.Limit(30), 200)})
+}
+
+func PrepareArgs(deployInfo *manifest.DeployInfo) map[string]string {
+	var (
+		args = map[string]string{
+			// check --set flags parameter from manifest
+			"set": "",
+			// comma seperated values of manifest command line flags
+			"flags": deployInfo.ClientConfig,
+		}
+	)
+	deployInfo.ChartName = fmt.Sprintf("%s/%s", deployInfo.RepoName, deployInfo.ChartName)
+	return args
 }
