@@ -42,7 +42,6 @@ import (
 
 const (
 	DefaultWorkersCount = 4
-	WaitTimeout         = 5 * time.Minute
 	ReadyCheck          = false
 )
 
@@ -154,7 +153,7 @@ func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logg
 				ChartInfo:      manifest.ChartInfo(chart),
 				ObjectKey:      namespacedName,
 				RestConfig:     restConfig,
-				CheckFn:        customResCheck.CheckFn,
+				CheckFn:        customResCheck.CheckProcessingFn,
 				ReadyCheck:     ReadyCheck,
 			},
 			Mode:           mode,
@@ -196,17 +195,21 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 			ChartInfo:      manifest.ChartInfo(chart),
 			ObjectKey:      namespacedName,
 			RestConfig:     restConfig,
-			CheckFn:        customResCheck.CheckFn,
+			CheckFn:        customResCheck.CheckReadyFn,
 			ReadyCheck:     ReadyCheck,
 		}
 		args := PrepareArgs(&deployInfo)
 		manifestOperations, err := manifest.NewOperations(logger, deployInfo.RestConfig, deployInfo.ReleaseName, cli.New(), args)
 		if err != nil {
-			return err
+			logger.Error(err, fmt.Sprintf("error while creating library operations for manifest %s", namespacedName))
+			return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error())
 		}
-		targetResources, existingResources, err := manifestOperations.GetClusterResources(deployInfo)
-		if len(targetResources) > len(existingResources) {
-			return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing, "observed generation change")
+
+		if ready, err := manifestOperations.VerifyResources(deployInfo); !ready {
+			return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing, "resources not ready")
+		} else if err != nil {
+			logger.Error(err, fmt.Sprintf("error while performing consistency check on manifest %s", namespacedName))
+			return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error())
 		}
 	}
 	return nil
