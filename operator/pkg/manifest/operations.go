@@ -16,7 +16,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"time"
 )
 
 type Mode int
@@ -59,56 +58,70 @@ func (r *RequestError) Error() string {
 }
 
 type Operations struct {
-	logger      *logr.Logger
-	kubeClient  *kube.Client
-	helmClient  *HelmClient
-	repoHandler *RepoHandler
-	restGetter  *manifestRest.ManifestRESTClientGetter
+	logger       *logr.Logger
+	kubeClient   *kube.Client
+	helmClient   *HelmClient
+	repoHandler  *RepoHandler
+	restGetter   *manifestRest.ManifestRESTClientGetter
+	actionClient *action.Install
+	args         map[string]string
 }
 
-func NewOperations(logger *logr.Logger, restConfig *rest.Config, settings *cli.EnvSettings, waitTimeout time.Duration) (*Operations, error) {
-	operations := &Operations{
-		logger:      logger,
-		restGetter:  manifestRest.NewRESTClientGetter(restConfig),
-		repoHandler: NewRepoHandler(logger, settings),
-	}
-
+func NewOperations(logger *logr.Logger, restConfig *rest.Config, releaseName string, settings *cli.EnvSettings, args map[string]string) (*Operations, error) {
+	restGetter := manifestRest.NewRESTClientGetter(restConfig)
+	kubeClient := kube.New(restGetter)
 	clientSet, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
 		return &Operations{}, err
 	}
-	operations.kubeClient = kube.New(operations.restGetter)
-	operations.helmClient = NewClient(operations.kubeClient, operations.restGetter, clientSet, settings, waitTimeout)
+
+	operations := &Operations{
+		logger:      logger,
+		restGetter:  restGetter,
+		repoHandler: NewRepoHandler(logger, settings),
+		kubeClient:  kubeClient,
+		helmClient:  NewHelmClient(kubeClient, restGetter, clientSet, settings),
+		args:        args,
+	}
+
+	operations.actionClient, err = operations.helmClient.NewInstallActionClient(v1.NamespaceDefault, releaseName, args)
+	if err != nil {
+		return &Operations{}, err
+	}
 	return operations, nil
 }
 
-func (o *Operations) Install(deployInfo DeployInfo, args map[string]string) (bool, error) {
+func (o *Operations) GetClusterResources(deployInfo DeployInfo) (kube.ResourceList, kube.ResourceList, error) {
 	if err := o.repoHandler.Add(deployInfo.RepoName, deployInfo.Url); err != nil {
-		return false, err
+		return nil, nil, err
 	}
 
-	actionClient, err := o.helmClient.NewInstallActionClient(v1.NamespaceDefault, deployInfo.ReleaseName, args)
+	manifest, err := o.getManifestForChartPath(deployInfo.ChartPath, deployInfo.ChartName, o.actionClient, o.args)
 	if err != nil {
-		return false, err
+		return nil, nil, err
 	}
 
-	manifest, err := o.getManifestForChartPath(deployInfo.ChartPath, deployInfo.ChartName, actionClient, args)
+	if err = o.helmClient.HandleNamespace(o.actionClient, OperationCreate); err != nil {
+		return nil, nil, err
+	}
+
+	targetResources, err := o.helmClient.GetTargetResources(manifest, o.actionClient.Namespace)
 	if err != nil {
-		return false, err
-	}
-
-	if err = o.helmClient.HandleNamespace(actionClient, OperationCreate); err != nil {
-		return false, err
-	}
-
-	targetResources, err := o.helmClient.GetTargetResources(manifest, actionClient.Namespace)
-	if err != nil {
-		return false, err
+		return nil, nil, err
 	}
 
 	existingResources, err := util.FilterExistingResources(targetResources)
 	if err != nil {
-		return false, errors.Wrap(err, "could not render current resources from manifest")
+		return nil, nil, errors.Wrap(err, "could not render current resources from manifest")
+	}
+
+	return targetResources, existingResources, nil
+}
+
+func (o *Operations) Install(deployInfo DeployInfo) (bool, error) {
+	targetResources, existingResources, err := o.GetClusterResources(deployInfo)
+	if err != nil {
+		return false, err
 	}
 
 	if existingResources == nil && len(targetResources) > 0 {
@@ -122,7 +135,7 @@ func (o *Operations) Install(deployInfo DeployInfo, args map[string]string) (boo
 	}
 
 	// if Wait or WaitForJobs is enabled, wait for resources to be ready with a timeout
-	if err = o.helmClient.CheckWaitForResources(targetResources, actionClient, OperationCreate); err != nil {
+	if err = o.helmClient.CheckWaitForResources(targetResources, o.actionClient, OperationCreate); err != nil {
 		return false, err
 	}
 
@@ -148,29 +161,10 @@ func (o *Operations) Install(deployInfo DeployInfo, args map[string]string) (boo
 	return true, nil
 }
 
-func (o *Operations) Uninstall(deployInfo DeployInfo, args map[string]string) (bool, error) {
-	actionClient, err := o.helmClient.NewInstallActionClient(v1.NamespaceDefault, deployInfo.ReleaseName, args)
+func (o *Operations) Uninstall(deployInfo DeployInfo) (bool, error) {
+	targetResources, existingResources, err := o.GetClusterResources(deployInfo)
 	if err != nil {
 		return false, err
-	}
-
-	manifest, err := o.getManifestForChartPath(deployInfo.ChartPath, deployInfo.ChartName, actionClient, args)
-	if err != nil {
-		return false, err
-	}
-
-	if err = o.helmClient.HandleNamespace(actionClient, OperationDelete); err != nil {
-		return false, err
-	}
-
-	targetResources, err := o.helmClient.GetTargetResources(manifest, actionClient.Namespace)
-	if err != nil {
-		return false, err
-	}
-
-	existingResources, err := util.FilterExistingResources(targetResources)
-	if err != nil {
-		return false, errors.Wrap(err, "could not render current resources from manifest")
 	}
 
 	if existingResources != nil {
@@ -186,7 +180,7 @@ func (o *Operations) Uninstall(deployInfo DeployInfo, args map[string]string) (b
 		o.logger.Info("component deletion executed", "resource count", len(response.Deleted))
 	}
 
-	if err = o.helmClient.CheckWaitForResources(targetResources, actionClient, OperationDelete); err != nil {
+	if err = o.helmClient.CheckWaitForResources(targetResources, o.actionClient, OperationDelete); err != nil {
 		return false, err
 	}
 

@@ -37,13 +37,12 @@ type HelmClient struct {
 	waitTimeout time.Duration
 }
 
-func NewClient(kubeClient *kube.Client, restGetter *manifestRest.ManifestRESTClientGetter, clientSet *kubernetes.Clientset, settings *cli.EnvSettings, waitTimeout time.Duration) *HelmClient {
+func NewHelmClient(kubeClient *kube.Client, restGetter *manifestRest.ManifestRESTClientGetter, clientSet *kubernetes.Clientset, settings *cli.EnvSettings) *HelmClient {
 	return &HelmClient{
-		kubeClient:  kubeClient,
-		settings:    settings,
-		restGetter:  restGetter,
-		waitTimeout: waitTimeout,
-		clientSet:   clientSet,
+		kubeClient: kubeClient,
+		settings:   settings,
+		restGetter: restGetter,
+		clientSet:  clientSet,
 	}
 }
 
@@ -181,12 +180,7 @@ func (h *HelmClient) PerformCreate(targetResources kube.ResourceList) (*kube.Res
 }
 
 func (h *HelmClient) CheckWaitForResources(targetResources kube.ResourceList, actionClient *action.Install, operation HelmOperation) error {
-	// set universal timeout, if chart specific timeout is missing
-	waitTimeout := actionClient.Timeout
-	if waitTimeout == 0 {
-		waitTimeout = h.waitTimeout
-	}
-	if actionClient.Wait {
+	if actionClient.Wait && actionClient.Timeout != 0 {
 		if operation == OperationDelete {
 			return h.kubeClient.WaitForDelete(targetResources, h.waitTimeout)
 		} else {

@@ -106,7 +106,7 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	case v1alpha1.ManifestStateError:
 		return ctrl.Result{}, r.HandleErrorState(ctx, &logger, &manifestObj)
 	case v1alpha1.ManifestStateReady:
-		return ctrl.Result{}, r.HandleReadyState(ctx, &logger, &manifestObj)
+		return ctrl.Result{RequeueAfter: time.Second * 10}, r.HandleReadyState(ctx, &logger, &manifestObj)
 	}
 
 	// should not be reconciled again
@@ -174,11 +174,42 @@ func (r *ManifestReconciler) HandleErrorState(ctx context.Context, logger *logr.
 }
 
 func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest) error {
-	if manifestObj.Status.ObservedGeneration == manifestObj.Generation {
-		logger.Info("skipping reconciliation for " + manifestObj.Name + ", already reconciled!")
-		return nil
+	logger.Info("checking consistent state for " + manifestObj.Name)
+
+	namespacedName := client.ObjectKeyFromObject(manifestObj)
+	kymaOwnerLabel, ok := manifestObj.Labels[labels.ComponentOwner]
+	if !ok {
+		return fmt.Errorf("label %s not set for manifest resource %s", labels.ComponentOwner, namespacedName)
 	}
-	return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing, "observed generation change")
+	customResCheck := &CustomResourceCheck{DefaultClient: r.Client}
+
+	// evaluate rest config
+	clusterClient := &custom.ClusterClient{DefaultClient: r.Client}
+	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, manifestObj.Namespace)
+	if err != nil {
+		return err
+	}
+	for _, chart := range manifestObj.Spec.Charts {
+		deployInfo := manifest.DeployInfo{
+			Ctx:            ctx,
+			ManifestLabels: manifestObj.Labels,
+			ChartInfo:      manifest.ChartInfo(chart),
+			ObjectKey:      namespacedName,
+			RestConfig:     restConfig,
+			CheckFn:        customResCheck.CheckFn,
+			ReadyCheck:     ReadyCheck,
+		}
+		args := PrepareArgs(&deployInfo)
+		manifestOperations, err := manifest.NewOperations(logger, deployInfo.RestConfig, deployInfo.ReleaseName, cli.New(), args)
+		if err != nil {
+			return err
+		}
+		targetResources, existingResources, err := manifestOperations.GetClusterResources(deployInfo)
+		if len(targetResources) > len(existingResources) {
+			return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing, "observed generation change")
+		}
+	}
+	return nil
 }
 
 func (r *ManifestReconciler) updateManifest(ctx context.Context, manifestObj *v1alpha1.Manifest) error {
@@ -199,29 +230,21 @@ func (r *ManifestReconciler) updateManifestStatus(ctx context.Context, manifestO
 }
 
 func (r *ManifestReconciler) HandleCharts(deployInfo manifest.DeployInfo, mode manifest.Mode, logger *logr.Logger) *manifest.RequestError {
-	var (
-		args = map[string]string{
-			// check --set flags parameter from manifest
-			"set": "",
-			// comma seperated values of manifest command line flags
-			"flags": deployInfo.ClientConfig,
-		}
-	)
-	deployInfo.ChartName = fmt.Sprintf("%s/%s", deployInfo.RepoName, deployInfo.ChartName)
+	args := PrepareArgs(&deployInfo)
 
 	// evaluate create or delete chart
 	create := mode == manifest.CreateMode
 
 	var ready bool
 	// TODO: implement better settings handling
-	manifestOperations, err := manifest.NewOperations(logger, deployInfo.RestConfig, cli.New(), WaitTimeout)
+	manifestOperations, err := manifest.NewOperations(logger, deployInfo.RestConfig, deployInfo.ReleaseName, cli.New(), args)
 
 	if err == nil {
 		if create {
-			ready, err = manifestOperations.Install(deployInfo, args)
+			ready, err = manifestOperations.Install(deployInfo)
 		} else {
 			deployInfo.CheckFn = nil
-			ready, err = manifestOperations.Uninstall(deployInfo, args)
+			ready, err = manifestOperations.Uninstall(deployInfo)
 		}
 	}
 
@@ -315,4 +338,17 @@ func ManifestRateLimiter() ratelimiter.RateLimiter {
 	return workqueue.NewMaxOfRateLimiter(
 		workqueue.NewItemExponentialFailureRateLimiter(1*time.Second, 1000*time.Second),
 		&workqueue.BucketRateLimiter{Limiter: rate.NewLimiter(rate.Limit(30), 200)})
+}
+
+func PrepareArgs(deployInfo *manifest.DeployInfo) map[string]string {
+	var (
+		args = map[string]string{
+			// check --set flags parameter from manifest
+			"set": "",
+			// comma seperated values of manifest command line flags
+			"flags": deployInfo.ClientConfig,
+		}
+	)
+	deployInfo.ChartName = fmt.Sprintf("%s/%s", deployInfo.RepoName, deployInfo.ChartName)
+	return args
 }
