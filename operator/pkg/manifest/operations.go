@@ -43,6 +43,7 @@ type DeployInfo struct {
 	client.ObjectKey
 	RestConfig *rest.Config
 	CheckFn    custom.CheckFnType
+	ReadyCheck bool
 }
 
 type RequestErrChan chan *RequestError
@@ -125,9 +126,11 @@ func (o *Operations) Install(deployInfo DeployInfo, args map[string]string) (boo
 		return false, err
 	}
 
-	// check target resources are ready without waiting
-	if ready, err := o.helmClient.CheckReadyState(deployInfo.Ctx, targetResources); !ready || err != nil {
-		return ready, err
+	if deployInfo.ReadyCheck {
+		// check target resources are ready without waiting
+		if ready, err := o.helmClient.CheckReadyState(deployInfo.Ctx, targetResources); !ready || err != nil {
+			return ready, err
+		}
 	}
 
 	o.logger.Info("Install Complete!! Happy Manifesting!", "release", deployInfo.ReleaseName, "chart", deployInfo.ChartName)

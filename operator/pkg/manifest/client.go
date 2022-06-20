@@ -181,6 +181,11 @@ func (h *HelmClient) PerformCreate(targetResources kube.ResourceList) (*kube.Res
 }
 
 func (h *HelmClient) CheckWaitForResources(targetResources kube.ResourceList, actionClient *action.Install, operation HelmOperation) error {
+	// set universal timeout, if chart specific timeout is missing
+	waitTimeout := actionClient.Timeout
+	if waitTimeout == 0 {
+		waitTimeout = h.waitTimeout
+	}
 	if actionClient.Wait {
 		if operation == OperationDelete {
 			return h.kubeClient.WaitForDelete(targetResources, h.waitTimeout)
