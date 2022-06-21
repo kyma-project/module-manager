@@ -302,10 +302,8 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 	endState := v1alpha1.ManifestStateDeleting
 	if errorState {
 		endState = v1alpha1.ManifestStateError
-	}
-
-	// only update to processing, ready if deletion has not been triggered
-	if latestManifestObj.DeletionTimestamp.IsZero() {
+	} else if latestManifestObj.DeletionTimestamp.IsZero() {
+		// only update to processing, ready if deletion has not been triggered
 		if processing {
 			endState = v1alpha1.ManifestStateProcessing
 		} else {

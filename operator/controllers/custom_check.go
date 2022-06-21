@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/go-logr/logr"
+	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
 	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
 	"github.com/kyma-project/manifest-operator/operator/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -41,7 +42,12 @@ func (c *CustomResourceCheck) CheckProcessingFn(ctx context.Context, manifestLab
 		Reader: customClient,
 	}
 
-	ready, err := customStatus.WaitForCustomResources(ctx, nil)
+	manifestObj := v1alpha1.Manifest{}
+	if err = c.DefaultClient.Get(ctx, namespacedName, &manifestObj); err != nil {
+		return false, err
+	}
+
+	ready, err := customStatus.WaitForCustomResources(ctx, manifestObj.Spec.CustomStates)
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("error while tracking status of custom resources for manifest resource %s", namespacedName))
 		return false, err
