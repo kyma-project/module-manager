@@ -19,7 +19,12 @@ package main
 import (
 	"flag"
 	manifestv1alpha1 "github.com/kyma-project/manifest-operator/api/api/v1alpha1"
+	opLabels "github.com/kyma-project/manifest-operator/operator/pkg/labels"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"os"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -71,6 +76,15 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "7f5e28d0.kyma-project.io",
+		NewCache: cache.BuilderWithOptions(cache.Options{
+			SelectorsByObject: cache.SelectorsByObject{
+				&v1.Secret{}: {
+					Label: labels.SelectorFromSet(
+						labels.Set{opLabels.ManagedBy: opLabels.KymaOperator},
+					),
+				},
+			},
+		}),
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")

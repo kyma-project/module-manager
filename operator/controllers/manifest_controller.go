@@ -26,6 +26,7 @@ import (
 	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
 	"golang.org/x/time/rate"
 	"helm.sh/helm/v3/pkg/cli"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
@@ -35,8 +36,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/ratelimiter"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 	"time"
 )
 
@@ -88,10 +91,20 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, r.updateManifestStatus(ctx, &manifestObj, v1alpha1.ManifestStateDeleting, "deletion timestamp set")
 	}
 
-	// check finalizer
-	if !controllerutil.ContainsFinalizer(&manifestObj, manifestFinalizer) {
-		controllerutil.AddFinalizer(&manifestObj, manifestFinalizer)
+	// check finalizer on native object
+	if !controllerutil.ContainsFinalizer(&manifestObj, labels.ManifestFinalizer) {
+		controllerutil.AddFinalizer(&manifestObj, labels.ManifestFinalizer)
 		return ctrl.Result{}, r.updateManifest(ctx, &manifestObj)
+	}
+
+	// check remote object
+	remoteInterface, err := NewRemoteInterface(ctx, r.Client, &manifestObj)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if !remoteInterface.IsSynced() {
+		return ctrl.Result{}, r.Update(ctx, remoteInterface.NativeObject)
 	}
 
 	// state handling
@@ -288,7 +301,7 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 	// handle deletion if no previous error occurred
 	if !errorState && !latestManifestObj.DeletionTimestamp.IsZero() && !processing {
 		// remove finalizer
-		controllerutil.RemoveFinalizer(latestManifestObj, manifestFinalizer)
+		controllerutil.RemoveFinalizer(latestManifestObj, labels.ManifestFinalizer)
 		if err := r.updateManifest(ctx, latestManifestObj); err != nil {
 			// finalizer removal failure
 			logger.Error(err, "unexpected error while deleting", "resource", namespacedName)
@@ -318,23 +331,6 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 	return
 }
 
-// SetupWithManager sets up the controller with the Manager.
-func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
-	r.DeployChan = make(chan ManifestDeploy)
-	r.Workers.StartWorkers(ctx, r.DeployChan, r.HandleCharts)
-
-	// default config from kubebuilder
-	//r.RestConfig = mgr.GetConfig()
-
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha1.Manifest{}).
-		WithOptions(controller.Options{
-			RateLimiter:             ManifestRateLimiter(),
-			MaxConcurrentReconciles: DefaultWorkersCount,
-		}).
-		Complete(r)
-}
-
 func ManifestRateLimiter() ratelimiter.RateLimiter {
 	return workqueue.NewMaxOfRateLimiter(
 		workqueue.NewItemExponentialFailureRateLimiter(1*time.Second, 1000*time.Second),
@@ -352,4 +348,22 @@ func PrepareArgs(deployInfo *manifest.DeployInfo) map[string]string {
 	)
 	deployInfo.ChartName = fmt.Sprintf("%s/%s", deployInfo.RepoName, deployInfo.ChartName)
 	return args
+}
+
+// SetupWithManager sets up the controller with the Manager.
+func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+	r.DeployChan = make(chan ManifestDeploy)
+	r.Workers.StartWorkers(ctx, r.DeployChan, r.HandleCharts)
+
+	// default config from kubebuilder
+	//r.RestConfig = mgr.GetConfig()
+
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&v1alpha1.Manifest{}).
+		Watches(&source.Kind{Type: &v1.Secret{}}, handler.Funcs{}).
+		WithOptions(controller.Options{
+			RateLimiter:             ManifestRateLimiter(),
+			MaxConcurrentReconciles: DefaultWorkersCount,
+		}).
+		Complete(r)
 }
