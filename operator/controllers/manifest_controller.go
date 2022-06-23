@@ -97,20 +97,8 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, r.updateManifest(ctx, &manifestObj)
 	}
 
-	// check remote object
-	remoteInterface, err := NewRemoteInterface(ctx, r.Client, &manifestObj)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	// sync config to native object
-	if !remoteInterface.IsNativeSynced() {
-		return ctrl.Result{}, r.Update(ctx, remoteInterface.NativeObject)
-	}
-
-	// sync state to remote object
-	if err = remoteInterface.SyncRemoteState(ctx); err != nil {
-		return ctrl.Result{}, err
+	if updatedRequired, err := r.SyncRemoteResource(ctx, &manifestObj, false); updatedRequired || err != nil {
+		return ctrl.Result{Requeue: true}, err
 	}
 
 	// state handling
@@ -122,7 +110,7 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	case v1alpha1.ManifestStateDeleting:
 		return ctrl.Result{}, r.HandleDeletingState(ctx, &logger, &manifestObj)
 	case v1alpha1.ManifestStateError:
-		return ctrl.Result{}, r.HandleErrorState(ctx, &logger, &manifestObj)
+		return ctrl.Result{RequeueAfter: time.Second * 10}, r.HandleErrorState(ctx, &logger, &manifestObj)
 	case v1alpha1.ManifestStateReady:
 		return ctrl.Result{RequeueAfter: time.Second * 10}, r.HandleReadyState(ctx, &logger, &manifestObj)
 	}
@@ -184,10 +172,6 @@ func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logg
 }
 
 func (r *ManifestReconciler) HandleErrorState(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest) error {
-	if manifestObj.Status.ObservedGeneration == manifestObj.Generation {
-		logger.Info("skipping reconciliation for " + manifestObj.Name + ", already reconciled!")
-		return nil
-	}
 	return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing, "observed generation change")
 }
 
@@ -263,6 +247,7 @@ func (r *ManifestReconciler) HandleCharts(deployInfo manifest.DeployInfo, mode m
 
 	if err == nil {
 		if create {
+			deployInfo.CheckFn = nil
 			ready, err = manifestOperations.Install(deployInfo)
 		} else {
 			deployInfo.CheckFn = nil
@@ -306,6 +291,8 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 
 	// handle deletion if no previous error occurred
 	if !errorState && !latestManifestObj.DeletionTimestamp.IsZero() && !processing {
+		r.SyncRemoteResource(ctx, latestManifestObj, true)
+
 		// remove finalizer
 		controllerutil.RemoveFinalizer(latestManifestObj, labels.ManifestFinalizer)
 		if err := r.updateManifest(ctx, latestManifestObj); err != nil {
@@ -335,6 +322,42 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 		logger.Error(err, "error updating status", "resource", namespacedName)
 	}
 	return
+}
+
+func (r *ManifestReconciler) SyncRemoteResource(ctx context.Context, manifestObj *v1alpha1.Manifest, removeFinalizer bool) (bool, error) {
+	// check remote object
+	remoteInterface, err := NewRemoteInterface(ctx, r.Client, manifestObj)
+	if err != nil {
+		return false, err
+	}
+
+	if removeFinalizer {
+		return false, remoteInterface.RemoveFinalizerOnRemote(ctx)
+	}
+
+	// deleting state - do not proceed
+	if !manifestObj.DeletionTimestamp.IsZero() {
+		if err = remoteInterface.HandleDeletingState(ctx); err != nil {
+			return false, remoteInterface.HandleDeletingState(ctx)
+		}
+	} else {
+		// sync spec to remote object (module template change)
+		if err = remoteInterface.HandleNativeSpecChange(ctx); err != nil {
+			return false, err
+		}
+
+		// sync spec to native object (user change)
+		if !remoteInterface.IsNativeSpecSynced() {
+			return true, r.Update(ctx, remoteInterface.NativeObject)
+		}
+	}
+
+	// sync state to remote object
+	if err = remoteInterface.SyncStateToRemote(ctx); err != nil {
+		return false, err
+	}
+
+	return false, nil
 }
 
 func ManifestRateLimiter() ratelimiter.RateLimiter {
