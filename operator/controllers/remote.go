@@ -6,12 +6,17 @@ import (
 	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
 	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
 	"github.com/kyma-project/manifest-operator/operator/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"strconv"
 )
 
 type RemoteInterface struct {
 	NativeClient client.Client
+	CustomClient client.Client
 	NativeObject *v1alpha1.Manifest
 	RemoteObject *v1alpha1.Manifest
 }
@@ -30,12 +35,20 @@ func NewRemoteInterface(ctx context.Context, nativeClient client.Client, nativeO
 		return nil, err
 	}
 
-	customClient, err := remoteCluster.GetNewClient(restConfig)
+	scheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(v1alpha1.AddToScheme(scheme))
+
+	customClient, err := remoteCluster.GetNewClient(restConfig, client.Options{
+		Scheme: scheme,
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	var remoteObject *v1alpha1.Manifest
+	//remoteObject := &unstructured.Unstructured{}
+	//remoteObject.SetGroupVersionKind(v1alpha1.GroupVersion.WithKind(v1alpha1.ManifestKind))
+	remoteObject := &v1alpha1.Manifest{}
 	err = customClient.Get(ctx, namespacedName, remoteObject)
 	if client.IgnoreNotFound(err) != nil {
 		return nil, err
@@ -51,6 +64,8 @@ func NewRemoteInterface(ctx context.Context, nativeClient client.Client, nativeO
 
 	// remote object doesn't exist
 	if err != nil {
+		remoteObject.Name = nativeObject.Name
+		remoteObject.Namespace = nativeObject.Namespace
 		remoteObject.Spec = *nativeObject.Spec.DeepCopy()
 		update = true
 	}
@@ -65,23 +80,33 @@ func NewRemoteInterface(ctx context.Context, nativeClient client.Client, nativeO
 		NativeObject: nativeObject,
 		NativeClient: nativeClient,
 		RemoteObject: remoteObject,
+		CustomClient: customClient,
 	}, nil
 }
 
-func (r *RemoteInterface) IsSynced() bool {
-	remoteGeneration, ok := r.NativeObject.Labels[labels.RemoteGeneration]
+func (r *RemoteInterface) IsNativeSynced() bool {
+	expectedGeneration := strconv.FormatInt(r.RemoteObject.Generation, 10)
+	remoteGenerationLastVisited, ok := r.NativeObject.Labels[labels.RemoteGeneration]
 	if !ok {
 		// label missing
-		r.NativeObject.Labels[labels.RemoteGeneration] = string(r.RemoteObject.Generation)
+		r.NativeObject.Labels[labels.RemoteGeneration] = expectedGeneration
 		return false
 	}
 
-	if remoteGeneration != string(r.RemoteObject.Generation) {
+	if remoteGenerationLastVisited != expectedGeneration {
 		// outdated
 		r.NativeObject.Spec = *r.RemoteObject.Spec.DeepCopy()
-		r.NativeObject.Labels[labels.RemoteGeneration] = string(r.RemoteObject.Generation)
+		r.NativeObject.Labels[labels.RemoteGeneration] = expectedGeneration
 		return false
 	}
 
 	return true
+}
+
+func (r *RemoteInterface) SyncRemoteState(ctx context.Context) error {
+	if r.NativeObject.Status.State != r.RemoteObject.Status.State {
+		r.RemoteObject.Status.State = r.NativeObject.Status.State
+		return r.CustomClient.Status().Update(ctx, r.RemoteObject)
+	}
+	return nil
 }

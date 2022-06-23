@@ -31,7 +31,7 @@ func (c *CustomResourceCheck) CheckProcessingFn(ctx context.Context, manifestLab
 		return false, err
 	}
 
-	customClient, err := clusterClient.GetNewClient(restConfig)
+	customClient, err := clusterClient.GetNewClient(restConfig, client.Options{})
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("error while evaluating target client for manifest resource %s", namespacedName))
 		return false, err

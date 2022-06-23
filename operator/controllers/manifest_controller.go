@@ -103,8 +103,14 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 
-	if !remoteInterface.IsSynced() {
+	// sync config to native object
+	if !remoteInterface.IsNativeSynced() {
 		return ctrl.Result{}, r.Update(ctx, remoteInterface.NativeObject)
+	}
+
+	// sync state to remote object
+	if err = remoteInterface.SyncRemoteState(ctx); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// state handling
