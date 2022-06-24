@@ -97,6 +97,10 @@ spec:
                 description: Observed generation
                 format: int64
                 type: integer
+              observedRemoteGeneration:
+                description: Observed generation for remote Manifest
+                format: int64
+                type: integer
               state:
                 enum:
                 - Processing

@@ -70,6 +70,10 @@ type ManifestStatus struct {
 	// Observed generation
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// Observed generation for remote Manifest
+	// +optional
+	ObservedRemoteGeneration int64 `json:"observedRemoteGeneration,omitempty"`
 }
 
 // ManifestCondition describes condition information for Manifest.
