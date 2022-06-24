@@ -44,7 +44,7 @@ import (
 )
 
 const (
-	DefaultWorkersCount = 4
+	DefaultWorkersCount = 1
 	ReadyCheck          = false
 )
 
@@ -176,9 +176,14 @@ func (r *ManifestReconciler) HandleErrorState(ctx context.Context, logger *logr.
 }
 
 func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest) error {
-	logger.Info("checking consistent state for " + manifestObj.Name)
-
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
+	if manifestObj.Generation != manifestObj.Status.ObservedGeneration {
+		logger.Info("observed generation change for " + namespacedName.String())
+		return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing, "observed generation change")
+	}
+
+	logger.Info("checking consistent state for " + namespacedName.String())
+
 	kymaOwnerLabel, ok := manifestObj.Labels[labels.ComponentOwner]
 	if !ok {
 		return fmt.Errorf("label %s not set for manifest resource %s", labels.ComponentOwner, namespacedName)
@@ -341,15 +346,17 @@ func (r *ManifestReconciler) SyncRemoteResource(ctx context.Context, manifestObj
 			return false, remoteInterface.HandleDeletingState(ctx)
 		}
 	} else {
-		// sync spec to remote object (module template change)
-		if err = remoteInterface.HandleNativeSpecChange(ctx); err != nil {
-			return false, err
-		}
-
 		// sync spec to native object (user change)
-		if !remoteInterface.IsNativeSpecSynced() {
+		if synced, err := remoteInterface.IsNativeSpecSynced(ctx); err != nil {
+			return false, err
+		} else if !synced {
 			return true, r.Update(ctx, remoteInterface.NativeObject)
 		}
+	}
+
+	// sync spec to remote object (module template change)
+	if err = remoteInterface.HandleNativeSpecChange(ctx); err != nil {
+		return false, err
 	}
 
 	// sync state to remote object
