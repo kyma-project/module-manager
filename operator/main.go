@@ -21,6 +21,7 @@ import (
 	manifestv1alpha1 "github.com/kyma-project/manifest-operator/api/api/v1alpha1"
 	opLabels "github.com/kyma-project/manifest-operator/operator/pkg/labels"
 	v1 "k8s.io/api/core/v1"
+	apiExtensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"os"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -48,6 +49,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(manifestv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(apiExtensionsv1.AddToScheme(scheme))
 
 	//+kubebuilder:scaffold:scheme
 }

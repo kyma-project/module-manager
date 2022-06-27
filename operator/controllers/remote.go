@@ -6,6 +6,12 @@ import (
 	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
 	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
 	"github.com/kyma-project/manifest-operator/operator/pkg/labels"
+	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
+	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"path"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -40,25 +46,28 @@ func NewRemoteInterface(ctx context.Context, nativeClient client.Client, nativeO
 		return nil, err
 	}
 
-	remoteObject := &v1alpha1.Manifest{}
-	err = customClient.Get(ctx, namespacedName, remoteObject)
-	if client.IgnoreNotFound(err) != nil {
-		return nil, err
-	}
-
 	remoteInterface := &RemoteInterface{
 		NativeObject: nativeObject,
 		NativeClient: nativeClient,
 		CustomClient: customClient,
 	}
 
-	// remote object doesn't exist
-	if err != nil {
+	err = remoteInterface.Refresh(ctx)
+
+	if meta.IsNoMatchError(err) {
+		if err := remoteInterface.CreateCRD(ctx); err != nil {
+			return nil, err
+		}
+	}
+
+	if client.IgnoreNotFound(err) != nil {
+		// unknown error
+		return nil, err
+	} else if err != nil {
+		// remote object doesn't exist
 		if err = remoteInterface.createRemote(ctx); err != nil {
 			return nil, err
 		}
-	} else {
-		remoteInterface.RemoteObject = remoteObject
 	}
 
 	// check finalizer
@@ -140,6 +149,29 @@ func (r *RemoteInterface) HandleNativeSpecChange(ctx context.Context) error {
 	return nil
 }
 
+func (r *RemoteInterface) CreateCRD(ctx context.Context) error {
+	crd := v1.CustomResourceDefinition{}
+	err := r.NativeClient.Get(ctx, client.ObjectKey{
+		// TODO: Change "manifests" with updated api value
+		Name: fmt.Sprintf("%s.%s", "manifests", v1alpha1.GroupVersion.Group),
+	}, &crd)
+	if err == nil {
+		return errors.NewAlreadyExists(schema.GroupResource{Group: v1alpha1.GroupVersion.Group}, crd.GetName())
+	}
+
+	crds, err := manifest.GetCRDsFromPath(path.Join("./../", "api", "config", "crd", "bases"))
+	if err != nil {
+		return err
+	}
+
+	for _, crd := range crds {
+		if err = r.CustomClient.Create(ctx, crd); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *RemoteInterface) HandleDeletingState(ctx context.Context) error {
 	if r.RemoteObject == nil {
 		return fmt.Errorf(remoteResourceNotSet, client.ObjectKeyFromObject(r.NativeObject))
@@ -192,9 +224,7 @@ func (r *RemoteInterface) Create(ctx context.Context, remoteManifest *v1alpha1.M
 
 func (r *RemoteInterface) Refresh(ctx context.Context) error {
 	remoteObject := &v1alpha1.Manifest{}
-	if err := r.CustomClient.Get(ctx, client.ObjectKeyFromObject(r.NativeObject), remoteObject); client.IgnoreNotFound(err) != nil {
-		return err
-	}
+	err := r.CustomClient.Get(ctx, client.ObjectKeyFromObject(r.NativeObject), remoteObject)
 	r.RemoteObject = remoteObject
-	return nil
+	return err
 }

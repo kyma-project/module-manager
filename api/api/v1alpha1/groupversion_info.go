@@ -28,6 +28,12 @@ var (
 	// GroupVersion is group version used to register these objects
 	GroupVersion = schema.GroupVersion{Group: "component.kyma-project.io", Version: "v1alpha1"}
 
+	// GroupVersionResource is group version resource
+	GroupVersionResource = GroupVersion.WithResource("manifests")
+
+	// GroupVersionKind is group version kind
+	GroupVersionKind = GroupVersion.WithKind("Manifest")
+
 	// SchemeBuilder is used to add go types to the GroupVersionKind scheme
 	SchemeBuilder = &scheme.Builder{GroupVersion: GroupVersion}
 
