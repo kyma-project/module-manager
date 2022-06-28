@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+
 	"github.com/go-logr/logr"
 	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
 	"github.com/kyma-project/manifest-operator/operator/pkg/labels"
@@ -14,7 +15,12 @@ type CustomResourceCheck struct {
 	custom.Check
 }
 
-func (c *CustomResourceCheck) CheckProcessingFn(ctx context.Context, manifestLabels map[string]string, namespacedName client.ObjectKey, logger *logr.Logger) (bool, error) {
+func (c *CustomResourceCheck) CheckProcessingFn(
+	ctx context.Context,
+	manifestLabels map[string]string,
+	namespacedName client.ObjectKey,
+	logger *logr.Logger,
+) (bool, error) {
 	kymaOwnerLabel, ok := manifestLabels[labels.ComponentOwner]
 	if !ok {
 		err := fmt.Errorf("label %s not set for manifest resource %s", labels.ComponentOwner, namespacedName)
@@ -50,6 +56,11 @@ func (c *CustomResourceCheck) CheckProcessingFn(ctx context.Context, manifestLab
 	return ready, nil
 }
 
-func (c *CustomResourceCheck) CheckReadyFn(ctx context.Context, manifestLabels map[string]string, namespacedName client.ObjectKey, logger *logr.Logger) (bool, error) {
+func (c *CustomResourceCheck) CheckReadyFn(
+	ctx context.Context,
+	manifestLabels map[string]string,
+	namespacedName client.ObjectKey,
+	logger *logr.Logger,
+) (bool, error) {
 	return true, nil
 }

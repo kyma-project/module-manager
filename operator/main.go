@@ -18,8 +18,10 @@ package main
 
 import (
 	"flag"
-	manifestv1alpha1 "github.com/kyma-project/manifest-operator/api/api/v1alpha1"
 	"os"
+
+	manifestv1alpha1 "github.com/kyma-project/manifest-operator/api/api/v1alpha1"
+
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -51,8 +53,10 @@ func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string
+	var listenerAddr string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":2020", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":2021", "The address the probe endpoint binds to.")
+	flag.StringVar(&listenerAddr, "skr-listener-bind-address", ":2022", "The address the skr listener endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
@@ -85,7 +89,7 @@ func main() {
 		Client:  mgr.GetClient(),
 		Scheme:  mgr.GetScheme(),
 		Workers: manifestWorkers,
-	}).SetupWithManager(context, mgr); err != nil {
+	}).SetupWithManager(setupLog, context, mgr, listenerAddr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Manifest")
 		os.Exit(1)
 	}
