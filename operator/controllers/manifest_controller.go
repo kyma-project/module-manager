@@ -43,11 +43,6 @@ import (
 	"time"
 )
 
-const (
-	DefaultWorkersCount = 1
-	ReadyCheck          = false
-)
-
 type RequeueIntervals struct {
 	Success time.Duration
 	Failure time.Duration
@@ -63,12 +58,14 @@ type ManifestDeploy struct {
 // ManifestReconciler reconciles a Manifest object
 type ManifestReconciler struct {
 	client.Client
-	Scheme           *runtime.Scheme
-	RestConfig       *rest.Config
-	RestMapper       *restmapper.DeferredDiscoveryRESTMapper
-	DeployChan       chan ManifestDeploy
-	Workers          *ManifestWorkers
-	RequeueIntervals RequeueIntervals
+	Scheme                  *runtime.Scheme
+	RestConfig              *rest.Config
+	RestMapper              *restmapper.DeferredDiscoveryRESTMapper
+	DeployChan              chan ManifestDeploy
+	Workers                 *ManifestWorkers
+	RequeueIntervals        RequeueIntervals
+	MaxConcurrentReconciles int
+	VerifyInstallation      bool
 }
 
 //+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests,verbs=get;list;watch;create;update;patch;delete
@@ -121,7 +118,7 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	case v1alpha1.ManifestStateDeleting:
 		return ctrl.Result{}, r.HandleDeletingState(ctx, &logger, &manifestObj)
 	case v1alpha1.ManifestStateError:
-		return ctrl.Result{RequeueAfter: r.RequeueIntervals.Failure}, r.HandleErrorState(ctx, &logger, &manifestObj)
+		return ctrl.Result{RequeueAfter: r.RequeueIntervals.Failure}, r.HandleErrorState(ctx, &manifestObj)
 	case v1alpha1.ManifestStateReady:
 		return ctrl.Result{RequeueAfter: r.RequeueIntervals.Success}, r.HandleReadyState(ctx, &logger, &manifestObj)
 	}
@@ -172,7 +169,7 @@ func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logg
 				ObjectKey:      namespacedName,
 				RestConfig:     restConfig,
 				CheckFn:        customResCheck.CheckProcessingFn,
-				ReadyCheck:     ReadyCheck,
+				ReadyCheck:     r.VerifyInstallation,
 			},
 			Mode:           mode,
 			RequestErrChan: responseChan,
@@ -182,8 +179,11 @@ func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logg
 	return nil
 }
 
-func (r *ManifestReconciler) HandleErrorState(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest) error {
-	return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing, "observed generation change")
+func (r *ManifestReconciler) HandleErrorState(ctx context.Context, manifestObj *v1alpha1.Manifest) error {
+	if manifestObj.Generation != manifestObj.Status.ObservedGeneration {
+		return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing, "observed generation change")
+	}
+	return nil
 }
 
 func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest) error {
@@ -215,7 +215,7 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 			ObjectKey:      namespacedName,
 			RestConfig:     restConfig,
 			CheckFn:        customResCheck.CheckReadyFn,
-			ReadyCheck:     ReadyCheck,
+			ReadyCheck:     r.VerifyInstallation,
 		}
 		args := PrepareArgs(&deployInfo)
 		manifestOperations, err := manifest.NewOperations(logger, deployInfo.RestConfig, deployInfo.ReleaseName, cli.New(), args)
@@ -307,17 +307,23 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 
 	// handle deletion if no previous error occurred
 	if !errorState && !latestManifestObj.DeletionTimestamp.IsZero() && !processing {
-		r.SyncRemoteResource(ctx, latestManifestObj, true)
-
-		// remove finalizer
-		controllerutil.RemoveFinalizer(latestManifestObj, labels.ManifestFinalizer)
-		if err := r.updateManifest(ctx, latestManifestObj); err != nil {
-			// finalizer removal failure
-			logger.Error(err, "unexpected error while deleting", "resource", namespacedName)
+		// remove finalizer on remote resource
+		if _, err := r.SyncRemoteResource(ctx, latestManifestObj, true); err != nil {
 			errorState = true
-		} else {
-			// finalizer successfully removed
-			return
+			logger.Error(err, "unexpected error while syncing remote ", "resource", namespacedName)
+		}
+
+		if !errorState {
+			// remove finalizer
+			controllerutil.RemoveFinalizer(latestManifestObj, labels.ManifestFinalizer)
+			if err := r.updateManifest(ctx, latestManifestObj); err != nil {
+				// finalizer removal failure
+				logger.Error(err, "unexpected error while removing finalizer from", "resource", namespacedName)
+				errorState = true
+			} else {
+				// finalizer successfully removed
+				return
+			}
 		}
 	}
 
@@ -409,7 +415,7 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 		Watches(&source.Kind{Type: &v1.Secret{}}, handler.Funcs{}).
 		WithOptions(controller.Options{
 			RateLimiter:             ManifestRateLimiter(),
-			MaxConcurrentReconciles: DefaultWorkersCount,
+			MaxConcurrentReconciles: r.MaxConcurrentReconciles,
 		}).
 		Complete(r)
 }
