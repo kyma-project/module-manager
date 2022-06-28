@@ -48,6 +48,12 @@ const (
 	ReadyCheck          = false
 )
 
+type RequeueIntervals struct {
+	Success time.Duration
+	Failure time.Duration
+	Waiting time.Duration
+}
+
 type ManifestDeploy struct {
 	Info           manifest.DeployInfo
 	Mode           manifest.Mode
@@ -57,16 +63,19 @@ type ManifestDeploy struct {
 // ManifestReconciler reconciles a Manifest object
 type ManifestReconciler struct {
 	client.Client
-	Scheme     *runtime.Scheme
-	RestConfig *rest.Config
-	RestMapper *restmapper.DeferredDiscoveryRESTMapper
-	DeployChan chan ManifestDeploy
-	Workers    *ManifestWorkers
+	Scheme           *runtime.Scheme
+	RestConfig       *rest.Config
+	RestMapper       *restmapper.DeferredDiscoveryRESTMapper
+	DeployChan       chan ManifestDeploy
+	Workers          *ManifestWorkers
+	RequeueIntervals RequeueIntervals
 }
 
 //+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests/finalizers,verbs=update
+//+kubebuilder:rbac:groups="",resources=events,verbs=create;patch;get;list;watch
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -80,7 +89,7 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		// we'll ignore not-found errors, since they can't be fixed by an immediate
 		// requeue (we'll need to wait for a new notification), and we can get them
 		// on deleted requests.
-		logger.Info(req.NamespacedName.String() + " got deleted!")
+		logger.Info(fmt.Sprintf("%s got deleted", req.NamespacedName.String()))
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	manifestObj = *manifestObj.DeepCopy()
@@ -97,8 +106,10 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, r.updateManifest(ctx, &manifestObj)
 	}
 
-	if updatedRequired, err := r.SyncRemoteResource(ctx, &manifestObj, false); updatedRequired || err != nil {
-		return ctrl.Result{Requeue: true}, err
+	if updatedRequired, err := r.SyncRemoteResource(ctx, &manifestObj, false); err != nil {
+		return ctrl.Result{RequeueAfter: r.RequeueIntervals.Failure}, err
+	} else if updatedRequired {
+		return ctrl.Result{RequeueAfter: r.RequeueIntervals.Waiting}, nil
 	}
 
 	// state handling
@@ -110,9 +121,9 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	case v1alpha1.ManifestStateDeleting:
 		return ctrl.Result{}, r.HandleDeletingState(ctx, &logger, &manifestObj)
 	case v1alpha1.ManifestStateError:
-		return ctrl.Result{RequeueAfter: time.Second * 10}, r.HandleErrorState(ctx, &logger, &manifestObj)
+		return ctrl.Result{RequeueAfter: r.RequeueIntervals.Failure}, r.HandleErrorState(ctx, &logger, &manifestObj)
 	case v1alpha1.ManifestStateReady:
-		return ctrl.Result{RequeueAfter: time.Second * 10}, r.HandleReadyState(ctx, &logger, &manifestObj)
+		return ctrl.Result{RequeueAfter: r.RequeueIntervals.Success}, r.HandleReadyState(ctx, &logger, &manifestObj)
 	}
 
 	// should not be reconciled again
@@ -331,36 +342,35 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 
 func (r *ManifestReconciler) SyncRemoteResource(ctx context.Context, manifestObj *v1alpha1.Manifest, removeFinalizer bool) (bool, error) {
 	// check remote object
-	remoteInterface, err := NewRemoteInterface(ctx, r.Client, manifestObj)
+	remoteInterface, remoteManifest, err := NewRemoteInterface(ctx, r.Client, manifestObj)
 	if err != nil {
 		return false, err
 	}
 
 	if removeFinalizer {
-		return false, remoteInterface.RemoveFinalizerOnRemote(ctx)
+		return false, remoteInterface.RemoveFinalizerOnRemote(ctx, remoteManifest)
 	}
 
-	// deleting state - do not proceed
-	if !manifestObj.DeletionTimestamp.IsZero() {
-		if err = remoteInterface.HandleDeletingState(ctx); err != nil {
-			return false, remoteInterface.HandleDeletingState(ctx)
-		}
-	} else {
-		// sync spec to native object (user change)
-		if synced, err := remoteInterface.IsNativeSpecSynced(ctx); err != nil {
-			return false, err
-		} else if !synced {
-			return true, r.Update(ctx, remoteInterface.NativeObject)
-		}
-	}
-
-	// sync spec to remote object (module template change)
-	if err = remoteInterface.HandleNativeSpecChange(ctx); err != nil {
+	// sync state to remote manifest
+	if err = remoteInterface.StateSyncToRemote(ctx, remoteManifest); err != nil {
 		return false, err
 	}
 
-	// sync state to remote object
-	if err = remoteInterface.SyncStateToRemote(ctx); err != nil {
+	// if native manifest in deletion mode trigger on remote resource
+	if !manifestObj.DeletionTimestamp.IsZero() {
+		return false, remoteInterface.HandleDeletingState(ctx, remoteManifest)
+	}
+
+	// sync spec to native manifest (user change)
+	if synced, err := remoteInterface.SpecSyncToNative(ctx, remoteManifest); err != nil {
+		return false, err
+	} else if !synced {
+		return true, r.Update(ctx, remoteInterface.NativeObject)
+	}
+
+	// sync spec to remote object (module template change)
+	remoteManifest, err = remoteInterface.SpecSyncToRemote(ctx, remoteManifest)
+	if err != nil {
 		return false, err
 	}
 

@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"os"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -58,11 +59,23 @@ func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string
+	var requeueSuccessInterval, requeueFailureInterval, requeueWaitingInterval time.Duration
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":2020", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":2021", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
+	flag.DurationVar(&requeueSuccessInterval, "requeue-success-interval", 20*time.Second,
+		"determines the duration after which an already successfully reconciled Kyma is enqueued for checking "+
+			"if it's still in a consistent state.")
+	flag.DurationVar(&requeueFailureInterval, "requeue-failure-interval", 10*time.Second,
+		"determines the duration after which a failing reconciliation is retried and "+
+			"enqueued for a next try at recovering (e.g. because an Remote Synchronization Interaction failed)")
+	flag.DurationVar(&requeueWaitingInterval, "requeue-waiting-interval", 3*time.Second,
+		"etermines the duration after which a pending reconciliation is requeued "+
+			"if the operator decides that it needs to wait for a certain state to update before it can proceed "+
+			"(e.g. because of pending finalizers in the deletion process)")
+
 	opts := zap.Options{
 		Development: true,
 	}
@@ -101,6 +114,11 @@ func main() {
 		Client:  mgr.GetClient(),
 		Scheme:  mgr.GetScheme(),
 		Workers: manifestWorkers,
+		RequeueIntervals: controllers.RequeueIntervals{
+			Success: requeueSuccessInterval,
+			Failure: requeueFailureInterval,
+			Waiting: requeueWaitingInterval,
+		},
 	}).SetupWithManager(context, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Manifest")
 		os.Exit(1)

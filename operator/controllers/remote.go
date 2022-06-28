@@ -20,30 +20,27 @@ type RemoteInterface struct {
 	NativeClient client.Client
 	CustomClient client.Client
 	NativeObject *v1alpha1.Manifest
-	RemoteObject *v1alpha1.Manifest
 }
 
-const remoteResourceNotSet = "remote resource not set for manifest %s"
-
-func NewRemoteInterface(ctx context.Context, nativeClient client.Client, nativeObject *v1alpha1.Manifest) (*RemoteInterface, error) {
+func NewRemoteInterface(ctx context.Context, nativeClient client.Client, nativeObject *v1alpha1.Manifest) (*RemoteInterface, *v1alpha1.Manifest, error) {
 	namespacedName := client.ObjectKeyFromObject(nativeObject)
 	kymaOwner, ok := nativeObject.Labels[labels.ComponentOwner]
 	if !ok {
-		return nil, fmt.Errorf(
+		return nil, nil, fmt.Errorf(
 			fmt.Sprintf("label %s not found on manifest resource %s", labels.ComponentOwner, namespacedName))
 	}
 
 	remoteCluster := &custom.ClusterClient{DefaultClient: nativeClient}
 	restConfig, err := remoteCluster.GetRestConfig(ctx, kymaOwner, nativeObject.Namespace)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	customClient, err := remoteCluster.GetNewClient(restConfig, client.Options{
 		Scheme: nativeClient.Scheme(),
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	remoteInterface := &RemoteInterface{
@@ -52,106 +49,99 @@ func NewRemoteInterface(ctx context.Context, nativeClient client.Client, nativeO
 		CustomClient: customClient,
 	}
 
-	err = remoteInterface.Refresh(ctx)
-
 	if meta.IsNoMatchError(err) {
 		if err := remoteInterface.CreateCRD(ctx); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
+	// check for remote resource
+	remoteManifest, err := remoteInterface.GetLatestRemote(ctx)
+
 	if client.IgnoreNotFound(err) != nil {
 		// unknown error
-		return nil, err
+		return nil, nil, err
 	} else if err != nil {
-		// remote object doesn't exist
-		if err = remoteInterface.createRemote(ctx); err != nil {
-			return nil, err
+		// remote resource doesn't exist
+		remoteManifest, err = remoteInterface.createRemote(ctx)
+		if err != nil {
+			return nil, nil, err
 		}
 	}
 
 	// check finalizer
-	if !controllerutil.ContainsFinalizer(remoteInterface.RemoteObject, labels.ManifestFinalizer) {
-		controllerutil.AddFinalizer(remoteInterface.RemoteObject, labels.ManifestFinalizer)
-		if err = remoteInterface.Update(ctx); err != nil {
-			return nil, err
+	if !controllerutil.ContainsFinalizer(remoteManifest, labels.ManifestFinalizer) {
+		controllerutil.AddFinalizer(remoteManifest, labels.ManifestFinalizer)
+		if err = remoteInterface.Update(ctx, remoteManifest); err != nil {
+			return nil, nil, err
 		}
 	}
 
-	return remoteInterface, nil
+	return remoteInterface, remoteManifest, nil
 }
 
-func (r *RemoteInterface) createRemote(ctx context.Context) error {
-	remoteObject := &v1alpha1.Manifest{}
-	remoteObject.Name = r.NativeObject.Name
-	remoteObject.Namespace = r.NativeObject.Namespace
-	remoteObject.Spec = *r.NativeObject.Spec.DeepCopy()
-	controllerutil.AddFinalizer(remoteObject, labels.ManifestFinalizer)
-	return r.Create(ctx, remoteObject)
+func (r *RemoteInterface) createRemote(ctx context.Context) (*v1alpha1.Manifest, error) {
+	remoteManifest := &v1alpha1.Manifest{}
+	remoteManifest.Name = r.NativeObject.Name
+	remoteManifest.Namespace = r.NativeObject.Namespace
+	remoteManifest.Spec = *r.NativeObject.Spec.DeepCopy()
+	controllerutil.AddFinalizer(remoteManifest, labels.ManifestFinalizer)
+	err := r.CustomClient.Create(ctx, remoteManifest)
+	return remoteManifest, err
 }
 
-func (r *RemoteInterface) IsNativeSpecSynced(ctx context.Context) (bool, error) {
-	if r.RemoteObject == nil {
-		return false, fmt.Errorf(remoteResourceNotSet, client.ObjectKeyFromObject(r.NativeObject))
-	}
-
-	if r.RemoteObject.Status.ObservedGeneration == 0 {
+func (r *RemoteInterface) SpecSyncToNative(ctx context.Context, remoteManifest *v1alpha1.Manifest) (bool, error) {
+	if remoteManifest.Status.ObservedGeneration == 0 {
 		// observed generation missing - remote resource freshly installed!
 		return true, nil
 	}
 
-	if r.RemoteObject.Status.ObservedGeneration != r.RemoteObject.Generation {
+	if remoteManifest.Status.ObservedGeneration != remoteManifest.Generation {
 		// outdated
-		r.NativeObject.Spec = *r.RemoteObject.Spec.DeepCopy()
-		r.RemoteObject.Status.ObservedGeneration = r.RemoteObject.Generation
-		return false, r.UpdateStatus(ctx)
+		r.NativeObject.Spec = *remoteManifest.Spec.DeepCopy()
+		remoteManifest.Status.ObservedGeneration = remoteManifest.Generation
+		return false, r.UpdateStatus(ctx, remoteManifest)
 	}
 
 	return true, nil
 }
 
-func (r *RemoteInterface) SyncStateToRemote(ctx context.Context) error {
-	if r.RemoteObject == nil {
-		return fmt.Errorf(remoteResourceNotSet, client.ObjectKeyFromObject(r.NativeObject))
-	}
-	if r.NativeObject.Status.State != r.RemoteObject.Status.State {
-		r.RemoteObject.Status.State = r.NativeObject.Status.State
-		r.RemoteObject.Status.ObservedGeneration = r.RemoteObject.Generation
-		return r.UpdateStatus(ctx)
+func (r *RemoteInterface) StateSyncToRemote(ctx context.Context, remoteManifest *v1alpha1.Manifest) error {
+	if r.NativeObject.Status.State != remoteManifest.Status.State {
+		remoteManifest.Status.State = r.NativeObject.Status.State
+		remoteManifest.Status.ObservedGeneration = remoteManifest.Generation
+		return r.UpdateStatus(ctx, remoteManifest)
 	}
 	return nil
 }
 
-func (r *RemoteInterface) HandleNativeSpecChange(ctx context.Context) error {
-	if r.RemoteObject == nil {
-		return fmt.Errorf(remoteResourceNotSet, client.ObjectKeyFromObject(r.NativeObject))
-	}
-
+func (r *RemoteInterface) SpecSyncToRemote(ctx context.Context, remoteManifest *v1alpha1.Manifest) (*v1alpha1.Manifest, error) {
 	// ignore cases where native object has never been reconciled!
 	if r.NativeObject.Status.ObservedGeneration == 0 {
-		return nil
+		return remoteManifest, nil
 	}
 
 	if r.NativeObject.Status.ObservedGeneration != r.NativeObject.Generation {
-		// trigger delete on remote
-		if err := r.HandleDeletingState(ctx); err != nil {
-			return err
-		}
 		// remove finalizer
-		if err := r.RemoveFinalizerOnRemote(ctx); err != nil {
-			return err
+		if err := r.RemoveFinalizerOnRemote(ctx, remoteManifest); err != nil {
+			return remoteManifest, err
+		}
+
+		// trigger delete on remote
+		if err := r.HandleDeletingState(ctx, remoteManifest); err != nil {
+			return remoteManifest, err
 		}
 
 		// create fresh object
 		return r.createRemote(ctx)
 	}
 
-	return nil
+	return remoteManifest, nil
 }
 
 func (r *RemoteInterface) CreateCRD(ctx context.Context) error {
 	crd := v1.CustomResourceDefinition{}
-	err := r.NativeClient.Get(ctx, client.ObjectKey{
+	err := r.CustomClient.Get(ctx, client.ObjectKey{
 		// TODO: Change "manifests" with updated api value
 		Name: fmt.Sprintf("%s.%s", "manifests", v1alpha1.GroupVersion.Group),
 	}, &crd)
@@ -159,6 +149,7 @@ func (r *RemoteInterface) CreateCRD(ctx context.Context) error {
 		return errors.NewAlreadyExists(schema.GroupResource{Group: v1alpha1.GroupVersion.Group}, crd.GetName())
 	}
 
+	// TODO: for demo purposes, should ideally be close to the control plane
 	crds, err := manifest.GetCRDsFromPath(path.Join("./../", "api", "config", "crd", "bases"))
 	if err != nil {
 		return err
@@ -172,59 +163,25 @@ func (r *RemoteInterface) CreateCRD(ctx context.Context) error {
 	return nil
 }
 
-func (r *RemoteInterface) HandleDeletingState(ctx context.Context) error {
-	if r.RemoteObject == nil {
-		return fmt.Errorf(remoteResourceNotSet, client.ObjectKeyFromObject(r.NativeObject))
-	}
-
-	return r.Delete(ctx)
+func (r *RemoteInterface) HandleDeletingState(ctx context.Context, remoteManifest *v1alpha1.Manifest) error {
+	return r.CustomClient.Delete(ctx, remoteManifest)
 }
 
-func (r *RemoteInterface) RemoveFinalizerOnRemote(ctx context.Context) error {
-	if r.RemoteObject == nil {
-		return fmt.Errorf(remoteResourceNotSet, client.ObjectKeyFromObject(r.NativeObject))
-	}
-
-	controllerutil.RemoveFinalizer(r.RemoteObject, labels.ManifestFinalizer)
-	if err := r.Update(ctx); err != nil {
-		return err
-	}
-	// only set to nil after removing finalizer
-	r.RemoteObject = nil
-	return nil
+func (r *RemoteInterface) RemoveFinalizerOnRemote(ctx context.Context, remoteManifest *v1alpha1.Manifest) error {
+	controllerutil.RemoveFinalizer(remoteManifest, labels.ManifestFinalizer)
+	return r.Update(ctx, remoteManifest)
 }
 
-func (r *RemoteInterface) Update(ctx context.Context) error {
-	if err := r.CustomClient.Update(ctx, r.RemoteObject); err != nil {
-		return err
-	}
-	return r.Refresh(ctx)
+func (r *RemoteInterface) Update(ctx context.Context, remoteManifest *v1alpha1.Manifest) error {
+	return r.CustomClient.Update(ctx, remoteManifest)
 }
 
-func (r *RemoteInterface) UpdateStatus(ctx context.Context) error {
-	if err := r.CustomClient.Status().Update(ctx, r.RemoteObject); err != nil {
-		return err
-	}
-	return r.Refresh(ctx)
+func (r *RemoteInterface) UpdateStatus(ctx context.Context, remoteManifest *v1alpha1.Manifest) error {
+	return r.CustomClient.Status().Update(ctx, remoteManifest)
 }
 
-func (r *RemoteInterface) Delete(ctx context.Context) error {
-	if err := r.CustomClient.Delete(ctx, r.RemoteObject); err != nil {
-		return err
-	}
-	return r.Refresh(ctx)
-}
-
-func (r *RemoteInterface) Create(ctx context.Context, remoteManifest *v1alpha1.Manifest) error {
-	if err := r.CustomClient.Create(ctx, remoteManifest); err != nil {
-		return err
-	}
-	return r.Refresh(ctx)
-}
-
-func (r *RemoteInterface) Refresh(ctx context.Context) error {
+func (r *RemoteInterface) GetLatestRemote(ctx context.Context) (*v1alpha1.Manifest, error) {
 	remoteObject := &v1alpha1.Manifest{}
 	err := r.CustomClient.Get(ctx, client.ObjectKeyFromObject(r.NativeObject), remoteObject)
-	r.RemoteObject = remoteObject
-	return err
+	return remoteObject, err
 }
