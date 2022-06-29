@@ -13,20 +13,22 @@ type Workers interface {
 	StartWorkers(ctx context.Context, jobChan <-chan manifest.DeployInfo, handlerFn func(info manifest.DeployInfo, logger *logr.Logger) *manifest.RequestError)
 }
 
-type ManifestWorkers struct {
+type ManifestWorkerPool struct {
 	Workers
-	logger *logr.Logger
-	size   int
+	logger      *logr.Logger
+	initialSize int
+	size        int
 }
 
-func NewManifestWorkers(logger *logr.Logger) *ManifestWorkers {
-	return &ManifestWorkers{
-		logger: logger,
-		size:   DefaultWorkersCount,
+func NewManifestWorkers(logger *logr.Logger, workersConcurrentManifests int) *ManifestWorkerPool {
+	return &ManifestWorkerPool{
+		logger:      logger,
+		initialSize: workersConcurrentManifests,
+		size:        workersConcurrentManifests,
 	}
 }
 
-func (mw *ManifestWorkers) StartWorkers(ctx context.Context, jobChan <-chan ManifestDeploy, handlerFn func(info manifest.DeployInfo, mode manifest.Mode, logger *logr.Logger) *manifest.RequestError) {
+func (mw *ManifestWorkerPool) StartWorkers(ctx context.Context, jobChan <-chan ManifestDeploy, handlerFn func(info manifest.DeployInfo, mode manifest.Mode, logger *logr.Logger) *manifest.RequestError) {
 	for worker := 1; worker <= mw.GetWorkerPoolSize(); worker++ {
 		go func(ctx context.Context, id int, deployJob <-chan ManifestDeploy) {
 			mw.logger.Info(fmt.Sprintf("Starting manifest-operator worker with id %d", id))
@@ -43,13 +45,13 @@ func (mw *ManifestWorkers) StartWorkers(ctx context.Context, jobChan <-chan Mani
 	}
 }
 
-func (mw *ManifestWorkers) GetWorkerPoolSize() int {
+func (mw *ManifestWorkerPool) GetWorkerPoolSize() int {
 	return mw.size
 }
 
-func (mw *ManifestWorkers) SetWorkerPoolSize(newSize int) {
-	if newSize < 1 {
-		mw.size = DefaultWorkersCount
+func (mw *ManifestWorkerPool) SetWorkerPoolSize(newSize int) {
+	if newSize > 0 {
+		mw.size = mw.initialSize
 	} else {
 		mw.size = newSize
 	}
