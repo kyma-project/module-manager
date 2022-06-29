@@ -2,7 +2,7 @@ package manifest
 
 import (
 	"bufio"
-	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -11,9 +11,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"os"
 	"path/filepath"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-func GetCRDsFromPath(filePath string) ([]*apiextensionsv1.CustomResourceDefinition, error) {
+func GetCRDsFromPath(ctx context.Context, filePath string) ([]*apiextensionsv1.CustomResourceDefinition, error) {
+	// TODO: Evaluate filePath.Walk() as an alternative
 	pathInfo, err := os.Stat(filePath)
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -28,7 +30,7 @@ func GetCRDsFromPath(filePath string) ([]*apiextensionsv1.CustomResourceDefiniti
 		return nil, err
 	}
 
-	crdsList, err := readCRDs(filePath, files)
+	crdsList, err := readCRDs(ctx, filePath, files)
 	if err != nil {
 		return nil, err
 	}
@@ -36,10 +38,11 @@ func GetCRDsFromPath(filePath string) ([]*apiextensionsv1.CustomResourceDefiniti
 	return crdsList, nil
 }
 
-func readCRDs(basePath string, files []os.FileInfo) ([]*apiextensionsv1.CustomResourceDefinition, error) {
+func readCRDs(ctx context.Context, basePath string, files []os.FileInfo) ([]*apiextensionsv1.CustomResourceDefinition, error) {
 	var crds []*apiextensionsv1.CustomResourceDefinition
+	logger := log.FromContext(ctx).WithName("CRDs")
 
-	crdExtensions := sets.NewString(".yaml")
+	crdExtensions := sets.NewString(".yaml", ".json", ".yml")
 
 	for _, file := range files {
 		if !crdExtensions.Has(filepath.Ext(file.Name())) {
@@ -64,32 +67,40 @@ func readCRDs(basePath string, files []os.FileInfo) ([]*apiextensionsv1.CustomRe
 			crds = append(crds, crd)
 		}
 
-		fmt.Println("read CRDs from file", "file", file.Name())
+		if len(crds) < 1 {
+			err = fmt.Errorf("no CRDs found in path %s", basePath)
+			logger.Error(err, "")
+			return nil, err
+		}
+
+		logger.Info("read CRDs from", "file", file.Name())
 	}
 
 	return crds, nil
 }
 
-func readFile(stringifiedFile string) ([][]byte, error) {
-	fileBytes, err := ioutil.ReadFile(stringifiedFile)
+func readFile(fileName string) ([][]byte, error) {
+	file, err := os.Open(fileName)
+	yamlStructs := make([][]byte, 0)
 	if err != nil {
 		return nil, err
 	}
+	defer file.Close()
 
-	docs := [][]byte{}
-	reader := yaml.NewYAMLReader(bufio.NewReader(bytes.NewReader(fileBytes)))
+	reader := bufio.NewReader(file)
+	yamlReader := yaml.NewYAMLReader(reader)
+
 	for {
-		doc, err := reader.Read()
+		structByte, err := yamlReader.Read()
 		if err != nil {
-			if err == io.EOF {
-				break
-			}
-
+			break
+		}
+		if err != nil && err != io.EOF {
 			return nil, err
 		}
 
-		docs = append(docs, doc)
+		yamlStructs = append(yamlStructs, structByte)
 	}
 
-	return docs, nil
+	return yamlStructs, nil
 }

@@ -84,7 +84,7 @@ func (r *RemoteInterface) createRemote(ctx context.Context) (*v1alpha1.Manifest,
 	remoteManifest := &v1alpha1.Manifest{}
 	remoteManifest.Name = r.NativeObject.Name
 	remoteManifest.Namespace = r.NativeObject.Namespace
-	remoteManifest.Spec = *r.NativeObject.Spec.DeepCopy()
+	remoteManifest.Spec = r.NativeObject.Spec
 	controllerutil.AddFinalizer(remoteManifest, labels.ManifestFinalizer)
 	err := r.CustomClient.Create(ctx, remoteManifest)
 	return remoteManifest, err
@@ -98,7 +98,7 @@ func (r *RemoteInterface) SpecSyncToNative(ctx context.Context, remoteManifest *
 
 	if remoteManifest.Status.ObservedGeneration != remoteManifest.Generation {
 		// outdated
-		r.NativeObject.Spec = *remoteManifest.Spec.DeepCopy()
+		r.NativeObject.Spec = remoteManifest.Spec
 		remoteManifest.Status.ObservedGeneration = remoteManifest.Generation
 		return false, r.UpdateStatus(ctx, remoteManifest)
 	}
@@ -150,7 +150,7 @@ func (r *RemoteInterface) CreateCRD(ctx context.Context) error {
 	}
 
 	// TODO: for demo purposes, should ideally be close to the control plane
-	crds, err := manifest.GetCRDsFromPath(path.Join("./../", "api", "config", "crd", "bases"))
+	crds, err := manifest.GetCRDsFromPath(ctx, path.Join("./../", "api", "config", "crd", "bases"))
 	if err != nil {
 		return err
 	}

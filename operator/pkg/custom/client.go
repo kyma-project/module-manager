@@ -26,16 +26,15 @@ func (cc *ClusterClient) GetNewClient(restConfig *rest.Config, options client.Op
 
 func (cc *ClusterClient) GetRestConfig(ctx context.Context, kymaOwner string, namespace string) (*rest.Config, error) {
 	kubeConfigSecretList := &v1.SecretList{}
+	gr := v1.SchemeGroupVersion.WithResource(string(v1.ResourceSecrets)).GroupResource()
 	if err := cc.DefaultClient.List(ctx, kubeConfigSecretList, &client.ListOptions{
 		LabelSelector: k8slabels.SelectorFromSet(
 			k8slabels.Set{labels.ComponentOwner: kymaOwner}), Namespace: namespace,
 	}); err != nil {
 		return nil, err
 	} else if len(kubeConfigSecretList.Items) < 1 {
-		gr := v1.SchemeGroupVersion.WithResource("secrets").GroupResource()
 		return nil, errors.NewNotFound(gr, kymaOwner)
 	} else if len(kubeConfigSecretList.Items) > 1 {
-		gr := v1.SchemeGroupVersion.WithResource("secrets").GroupResource()
 		return nil, errors.NewConflict(gr, kymaOwner, fmt.Errorf("more than one instance found"))
 	}
 	kubeConfigSecret := kubeConfigSecretList.Items[0]
