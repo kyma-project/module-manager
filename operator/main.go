@@ -60,7 +60,7 @@ func main() {
 	var enableLeaderElection, verifyInstallation bool
 	var probeAddr string
 	var requeueSuccessInterval, requeueFailureInterval, requeueWaitingInterval time.Duration
-	var concurrentReconciles int
+	var concurrentReconciles, workersConcurrentManifests int
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":2020", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":2021", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
@@ -78,8 +78,10 @@ func main() {
 			"(e.g. because of pending finalizers in the deletion process).")
 	flag.IntVar(&concurrentReconciles, "concurrent-reconciles", 1,
 		"Determines the number of concurrent reconciliations by the operator.")
+	flag.IntVar(&workersConcurrentManifests, "workers-concurrent-manifest", 4,
+		"Determines the number of concurrent manifest operations for a single resource by the operator.")
 	flag.BoolVar(&verifyInstallation, "verify-installation", false,
-		"Indicates if installed resources should be verified after instllation, "+
+		"Indicates if installed resources should be verified after installation, "+
 			"before marking the resource state to a consistent state.")
 
 	opts := zap.Options{
@@ -113,7 +115,7 @@ func main() {
 	}
 
 	workersLogger := ctrl.Log.WithName("workers")
-	manifestWorkers := controllers.NewManifestWorkers(&workersLogger)
+	manifestWorkers := controllers.NewManifestWorkers(&workersLogger, workersConcurrentManifests)
 	context := ctrl.SetupSignalHandler()
 
 	if err = (&controllers.ManifestReconciler{

@@ -62,7 +62,7 @@ type ManifestReconciler struct {
 	RestConfig              *rest.Config
 	RestMapper              *restmapper.DeferredDiscoveryRESTMapper
 	DeployChan              chan ManifestDeploy
-	Workers                 *ManifestWorkers
+	Workers                 *ManifestWorkerPool
 	RequeueIntervals        RequeueIntervals
 	MaxConcurrentReconciles int
 	VerifyInstallation      bool
@@ -180,10 +180,7 @@ func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logg
 }
 
 func (r *ManifestReconciler) HandleErrorState(ctx context.Context, manifestObj *v1alpha1.Manifest) error {
-	if manifestObj.Generation != manifestObj.Status.ObservedGeneration {
-		return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing, "observed generation change")
-	}
-	return nil
+	return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing, "observed generation change")
 }
 
 func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest) error {
