@@ -49,14 +49,13 @@ func NewRemoteInterface(ctx context.Context, nativeClient client.Client, nativeO
 		CustomClient: customClient,
 	}
 
+	// check for remote resource
+	remoteManifest, err := remoteInterface.GetLatestRemote(ctx)
 	if meta.IsNoMatchError(err) {
 		if err := remoteInterface.CreateCRD(ctx); err != nil {
 			return nil, nil, err
 		}
 	}
-
-	// check for remote resource
-	remoteManifest, err := remoteInterface.GetLatestRemote(ctx)
 
 	if client.IgnoreNotFound(err) != nil {
 		// unknown error
@@ -78,6 +77,21 @@ func NewRemoteInterface(ctx context.Context, nativeClient client.Client, nativeO
 	}
 
 	return remoteInterface, remoteManifest, nil
+}
+
+func (r *RemoteInterface) handleRemoteDeletion(ctx context.Context, remoteManifest *v1alpha1.Manifest) (*v1alpha1.Manifest, error) {
+	if !remoteManifest.DeletionTimestamp.IsZero() {
+		if err := r.RemoveFinalizerOnRemote(ctx, remoteManifest); err != nil {
+			return nil, err
+		}
+
+		if err := r.HandleDeletingState(ctx, remoteManifest); err != nil {
+			return nil, err
+		}
+
+		return r.createRemote(ctx)
+	}
+	return remoteManifest, nil
 }
 
 func (r *RemoteInterface) createRemote(ctx context.Context) (*v1alpha1.Manifest, error) {
@@ -182,6 +196,9 @@ func (r *RemoteInterface) UpdateStatus(ctx context.Context, remoteManifest *v1al
 
 func (r *RemoteInterface) GetLatestRemote(ctx context.Context) (*v1alpha1.Manifest, error) {
 	remoteObject := &v1alpha1.Manifest{}
-	err := r.CustomClient.Get(ctx, client.ObjectKeyFromObject(r.NativeObject), remoteObject)
-	return remoteObject, err
+	if err := r.CustomClient.Get(ctx, client.ObjectKeyFromObject(r.NativeObject), remoteObject); err != nil {
+		return nil, err
+	}
+
+	return r.handleRemoteDeletion(ctx, remoteObject)
 }

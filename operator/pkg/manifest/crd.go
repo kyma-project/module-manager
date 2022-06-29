@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
+	"io/fs"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/yaml"
@@ -15,22 +15,18 @@ import (
 )
 
 func GetCRDsFromPath(ctx context.Context, filePath string) ([]*apiextensionsv1.CustomResourceDefinition, error) {
-	// TODO: Evaluate filePath.Walk() as an alternative
-	pathInfo, err := os.Stat(filePath)
-	if os.IsNotExist(err) {
-		return nil, nil
-	} else if err != nil {
+	dirEntries := make([]fs.DirEntry, 0)
+	if err := filepath.WalkDir(filePath, func(path string, info fs.DirEntry, err error) error {
+		if !info.IsDir() {
+			return nil
+		}
+		dirEntries, err = os.ReadDir(filePath)
+		return err
+	}); err != nil {
 		return nil, err
 	}
 
-	var files []os.FileInfo
-	if !pathInfo.IsDir() {
-		filePath, files = filepath.Dir(filePath), []os.FileInfo{pathInfo}
-	} else if files, err = ioutil.ReadDir(filePath); err != nil {
-		return nil, err
-	}
-
-	crdsList, err := readCRDs(ctx, filePath, files)
+	crdsList, err := readCRDs(ctx, filePath, dirEntries)
 	if err != nil {
 		return nil, err
 	}
@@ -38,7 +34,7 @@ func GetCRDsFromPath(ctx context.Context, filePath string) ([]*apiextensionsv1.C
 	return crdsList, nil
 }
 
-func readCRDs(ctx context.Context, basePath string, files []os.FileInfo) ([]*apiextensionsv1.CustomResourceDefinition, error) {
+func readCRDs(ctx context.Context, basePath string, files []os.DirEntry) ([]*apiextensionsv1.CustomResourceDefinition, error) {
 	var crds []*apiextensionsv1.CustomResourceDefinition
 	logger := log.FromContext(ctx).WithName("CRDs")
 
