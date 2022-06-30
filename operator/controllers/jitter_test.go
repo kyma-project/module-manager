@@ -7,9 +7,9 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Randomize by ten percent ", func() {
+var _ = Describe("Randomize by ten percent function", func() {
 	When("given a positive integer", func() {
-		It("should return a value that differs at most 10% of the input", func() {
+		It("should return a value that differs at most 10% from the input", func() {
 			var val int = 1000
 			res := randomizeByTenPercent(val)
 			diffPercent := math.Abs(float64(res)/float64(val)*100 - 100)
