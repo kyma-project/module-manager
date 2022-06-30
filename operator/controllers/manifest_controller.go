@@ -19,6 +19,8 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/go-logr/logr"
 	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
 	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
@@ -40,7 +42,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/ratelimiter"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-	"time"
 )
 
 type RequeueIntervals struct {
@@ -91,6 +92,12 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 	manifestObj = *manifestObj.DeepCopy()
 
+	randomizeDuration := func(input time.Duration) time.Duration {
+		millis := int(input / time.Millisecond)
+		res := randomizeByTenPercent(millis)
+		return time.Duration(res) * time.Millisecond
+	}
+
 	// check if deletionTimestamp is set, retry until it gets fully deleted
 	if !manifestObj.DeletionTimestamp.IsZero() && manifestObj.Status.State != v1alpha1.ManifestStateDeleting {
 		// if the status is not yet set to deleting, also update the status
@@ -104,9 +111,9 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if updatedRequired, err := r.SyncRemoteResource(ctx, &manifestObj, false); err != nil {
-		return ctrl.Result{RequeueAfter: r.RequeueIntervals.Failure}, err
+		return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Failure)}, err
 	} else if updatedRequired {
-		return ctrl.Result{RequeueAfter: r.RequeueIntervals.Waiting}, nil
+		return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Waiting)}, nil
 	}
 
 	// state handling
@@ -118,9 +125,9 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	case v1alpha1.ManifestStateDeleting:
 		return ctrl.Result{}, r.HandleDeletingState(ctx, &logger, &manifestObj)
 	case v1alpha1.ManifestStateError:
-		return ctrl.Result{RequeueAfter: r.RequeueIntervals.Failure}, r.HandleErrorState(ctx, &manifestObj)
+		return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Failure)}, r.HandleErrorState(ctx, &manifestObj)
 	case v1alpha1.ManifestStateReady:
-		return ctrl.Result{RequeueAfter: r.RequeueIntervals.Success}, r.HandleReadyState(ctx, &logger, &manifestObj)
+		return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Success)}, r.HandleReadyState(ctx, &logger, &manifestObj)
 	}
 
 	// should not be reconciled again
