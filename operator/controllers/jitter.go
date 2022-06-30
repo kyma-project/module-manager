@@ -7,7 +7,7 @@ import (
 
 var randomSeed = rand.New(rand.NewSource(time.Now().UnixNano()))
 
-//randomizeByTenPercent returns input value that is randomly changed by at most +/- 10%. May return the same value.
+//randomizeByTenPercent returns the value that is randomly changed by at most +/- 10% from the input. May return the same value.
 func randomizeByTenPercent(val int) int {
 	fv := float64(val)
 
