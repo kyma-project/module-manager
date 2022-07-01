@@ -5,7 +5,7 @@ go 1.18
 require (
 	github.com/go-logr/logr v1.2.3
 	github.com/gofrs/flock v0.8.1
-	github.com/khlifi411/kyma-listener v0.0.0-20220627105012-9c4685d9c507
+	github.com/khlifi411/kyma-listener v0.0.0-20220630123145-65d46e84be90
 	github.com/kyma-project/manifest-operator/api v0.0.0-20220627181858-b67560183395
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.18.1

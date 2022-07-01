@@ -45,6 +45,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
+const componentName = "manifest"
+
 type RequeueIntervals struct {
 	Success time.Duration
 	Failure time.Duration
@@ -423,7 +425,7 @@ func (r *ManifestReconciler) SetupWithManager(setupLog logr.Logger, ctx context.
 			MaxConcurrentReconciles: r.MaxConcurrentReconciles,
 		})
 
-	controllerBuilder = listener.RegisterListenerComponent(setupLog, mgr, controllerBuilder, listenerAddr, &handler.EnqueueRequestForObject{})
+	controllerBuilder = listener.RegisterListenerComponent(setupLog, mgr, controllerBuilder, listenerAddr, &handler.EnqueueRequestForObject{}, componentName)
 
 	return controllerBuilder.Complete(r)
 }
