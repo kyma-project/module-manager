@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+
 	"time"
 
 	"github.com/go-logr/logr"
@@ -29,6 +30,7 @@ import (
 	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
 	"golang.org/x/time/rate"
 	"helm.sh/helm/v3/pkg/cli"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
@@ -41,12 +43,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/ratelimiter"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
-const (
-	DefaultWorkersCount = 4
-	ReadyCheck          = false
-)
+type RequeueIntervals struct {
+	Success time.Duration
+	Failure time.Duration
+	Waiting time.Duration
+}
 
 type ManifestDeploy struct {
 	Info           manifest.DeployInfo
@@ -57,16 +61,21 @@ type ManifestDeploy struct {
 // ManifestReconciler reconciles a Manifest object
 type ManifestReconciler struct {
 	client.Client
-	Scheme     *runtime.Scheme
-	RestConfig *rest.Config
-	RestMapper *restmapper.DeferredDiscoveryRESTMapper
-	DeployChan chan ManifestDeploy
-	Workers    *ManifestWorkers
+	Scheme                  *runtime.Scheme
+	RestConfig              *rest.Config
+	RestMapper              *restmapper.DeferredDiscoveryRESTMapper
+	DeployChan              chan ManifestDeploy
+	Workers                 *ManifestWorkerPool
+	RequeueIntervals        RequeueIntervals
+	MaxConcurrentReconciles int
+	VerifyInstallation      bool
 }
 
 //+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests/finalizers,verbs=update
+//+kubebuilder:rbac:groups="",resources=events,verbs=create;patch;get;list;watch
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -80,7 +89,7 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		// we'll ignore not-found errors, since they can't be fixed by an immediate
 		// requeue (we'll need to wait for a new notification), and we can get them
 		// on deleted requests.
-		logger.Info(req.NamespacedName.String() + " got deleted!")
+		logger.Info(fmt.Sprintf("%s got deleted", req.NamespacedName.String()))
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	manifestObj = *manifestObj.DeepCopy()
@@ -91,10 +100,16 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, r.updateManifestStatus(ctx, &manifestObj, v1alpha1.ManifestStateDeleting, "deletion timestamp set")
 	}
 
-	// check finalizer
-	if !controllerutil.ContainsFinalizer(&manifestObj, manifestFinalizer) {
-		controllerutil.AddFinalizer(&manifestObj, manifestFinalizer)
+	// check finalizer on native object
+	if !controllerutil.ContainsFinalizer(&manifestObj, labels.ManifestFinalizer) {
+		controllerutil.AddFinalizer(&manifestObj, labels.ManifestFinalizer)
 		return ctrl.Result{}, r.updateManifest(ctx, &manifestObj)
+	}
+
+	if updatedRequired, err := r.SyncRemoteResource(ctx, &manifestObj, false); err != nil {
+		return ctrl.Result{RequeueAfter: r.RequeueIntervals.Failure}, err
+	} else if updatedRequired {
+		return ctrl.Result{RequeueAfter: r.RequeueIntervals.Waiting}, nil
 	}
 
 	// state handling
@@ -106,9 +121,9 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	case v1alpha1.ManifestStateDeleting:
 		return ctrl.Result{}, r.HandleDeletingState(ctx, &logger, &manifestObj)
 	case v1alpha1.ManifestStateError:
-		return ctrl.Result{}, r.HandleErrorState(ctx, &logger, &manifestObj)
+		return ctrl.Result{RequeueAfter: r.RequeueIntervals.Failure}, r.HandleErrorState(ctx, &manifestObj)
 	case v1alpha1.ManifestStateReady:
-		return ctrl.Result{RequeueAfter: time.Second * 10}, r.HandleReadyState(ctx, &logger, &manifestObj)
+		return ctrl.Result{RequeueAfter: r.RequeueIntervals.Success}, r.HandleReadyState(ctx, &logger, &manifestObj)
 	}
 
 	// should not be reconciled again
@@ -157,7 +172,7 @@ func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logg
 				ObjectKey:      namespacedName,
 				RestConfig:     restConfig,
 				CheckFn:        customResCheck.CheckProcessingFn,
-				ReadyCheck:     ReadyCheck,
+				ReadyCheck:     r.VerifyInstallation,
 			},
 			Mode:           mode,
 			RequestErrChan: responseChan,
@@ -167,18 +182,19 @@ func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logg
 	return nil
 }
 
-func (r *ManifestReconciler) HandleErrorState(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest) error {
-	if manifestObj.Status.ObservedGeneration == manifestObj.Generation {
-		logger.Info("skipping reconciliation for " + manifestObj.Name + ", already reconciled!")
-		return nil
-	}
+func (r *ManifestReconciler) HandleErrorState(ctx context.Context, manifestObj *v1alpha1.Manifest) error {
 	return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing, "observed generation change")
 }
 
 func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest) error {
-	logger.Info("checking consistent state for " + manifestObj.Name)
-
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
+	if manifestObj.Generation != manifestObj.Status.ObservedGeneration {
+		logger.Info("observed generation change for " + namespacedName.String())
+		return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing, "observed generation change")
+	}
+
+	logger.Info("checking consistent state for " + namespacedName.String())
+
 	kymaOwnerLabel, ok := manifestObj.Labels[labels.ComponentOwner]
 	if !ok {
 		return fmt.Errorf("label %s not set for manifest resource %s", labels.ComponentOwner, namespacedName)
@@ -199,7 +215,7 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 			ObjectKey:      namespacedName,
 			RestConfig:     restConfig,
 			CheckFn:        customResCheck.CheckReadyFn,
-			ReadyCheck:     ReadyCheck,
+			ReadyCheck:     r.VerifyInstallation,
 		}
 		args := PrepareArgs(&deployInfo)
 		manifestOperations, err := manifest.NewOperations(logger, deployInfo.RestConfig, deployInfo.ReleaseName, cli.New(), args)
@@ -247,6 +263,7 @@ func (r *ManifestReconciler) HandleCharts(deployInfo manifest.DeployInfo, mode m
 
 	if err == nil {
 		if create {
+			deployInfo.CheckFn = nil
 			ready, err = manifestOperations.Install(deployInfo)
 		} else {
 			deployInfo.CheckFn = nil
@@ -290,25 +307,31 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 
 	// handle deletion if no previous error occurred
 	if !errorState && !latestManifestObj.DeletionTimestamp.IsZero() && !processing {
-		// remove finalizer
-		controllerutil.RemoveFinalizer(latestManifestObj, manifestFinalizer)
-		if err := r.updateManifest(ctx, latestManifestObj); err != nil {
-			// finalizer removal failure
-			logger.Error(err, "unexpected error while deleting", "resource", namespacedName)
+		// remove finalizer on remote resource
+		if _, err := r.SyncRemoteResource(ctx, latestManifestObj, true); err != nil {
 			errorState = true
-		} else {
-			// finalizer successfully removed
-			return
+			logger.Error(err, "unexpected error while syncing remote ", "resource", namespacedName)
+		}
+
+		if !errorState {
+			// remove finalizer
+			controllerutil.RemoveFinalizer(latestManifestObj, labels.ManifestFinalizer)
+			if err := r.updateManifest(ctx, latestManifestObj); err != nil {
+				// finalizer removal failure
+				logger.Error(err, "unexpected error while removing finalizer from", "resource", namespacedName)
+				errorState = true
+			} else {
+				// finalizer successfully removed
+				return
+			}
 		}
 	}
 
 	endState := v1alpha1.ManifestStateDeleting
 	if errorState {
 		endState = v1alpha1.ManifestStateError
-	}
-
-	// only update to processing, ready if deletion has not been triggered
-	if latestManifestObj.DeletionTimestamp.IsZero() {
+	} else if latestManifestObj.DeletionTimestamp.IsZero() {
+		// only update to processing, ready if deletion has not been triggered
 		if processing {
 			endState = v1alpha1.ManifestStateProcessing
 		} else {
@@ -323,24 +346,41 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 	return
 }
 
-// SetupWithManager sets up the controller with the Manager.
-func (r *ManifestReconciler) SetupWithManager(setupLog logr.Logger, ctx context.Context, mgr ctrl.Manager, listenerAddr string) error {
-	r.DeployChan = make(chan ManifestDeploy)
-	r.Workers.StartWorkers(ctx, r.DeployChan, r.HandleCharts)
+func (r *ManifestReconciler) SyncRemoteResource(ctx context.Context, manifestObj *v1alpha1.Manifest, removeFinalizer bool) (bool, error) {
+	// check remote object
+	remoteInterface, remoteManifest, err := NewRemoteInterface(ctx, r.Client, manifestObj)
+	if err != nil {
+		return false, err
+	}
 
-	// default config from kubebuilder
-	//r.RestConfig = mgr.GetConfig()
+	if removeFinalizer {
+		return false, remoteInterface.RemoveFinalizerOnRemote(ctx, remoteManifest)
+	}
 
-	controllerBuilder := ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha1.Manifest{}).
-		WithOptions(controller.Options{
-			RateLimiter:             ManifestRateLimiter(),
-			MaxConcurrentReconciles: DefaultWorkersCount,
-		})
+	// sync state to remote manifest
+	if err = remoteInterface.StateSyncToRemote(ctx, remoteManifest); err != nil {
+		return false, err
+	}
 
-	controllerBuilder = listener.RegisterListenerComponent(setupLog, mgr, controllerBuilder, listenerAddr, &handler.EnqueueRequestForObject{})
+	// if native manifest in deletion mode trigger on remote resource
+	if !manifestObj.DeletionTimestamp.IsZero() {
+		return false, remoteInterface.HandleDeletingState(ctx, remoteManifest)
+	}
 
-	return controllerBuilder.Complete(r)
+	// sync spec to native manifest (user change)
+	if synced, err := remoteInterface.SpecSyncToNative(ctx, remoteManifest); err != nil {
+		return false, err
+	} else if !synced {
+		return true, r.Update(ctx, remoteInterface.NativeObject)
+	}
+
+	// sync spec to remote object (module template change)
+	remoteManifest, err = remoteInterface.SpecSyncToRemote(ctx, remoteManifest)
+	if err != nil {
+		return false, err
+	}
+
+	return false, nil
 }
 
 func ManifestRateLimiter() ratelimiter.RateLimiter {
@@ -360,4 +400,25 @@ func PrepareArgs(deployInfo *manifest.DeployInfo) map[string]string {
 	)
 	deployInfo.ChartName = fmt.Sprintf("%s/%s", deployInfo.RepoName, deployInfo.ChartName)
 	return args
+}
+
+// SetupWithManager sets up the controller with the Manager.
+func (r *ManifestReconciler) SetupWithManager(setupLog logr.Logger, ctx context.Context, mgr ctrl.Manager, listenerAddr string) error {
+	r.DeployChan = make(chan ManifestDeploy)
+	r.Workers.StartWorkers(ctx, r.DeployChan, r.HandleCharts)
+
+	// default config from kubebuilder
+	//r.RestConfig = mgr.GetConfig()
+
+	controllerBuilder := ctrl.NewControllerManagedBy(mgr).
+		For(&v1alpha1.Manifest{}).
+		Watches(&source.Kind{Type: &v1.Secret{}}, handler.Funcs{}).
+		WithOptions(controller.Options{
+			RateLimiter:             ManifestRateLimiter(),
+			MaxConcurrentReconciles: r.MaxConcurrentReconciles,
+		})
+
+	controllerBuilder = listener.RegisterListenerComponent(setupLog, mgr, controllerBuilder, listenerAddr, &handler.EnqueueRequestForObject{})
+
+	return controllerBuilder.Complete(r)
 }

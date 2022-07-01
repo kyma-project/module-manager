@@ -91,7 +91,7 @@ func NewOperations(logger *logr.Logger, restConfig *rest.Config, releaseName str
 	return operations, nil
 }
 
-func (o *Operations) getClusterResources(deployInfo DeployInfo) (kube.ResourceList, kube.ResourceList, error) {
+func (o *Operations) getClusterResources(deployInfo DeployInfo, operation HelmOperation) (kube.ResourceList, kube.ResourceList, error) {
 	if err := o.repoHandler.Add(deployInfo.RepoName, deployInfo.Url); err != nil {
 		return nil, nil, err
 	}
@@ -101,7 +101,7 @@ func (o *Operations) getClusterResources(deployInfo DeployInfo) (kube.ResourceLi
 		return nil, nil, err
 	}
 
-	if err = o.helmClient.HandleNamespace(o.actionClient, OperationCreate); err != nil {
+	if err = o.helmClient.HandleNamespace(o.actionClient, operation); err != nil {
 		return nil, nil, err
 	}
 
@@ -119,7 +119,7 @@ func (o *Operations) getClusterResources(deployInfo DeployInfo) (kube.ResourceLi
 }
 
 func (o *Operations) VerifyResources(deployInfo DeployInfo) (bool, error) {
-	targetResources, existingResources, err := o.getClusterResources(deployInfo)
+	targetResources, existingResources, err := o.getClusterResources(deployInfo, "")
 	if err != nil {
 		return false, errors.Wrap(err, "could not render current resources from manifest")
 	}
@@ -130,7 +130,7 @@ func (o *Operations) VerifyResources(deployInfo DeployInfo) (bool, error) {
 }
 
 func (o *Operations) Install(deployInfo DeployInfo) (bool, error) {
-	targetResources, existingResources, err := o.getClusterResources(deployInfo)
+	targetResources, existingResources, err := o.getClusterResources(deployInfo, OperationCreate)
 	if err != nil {
 		return false, err
 	}
@@ -173,7 +173,7 @@ func (o *Operations) Install(deployInfo DeployInfo) (bool, error) {
 }
 
 func (o *Operations) Uninstall(deployInfo DeployInfo) (bool, error) {
-	targetResources, existingResources, err := o.getClusterResources(deployInfo)
+	targetResources, existingResources, err := o.getClusterResources(deployInfo, OperationDelete)
 	if err != nil {
 		return false, err
 	}

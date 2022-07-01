@@ -121,7 +121,6 @@ func (h *HelmClient) DownloadChart(actionClient *action.Install, chartName strin
 }
 
 func (h *HelmClient) HandleNamespace(actionClient *action.Install, operationType HelmOperation) error {
-	// create namespace
 	if actionClient.CreateNamespace {
 		// validate namespace parameters
 		// proceed only if not default namespace since it already exists
@@ -151,6 +150,7 @@ func (h *HelmClient) HandleNamespace(actionClient *action.Install, operationType
 				}
 				return wrappedError
 			}
+		default:
 		}
 	}
 	// set kubeclient namespace for override
