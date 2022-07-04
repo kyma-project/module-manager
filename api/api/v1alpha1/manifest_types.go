@@ -37,24 +37,25 @@ type CustomState struct {
 
 // InstallInfo defines installation information
 type InstallInfo struct {
-	ConfigInfo `json:",inline"`
-	// +kubebuilder:validation:Enum=HelmChart;Executable
-	Type string `json:"type"`
-	Name string `json:"name"`
+	OCIRef `json:",inline"`
+	Type   string `json:"type"`
+	Name   string `json:"name"`
 }
 
-// ConfigInfo defines config information
-type ConfigInfo struct {
-	Repo   string `json:"repo"`
-	Module string `json:"module"`
-	Digest string `json:"digest"`
+// OCIRef defines config information
+type OCIRef struct {
+	Repo    string `json:"repo"`
+	Module  string `json:"module"`
+	Tag     string `json:"tag,omitempty"`
+	Version string `json:"version,omitempty"`
+	Digest  string `json:"digest,omitempty"`
 }
 
 // ManifestSpec defines the specification of Manifest
 type ManifestSpec struct {
 	// Config specifies configuration for Manifest
 	// +optional
-	Config ConfigInfo `json:"config,omitempty"`
+	OCIRef OCIRef `json:"ociRef,omitempty"`
 
 	// Installs specifies a list of installations for Manifest
 	Installs []InstallInfo `json:"installs,omitempty"`
