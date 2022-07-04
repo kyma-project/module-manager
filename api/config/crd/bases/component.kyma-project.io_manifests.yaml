@@ -42,20 +42,6 @@ spec:
           spec:
             description: ManifestSpec defines the specification of Manifest
             properties:
-              config:
-                description: Config specifies configuration for Manifest
-                properties:
-                  digest:
-                    type: string
-                  module:
-                    type: string
-                  repo:
-                    type: string
-                required:
-                - digest
-                - module
-                - repo
-                type: object
               customStates:
                 description: CustomStates specifies a list of resources with their
                   desires states for Manifest
@@ -86,19 +72,36 @@ spec:
                       type: string
                     repo:
                       type: string
+                    tag:
+                      type: string
                     type:
-                      enum:
-                      - HelmChart
-                      - Executable
+                      type: string
+                    version:
                       type: string
                   required:
-                  - digest
                   - module
                   - name
                   - repo
                   - type
                   type: object
                 type: array
+              ociRef:
+                description: OCIRef specifies OCI image configuration for Manifest
+                properties:
+                  digest:
+                    type: string
+                  module:
+                    type: string
+                  repo:
+                    type: string
+                  tag:
+                    type: string
+                  version:
+                    type: string
+                required:
+                - module
+                - repo
+                type: object
               sync:
                 description: Sync specifies the sync strategy for Manifest
                 properties:
