@@ -43,6 +43,7 @@ type ChartInfo struct {
 	ChartName    string `json:"chartName,omitempty"`
 	ReleaseName  string `json:"releaseName,omitempty"`
 	ClientConfig string `json:"clientConfig,omitempty"`
+	Overrides    string `json:"overrides,omitempty"`
 }
 
 // ManifestSpec defines the specification of Manifest
@@ -115,15 +116,38 @@ type ManifestConditionStatus string
 
 // Valid ManifestCondition Status
 const (
-	// ConditionStatusTrue signifies KymaConditionStatus true
+	// ConditionStatusTrue signifies ManifestConditionStatus true
 	ConditionStatusTrue ManifestConditionStatus = "True"
 
-	// ConditionStatusFalse signifies KymaConditionStatus false
+	// ConditionStatusFalse signifies ManifestConditionStatus false
 	ConditionStatusFalse ManifestConditionStatus = "False"
 
-	// ConditionStatusUnknown signifies KymaConditionStatus unknown
+	// ConditionStatusUnknown signifies ManifestConditionStatus unknown
 	ConditionStatusUnknown ManifestConditionStatus = "Unknown"
 )
+
+type SyncStrategy string
+
+const (
+	SyncStrategyRemoteSecret SyncStrategy = "remote-secret"
+	SyncStrategyLocalSecret  SyncStrategy = "local-secret"
+)
+
+// Sync defines settings used to apply the manifest synchronization to other clusters
+type Sync struct {
+	// +kubebuilder:default:=true
+	// Enabled set to true will look up a kubeconfig for the remote cluster based on the strategy
+	// and synchronize its state there.
+	Enabled bool `json:"enabled,omitempty"`
+
+	// Strategy determines the way to lookup the remotely synced kubeconfig, by default it is fetched from a secret
+	Strategy SyncStrategy `json:"strategy,omitempty"`
+
+	// The target namespace, if empty the namespace is reflected from the control plane
+	// Note that cleanup is currently not supported if you are switching the namespace, so you will
+	// manually need to cleanup old synchronized Manifests
+	Namespace string `json:"namespace,omitempty"`
+}
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
