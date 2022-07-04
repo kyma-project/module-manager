@@ -57,7 +57,7 @@ type ManifestSpec struct {
 	Config ConfigInfo `json:"config,omitempty"`
 
 	// Installs specifies a list of installations for Manifest
-	Installs []InstallInfo `json:"install,omitempty"`
+	Installs []InstallInfo `json:"installs,omitempty"`
 
 	// CustomStates specifies a list of resources with their desires states for Manifest
 	// +optional

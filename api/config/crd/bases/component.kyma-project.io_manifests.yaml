@@ -73,7 +73,7 @@ spec:
                       type: string
                   type: object
                 type: array
-              install:
+              installs:
                 description: Installs specifies a list of installations for Manifest
                 items:
                   description: InstallInfo defines installation information
