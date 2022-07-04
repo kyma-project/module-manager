@@ -35,20 +35,37 @@ type CustomState struct {
 	State      string `json:"state,omitempty"`
 }
 
-// ChartInfo defines chart information
-type ChartInfo struct {
-	ChartPath    string `json:"chartPath,omitempty"`
-	RepoName     string `json:"repoName,omitempty"`
-	Url          string `json:"url,omitempty"`
-	ChartName    string `json:"chartName,omitempty"`
-	ReleaseName  string `json:"releaseName,omitempty"`
-	ClientConfig string `json:"clientConfig,omitempty"`
+// InstallInfo defines installation information
+type InstallInfo struct {
+	ConfigInfo `json:",inline"`
+	// +kubebuilder:validation:Enum=HelmChart;Executable
+	Type string `json:"type"`
+	Name string `json:"name"`
+}
+
+// ConfigInfo defines config information
+type ConfigInfo struct {
+	Repo   string `json:"repo"`
+	Module string `json:"module"`
+	Digest string `json:"digest"`
 }
 
 // ManifestSpec defines the specification of Manifest
 type ManifestSpec struct {
-	Charts       []ChartInfo   `json:"charts,omitempty"`
+	// Config specifies configuration for Manifest
+	// +optional
+	Config ConfigInfo `json:"config,omitempty"`
+
+	// Installs specifies a list of installations for Manifest
+	Installs []InstallInfo `json:"install,omitempty"`
+
+	// CustomStates specifies a list of resources with their desires states for Manifest
+	// +optional
 	CustomStates []CustomState `json:"customStates,omitempty"`
+
+	// Sync specifies the sync strategy for Manifest
+	// +optional
+	Sync Sync `json:"sync,omitempty"`
 }
 
 // +kubebuilder:validation:Enum=Processing;Deleting;Ready;Error
@@ -115,15 +132,38 @@ type ManifestConditionStatus string
 
 // Valid ManifestCondition Status
 const (
-	// ConditionStatusTrue signifies KymaConditionStatus true
+	// ConditionStatusTrue signifies ManifestConditionStatus true
 	ConditionStatusTrue ManifestConditionStatus = "True"
 
-	// ConditionStatusFalse signifies KymaConditionStatus false
+	// ConditionStatusFalse signifies ManifestConditionStatus false
 	ConditionStatusFalse ManifestConditionStatus = "False"
 
-	// ConditionStatusUnknown signifies KymaConditionStatus unknown
+	// ConditionStatusUnknown signifies ManifestConditionStatus unknown
 	ConditionStatusUnknown ManifestConditionStatus = "Unknown"
 )
+
+type SyncStrategy string
+
+const (
+	SyncStrategyRemoteSecret SyncStrategy = "remote-secret"
+	SyncStrategyLocalSecret  SyncStrategy = "local-secret"
+)
+
+// Sync defines settings used to apply the manifest synchronization to other clusters
+type Sync struct {
+	// +kubebuilder:default:=true
+	// Enabled set to true will look up a kubeconfig for the remote cluster based on the strategy
+	// and synchronize its state there.
+	Enabled bool `json:"enabled,omitempty"`
+
+	// Strategy determines the way to lookup the remotely synced kubeconfig, by default it is fetched from a secret
+	Strategy SyncStrategy `json:"strategy,omitempty"`
+
+	// The target namespace, if empty the namespace is reflected from the control plane
+	// Note that cleanup is currently not supported if you are switching the namespace, so you will
+	// manually need to cleanup old synchronized Manifests
+	Namespace string `json:"namespace,omitempty"`
+}
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
