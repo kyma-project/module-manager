@@ -42,7 +42,7 @@ type InstallInfo struct {
 	Name   string `json:"name"`
 }
 
-// OCIRef defines config information
+// OCIRef defines OCI image configuration
 type OCIRef struct {
 	Repo    string `json:"repo"`
 	Module  string `json:"module"`
@@ -53,7 +53,7 @@ type OCIRef struct {
 
 // ManifestSpec defines the specification of Manifest
 type ManifestSpec struct {
-	// Config specifies configuration for Manifest
+	// OCIRef specifies OCI image configuration for Manifest
 	// +optional
 	OCIRef OCIRef `json:"ociRef,omitempty"`
 
