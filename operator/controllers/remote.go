@@ -157,7 +157,7 @@ func (r *RemoteInterface) CreateCRD(ctx context.Context) error {
 	crd := v1.CustomResourceDefinition{}
 	err := r.CustomClient.Get(ctx, client.ObjectKey{
 		// TODO: Change "manifests" with updated api value
-		Name: fmt.Sprintf("%s.%s", "manifests", v1alpha1.GroupVersion.Group),
+		Name: fmt.Sprintf("%s.%s", v1alpha1.GroupVersionResource.Resource, v1alpha1.GroupVersion.Group),
 	}, &crd)
 	if err == nil {
 		return errors.NewAlreadyExists(schema.GroupResource{Group: v1alpha1.GroupVersion.Group}, crd.GetName())

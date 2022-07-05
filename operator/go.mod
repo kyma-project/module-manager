@@ -5,7 +5,7 @@ go 1.18
 require (
 	github.com/go-logr/logr v1.2.2
 	github.com/gofrs/flock v0.8.1
-	github.com/kyma-project/manifest-operator/api v0.0.0-20220615103328-c878b8496972
+	github.com/kyma-project/manifest-operator/api v0.0.0-20220704073148-79e17c1a573a
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.18.1
 	github.com/pkg/errors v0.9.1

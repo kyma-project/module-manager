@@ -33,6 +33,7 @@ type ChartInfo struct {
 	ChartName    string
 	ReleaseName  string
 	ClientConfig string
+	Overrides    string
 }
 
 type DeployInfo struct {

@@ -397,7 +397,7 @@ func PrepareArgs(deployInfo *manifest.DeployInfo) map[string]string {
 	var (
 		args = map[string]string{
 			// check --set flags parameter from manifest
-			"set": "",
+			"set": deployInfo.Overrides,
 			// comma seperated values of manifest command line flags
 			"flags": deployInfo.ClientConfig,
 		}
