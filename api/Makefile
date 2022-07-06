@@ -112,6 +112,7 @@ ENVTEST ?= $(LOCALBIN)/setup-envtest
 CLIENT_GEN ?= $(LOCALBIN)/client-gen
 INFORMER_GEN = $(LOCALBIN)/informer-gen
 LISTER_GEN = $(LOCALBIN)/lister-gen
+CONTROLLER_TOOLS_VERSION ?= v0.9.2
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v3.8.7
