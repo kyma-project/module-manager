@@ -33,6 +33,7 @@ type ChartInfo struct {
 	ChartName    string
 	ReleaseName  string
 	ClientConfig string
+	Overrides    string
 }
 
 type DeployInfo struct {
@@ -49,6 +50,9 @@ type RequestErrChan chan *RequestError
 
 type RequestError struct {
 	Ready             bool
+	ChartName         string
+	ClientConfig      string
+	Overrides         string
 	ResNamespacedName client.ObjectKey
 	Err               error
 }
@@ -92,8 +96,10 @@ func NewOperations(logger *logr.Logger, restConfig *rest.Config, releaseName str
 }
 
 func (o *Operations) getClusterResources(deployInfo DeployInfo, operation HelmOperation) (kube.ResourceList, kube.ResourceList, error) {
-	if err := o.repoHandler.Add(deployInfo.RepoName, deployInfo.Url); err != nil {
-		return nil, nil, err
+	if deployInfo.ChartPath == "" {
+		if err := o.repoHandler.Add(deployInfo.RepoName, deployInfo.Url); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	manifest, err := o.getManifestForChartPath(deployInfo.ChartPath, deployInfo.ChartName, o.actionClient, o.args)
