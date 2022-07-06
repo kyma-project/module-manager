@@ -84,6 +84,7 @@ func (h *HelmClient) SetDefaultClientConfig(actionClient *action.Install, releas
 	actionClient.IncludeCRDs = true //include CRDs in the templated output
 	actionClient.ClientOnly = true
 	actionClient.ReleaseName = releaseName
+	actionClient.Namespace = v1.NamespaceDefault
 
 	// default versioning if unspecified
 	if actionClient.Version == "" && actionClient.Devel {

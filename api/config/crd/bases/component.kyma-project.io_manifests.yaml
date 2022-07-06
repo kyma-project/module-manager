@@ -42,27 +42,26 @@ spec:
           spec:
             description: ManifestSpec defines the specification of Manifest
             properties:
-              charts:
-                items:
-                  description: ChartInfo defines chart information
-                  properties:
-                    chartName:
-                      type: string
-                    chartPath:
-                      type: string
-                    clientConfig:
-                      type: string
-                    overrides:
-                      type: string
-                    releaseName:
-                      type: string
-                    repoName:
-                      type: string
-                    url:
-                      type: string
-                  type: object
-                type: array
+              config:
+                description: OCIRef specifies OCI image configuration for Manifest
+                properties:
+                  digest:
+                    type: string
+                  module:
+                    type: string
+                  repo:
+                    type: string
+                  tag:
+                    type: string
+                  version:
+                    type: string
+                required:
+                - module
+                - repo
+                type: object
               customStates:
+                description: CustomStates specifies a list of resources with their
+                  desires states for Manifest
                 items:
                   properties:
                     apiVersion:
@@ -77,6 +76,52 @@ spec:
                       type: string
                   type: object
                 type: array
+              installs:
+                description: Installs specifies a list of installations for Manifest
+                items:
+                  description: InstallInfo defines installation information
+                  properties:
+                    digest:
+                      type: string
+                    module:
+                      type: string
+                    name:
+                      type: string
+                    repo:
+                      type: string
+                    tag:
+                      type: string
+                    type:
+                      type: string
+                    version:
+                      type: string
+                  required:
+                  - module
+                  - name
+                  - repo
+                  - type
+                  type: object
+                type: array
+              sync:
+                description: Sync specifies the sync strategy for Manifest
+                properties:
+                  enabled:
+                    default: false
+                    description: Enabled set to true will look up a kubeconfig for
+                      the remote cluster based on the strategy and synchronize its
+                      state there.
+                    type: boolean
+                  namespace:
+                    description: The target namespace, if empty the namespace is reflected
+                      from the control plane Note that cleanup is currently not supported
+                      if you are switching the namespace, so you will manually need
+                      to cleanup old synchronized Manifests
+                    type: string
+                  strategy:
+                    description: Strategy determines the way to lookup the remotely
+                      synced kubeconfig, by default it is fetched from a secret
+                    type: string
+                type: object
             type: object
           status:
             description: ManifestStatus defines the observed state of Manifest
@@ -87,6 +132,17 @@ spec:
                   description: ManifestCondition describes condition information for
                     Manifest.
                   properties:
+                    installInfo:
+                      description: InstallInfo contains a list of installations for
+                        Manifest
+                      properties:
+                        clientConfig:
+                          type: string
+                        name:
+                          type: string
+                        overrides:
+                          type: string
+                      type: object
                     lastTransitionTime:
                       description: Timestamp for when Manifest last transitioned from
                         one status to another.

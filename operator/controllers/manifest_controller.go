@@ -23,7 +23,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
-	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
 	"github.com/kyma-project/manifest-operator/operator/pkg/labels"
 	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
 	"golang.org/x/time/rate"
@@ -69,6 +68,8 @@ type ManifestReconciler struct {
 	VerifyInstallation      bool
 }
 
+const configReadError = "reading install config resulted in an error"
+
 //+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests/finalizers,verbs=update
@@ -110,10 +111,12 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, r.updateManifest(ctx, &manifestObj)
 	}
 
-	if updatedRequired, err := r.SyncRemoteResource(ctx, &manifestObj, false); err != nil {
-		return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Failure)}, err
-	} else if updatedRequired {
-		return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Waiting)}, nil
+	if manifestObj.Spec.Sync.Enabled {
+		if updatedRequired, err := r.SyncRemoteResource(ctx, &manifestObj, false); err != nil {
+			return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Failure)}, err
+		} else if updatedRequired {
+			return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Waiting)}, nil
+		}
 	}
 
 	// state handling
@@ -149,78 +152,51 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, logger *lo
 func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest, mode manifest.Mode) error {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 	responseChan := make(manifest.RequestErrChan)
-	chartCount := len(manifestObj.Spec.Charts)
-	kymaOwnerLabel, ok := manifestObj.Labels[labels.ComponentOwner]
-	if !ok {
-		return fmt.Errorf("label %s not set for manifest resource %s", labels.ComponentOwner, namespacedName)
-	}
 
-	// evaluate rest config
-	clusterClient := &custom.ClusterClient{DefaultClient: r.Client}
-	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, manifestObj.Namespace)
+	chartCount := len(manifestObj.Spec.Installs)
+
+	// response handler in a separate go-routine
+	go r.ResponseHandlerFunc(ctx, logger, chartCount, responseChan, namespacedName)
+
+	// send deploy requests
+	deployInfos, err := prepareDeployInfos(ctx, manifestObj, r.Client, r.VerifyInstallation)
 	if err != nil {
 		return err
 	}
 
-	go r.ResponseHandlerFunc(ctx, logger, chartCount, responseChan, namespacedName)
-
-	customResCheck := &CustomResourceCheck{DefaultClient: r.Client}
-
-	// send job to workers
-	for _, chart := range manifestObj.Spec.Charts {
+	for _, deployInfo := range deployInfos {
 		r.DeployChan <- ManifestDeploy{
-			Info: manifest.DeployInfo{
-				Ctx:            ctx,
-				ManifestLabels: manifestObj.Labels,
-				ChartInfo:      manifest.ChartInfo(chart),
-				ObjectKey:      namespacedName,
-				RestConfig:     restConfig,
-				CheckFn:        customResCheck.CheckProcessingFn,
-				ReadyCheck:     r.VerifyInstallation,
-			},
+			Info:           deployInfo,
 			Mode:           mode,
 			RequestErrChan: responseChan,
 		}
 	}
-
 	return nil
 }
 
 func (r *ManifestReconciler) HandleErrorState(ctx context.Context, manifestObj *v1alpha1.Manifest) error {
-	return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing, "observed generation change")
+	return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing,
+		"observed generation change")
 }
 
-func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest) error {
+func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.Logger,
+	manifestObj *v1alpha1.Manifest) error {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 	if manifestObj.Generation != manifestObj.Status.ObservedGeneration {
 		logger.Info("observed generation change for " + namespacedName.String())
-		return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing, "observed generation change")
+		return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing,
+			"observed generation change")
 	}
 
 	logger.Info("checking consistent state for " + namespacedName.String())
 
-	kymaOwnerLabel, ok := manifestObj.Labels[labels.ComponentOwner]
-	if !ok {
-		return fmt.Errorf("label %s not set for manifest resource %s", labels.ComponentOwner, namespacedName)
-	}
-	customResCheck := &CustomResourceCheck{DefaultClient: r.Client}
-
-	// evaluate rest config
-	clusterClient := &custom.ClusterClient{DefaultClient: r.Client}
-	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, manifestObj.Namespace)
+	// send deploy requests
+	deployInfos, err := prepareDeployInfos(ctx, manifestObj, r.Client, r.VerifyInstallation)
 	if err != nil {
 		return err
 	}
-	for _, chart := range manifestObj.Spec.Charts {
-		deployInfo := manifest.DeployInfo{
-			Ctx:            ctx,
-			ManifestLabels: manifestObj.Labels,
-			ChartInfo:      manifest.ChartInfo(chart),
-			ObjectKey:      namespacedName,
-			RestConfig:     restConfig,
-			CheckFn:        customResCheck.CheckReadyFn,
-			ReadyCheck:     r.VerifyInstallation,
-		}
+
+	for _, deployInfo := range deployInfos {
 		args := PrepareArgs(&deployInfo)
 		manifestOperations, err := manifest.NewOperations(logger, deployInfo.RestConfig, deployInfo.ReleaseName, cli.New(), args)
 		if err != nil {
@@ -246,11 +222,11 @@ func (r *ManifestReconciler) updateManifestStatus(ctx context.Context, manifestO
 	manifestObj.Status.State = state
 	switch state {
 	case v1alpha1.ManifestStateReady:
-		addReadyConditionForObjects(manifestObj, []string{v1alpha1.ManifestKind}, v1alpha1.ConditionStatusTrue, message)
+		addReadyConditionForObjects(manifestObj, []v1alpha1.InstallItem{{ChartName: v1alpha1.ManifestKind}}, v1alpha1.ConditionStatusTrue, message)
 	case "":
-		addReadyConditionForObjects(manifestObj, []string{v1alpha1.ManifestKind}, v1alpha1.ConditionStatusUnknown, message)
+		addReadyConditionForObjects(manifestObj, []v1alpha1.InstallItem{{ChartName: v1alpha1.ManifestKind}}, v1alpha1.ConditionStatusUnknown, message)
 	default:
-		addReadyConditionForObjects(manifestObj, []string{v1alpha1.ManifestKind}, v1alpha1.ConditionStatusFalse, message)
+		addReadyConditionForObjects(manifestObj, []v1alpha1.InstallItem{{ChartName: v1alpha1.ManifestKind}}, v1alpha1.ConditionStatusFalse, message)
 	}
 	return r.Status().Update(ctx, manifestObj.SetObservedGeneration())
 }
@@ -279,26 +255,32 @@ func (r *ManifestReconciler) HandleCharts(deployInfo manifest.DeployInfo, mode m
 		Ready:             ready,
 		ResNamespacedName: deployInfo.ObjectKey,
 		Err:               err,
+		ChartName:         deployInfo.ChartName,
+		ClientConfig:      deployInfo.ClientConfig,
+		Overrides:         deployInfo.Overrides,
 	}
 }
 
-func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *logr.Logger, chartCount int, responseChan manifest.RequestErrChan, namespacedName client.ObjectKey) {
+func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *logr.Logger, chartCount int,
+	responseChan manifest.RequestErrChan, namespacedName client.ObjectKey) {
+	// errorState takes precedence over processing
 	errorState := false
 	processing := false
+	responses := make([]*manifest.RequestError, 0)
+
 	for a := 1; a <= chartCount; a++ {
 		select {
 		case <-ctx.Done():
 			logger.Error(ctx.Err(), fmt.Sprintf("context closed, error occured while handling response for %s", namespacedName.String()))
 			return
 		case response := <-responseChan:
+			responses = append(responses, response)
 			if response.Err != nil {
-				logger.Error(response.Err, fmt.Sprintf("chart installation failure for %s!!!", response.ResNamespacedName.String()))
+				logger.Error(fmt.Errorf("chart installation failure for %s!!! : %w", response.ResNamespacedName.String(), response.Err), "")
 				errorState = true
-				break
 			} else if !response.Ready {
 				logger.Info(fmt.Sprintf("chart checks still processing %s!!!", response.ResNamespacedName.String()))
 				processing = true
-				break
 			}
 		}
 	}
@@ -309,12 +291,33 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 		return
 	}
 
+	for _, response := range responses {
+		status := v1alpha1.ConditionStatusTrue
+		message := "installation successful"
+
+		if response.Err != nil {
+			status = v1alpha1.ConditionStatusFalse
+			message = "installation error"
+		} else if !response.Ready {
+			status = v1alpha1.ConditionStatusUnknown
+			message = "installation processing"
+		}
+
+		addReadyConditionForObjects(latestManifestObj, []v1alpha1.InstallItem{{
+			ClientConfig: response.ClientConfig,
+			Overrides:    response.Overrides,
+			ChartName:    response.ChartName,
+		}}, status, message)
+	}
+
 	// handle deletion if no previous error occurred
 	if !errorState && !latestManifestObj.DeletionTimestamp.IsZero() && !processing {
-		// remove finalizer on remote resource
-		if _, err := r.SyncRemoteResource(ctx, latestManifestObj, true); err != nil {
-			errorState = true
-			logger.Error(err, "unexpected error while syncing remote ", "resource", namespacedName)
+		if latestManifestObj.Spec.Sync.Enabled {
+			// remove finalizer on remote resource
+			if _, err := r.SyncRemoteResource(ctx, latestManifestObj, true); err != nil {
+				errorState = true
+				logger.Error(err, "unexpected error while syncing remote ", "resource", namespacedName)
+			}
 		}
 
 		if !errorState {
@@ -402,7 +405,9 @@ func PrepareArgs(deployInfo *manifest.DeployInfo) map[string]string {
 			"flags": deployInfo.ClientConfig,
 		}
 	)
-	deployInfo.ChartName = fmt.Sprintf("%s/%s", deployInfo.RepoName, deployInfo.ChartName)
+	if deployInfo.RepoName != "" {
+		deployInfo.ChartName = fmt.Sprintf("%s/%s", deployInfo.RepoName, deployInfo.ChartName)
+	}
 	return args
 }
 

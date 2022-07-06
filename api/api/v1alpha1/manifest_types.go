@@ -35,21 +35,38 @@ type CustomState struct {
 	State      string `json:"state,omitempty"`
 }
 
-// ChartInfo defines chart information
-type ChartInfo struct {
-	ChartPath    string `json:"chartPath,omitempty"`
-	RepoName     string `json:"repoName,omitempty"`
-	Url          string `json:"url,omitempty"`
-	ChartName    string `json:"chartName,omitempty"`
-	ReleaseName  string `json:"releaseName,omitempty"`
-	ClientConfig string `json:"clientConfig,omitempty"`
-	Overrides    string `json:"overrides,omitempty"`
+// InstallInfo defines installation information
+type InstallInfo struct {
+	OCIRef `json:",inline"`
+	Type   string `json:"type"`
+	Name   string `json:"name"`
+}
+
+// OCIRef defines OCI image configuration
+type OCIRef struct {
+	Repo    string `json:"repo"`
+	Module  string `json:"module"`
+	Tag     string `json:"tag,omitempty"`
+	Version string `json:"version,omitempty"`
+	Digest  string `json:"digest,omitempty"`
 }
 
 // ManifestSpec defines the specification of Manifest
 type ManifestSpec struct {
-	Charts       []ChartInfo   `json:"charts,omitempty"`
+	// OCIRef specifies OCI image configuration for Manifest
+	// +optional
+	Config OCIRef `json:"config,omitempty"`
+
+	// Installs specifies a list of installations for Manifest
+	Installs []InstallInfo `json:"installs,omitempty"`
+
+	// CustomStates specifies a list of resources with their desires states for Manifest
+	// +optional
 	CustomStates []CustomState `json:"customStates,omitempty"`
+
+	// Sync specifies the sync strategy for Manifest
+	// +optional
+	Sync Sync `json:"sync,omitempty"`
 }
 
 // +kubebuilder:validation:Enum=Processing;Deleting;Ready;Error
@@ -83,6 +100,13 @@ type ManifestStatus struct {
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
+// InstallItem describes install information
+type InstallItem struct {
+	ChartName    string `json:"name,omitempty"`
+	ClientConfig string `json:"clientConfig,omitempty"`
+	Overrides    string `json:"overrides,omitempty"`
+}
+
 // ManifestCondition describes condition information for Manifest.
 type ManifestCondition struct {
 	//Type of ManifestCondition
@@ -103,6 +127,10 @@ type ManifestCondition struct {
 	// Timestamp for when Manifest last transitioned from one status to another.
 	// +optional
 	LastTransitionTime *metav1.Time `json:"lastTransitionTime,omitempty"`
+
+	// InstallInfo contains a list of installations for Manifest
+	// +optional
+	InstallInfo InstallItem `json:"installInfo,omitempty"`
 }
 
 type ManifestConditionType string
@@ -135,7 +163,7 @@ const (
 
 // Sync defines settings used to apply the manifest synchronization to other clusters
 type Sync struct {
-	// +kubebuilder:default:=true
+	// +kubebuilder:default:=false
 	// Enabled set to true will look up a kubeconfig for the remote cluster based on the strategy
 	// and synchronize its state there.
 	Enabled bool `json:"enabled,omitempty"`

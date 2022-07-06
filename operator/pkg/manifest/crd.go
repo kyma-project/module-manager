@@ -76,8 +76,8 @@ func readCRDs(ctx context.Context, basePath string, files []os.DirEntry) ([]*api
 }
 
 func readFile(fileName string) ([][]byte, error) {
-	file, err := os.Open(fileName)
 	yamlStructs := make([][]byte, 0)
+	file, err := os.Open(fileName)
 	if err != nil {
 		return nil, err
 	}
