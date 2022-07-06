@@ -58,7 +58,7 @@ func init() {
 
 func main() {
 	var metricsAddr string
-	var enableLeaderElection, verifyInstallation bool
+	var enableLeaderElection, verifyInstallation, customStateCheck bool
 	var probeAddr string
 	var requeueSuccessInterval, requeueFailureInterval, requeueWaitingInterval time.Duration
 	var concurrentReconciles, workersConcurrentManifests int
@@ -84,6 +84,8 @@ func main() {
 	flag.BoolVar(&verifyInstallation, "verify-installation", false,
 		"Indicates if installed resources should be verified after installation, "+
 			"before marking the resource state to a consistent state.")
+	flag.BoolVar(&customStateCheck, "custom-state-check", false,
+		"Indicates if desired state should be checked on custom resources")
 
 	opts := zap.Options{
 		Development: true,
@@ -125,6 +127,7 @@ func main() {
 		Workers:                 manifestWorkers,
 		MaxConcurrentReconciles: concurrentReconciles,
 		VerifyInstallation:      verifyInstallation,
+		CustomStateCheck:        customStateCheck,
 		RequeueIntervals: controllers.RequeueIntervals{
 			Success: requeueSuccessInterval,
 			Failure: requeueFailureInterval,

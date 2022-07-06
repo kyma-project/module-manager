@@ -133,6 +133,9 @@ func (o *Operations) VerifyResources(deployInfo DeployInfo) (bool, error) {
 	if len(targetResources) > len(existingResources) {
 		return false, nil
 	}
+	if deployInfo.CheckFn == nil {
+		return true, nil
+	}
 	return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.ManifestLabels, deployInfo.ObjectKey, o.logger)
 }
 

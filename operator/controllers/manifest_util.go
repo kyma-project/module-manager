@@ -55,7 +55,8 @@ func addReadyConditionForObjects(manifest *v1alpha1.Manifest, installItems []v1a
 	}
 }
 
-func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClient client.Client, verifyInstallation bool) ([]manifest.DeployInfo, error) {
+func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClient client.Client,
+	verifyInstallation bool, customStateCheck bool) ([]manifest.DeployInfo, error) {
 	deployInfos := make([]manifest.DeployInfo, 0)
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 	kymaOwnerLabel, ok := manifestObj.Labels[labels.ComponentOwner]
@@ -117,8 +118,7 @@ func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, def
 				break
 			}
 		}
-
-		deployInfos = append(deployInfos, manifest.DeployInfo{
+		deployInfo := manifest.DeployInfo{
 			Ctx:            ctx,
 			ManifestLabels: manifestObj.Labels,
 			ChartInfo: manifest.ChartInfo{
@@ -132,7 +132,11 @@ func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, def
 			RestConfig: restConfig,
 			CheckFn:    customResCheck.CheckProcessingFn,
 			ReadyCheck: verifyInstallation,
-		})
+		}
+		if !customStateCheck {
+			deployInfo.CheckFn = nil
+		}
+		deployInfos = append(deployInfos, deployInfo)
 	}
 
 	return deployInfos, nil

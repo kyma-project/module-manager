@@ -66,6 +66,7 @@ type ManifestReconciler struct {
 	RequeueIntervals        RequeueIntervals
 	MaxConcurrentReconciles int
 	VerifyInstallation      bool
+	CustomStateCheck        bool
 }
 
 const configReadError = "reading install config resulted in an error"
@@ -125,7 +126,7 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	case "":
 		return ctrl.Result{}, r.HandleInitialState(ctx, &logger, &manifestObj)
 	case v1alpha1.ManifestStateProcessing:
-		return ctrl.Result{}, r.HandleProcessingState(ctx, &logger, &manifestObj)
+		return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Failure)}, r.HandleProcessingState(ctx, &logger, &manifestObj)
 	case v1alpha1.ManifestStateDeleting:
 		return ctrl.Result{}, r.HandleDeletingState(ctx, &logger, &manifestObj)
 	case v1alpha1.ManifestStateError:
@@ -166,7 +167,7 @@ func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logg
 	go r.ResponseHandlerFunc(ctx, logger, chartCount, responseChan, namespacedName)
 
 	// send deploy requests
-	deployInfos, err := prepareDeployInfos(ctx, manifestObj, r.Client, r.VerifyInstallation)
+	deployInfos, err := prepareDeployInfos(ctx, manifestObj, r.Client, r.VerifyInstallation, r.CustomStateCheck)
 	if err != nil {
 		return err
 	}
@@ -198,7 +199,7 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 	logger.Info("checking consistent state for " + namespacedName.String())
 
 	// send deploy requests
-	deployInfos, err := prepareDeployInfos(ctx, manifestObj, r.Client, r.VerifyInstallation)
+	deployInfos, err := prepareDeployInfos(ctx, manifestObj, r.Client, r.VerifyInstallation, r.CustomStateCheck)
 	if err != nil {
 		return err
 	}
@@ -258,10 +259,8 @@ func (r *ManifestReconciler) HandleCharts(deployInfo manifest.DeployInfo, mode m
 
 	if err == nil {
 		if create {
-			deployInfo.CheckFn = nil
 			ready, err = manifestOperations.Install(deployInfo)
 		} else {
-			deployInfo.CheckFn = nil
 			ready, err = manifestOperations.Uninstall(deployInfo)
 		}
 	}
