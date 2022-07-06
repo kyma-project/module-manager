@@ -6,7 +6,7 @@ require (
 	github.com/go-logr/logr v1.2.3
 	github.com/gofrs/flock v0.8.1
 	github.com/google/go-containerregistry v0.10.0
-	github.com/kyma-project/manifest-operator/api v0.0.0-20220615103328-c878b8496972
+	github.com/kyma-project/manifest-operator/api v0.0.0-20220706124452-392c2a3bc1b1
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.18.1
 	github.com/pkg/errors v0.9.1

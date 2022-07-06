@@ -5,11 +5,11 @@ import (
 	"compress/gzip"
 	"fmt"
 	"github.com/google/go-containerregistry/pkg/crane"
-	yaml2 "gopkg.in/yaml.v3"
 	"io"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"os"
 	"path/filepath"
+	yaml2 "sigs.k8s.io/yaml"
 )
 
 type ManifestConfig struct {
@@ -44,7 +44,7 @@ func ExtractTarGz(repo string, module string, digest string, pathPattern string)
 	}
 
 	// create new dir
-	if err = os.MkdirAll(installPath, 0770); err != nil {
+	if err = os.MkdirAll(installPath, 0o770); err != nil {
 		return "", fmt.Errorf("failure in MkdirAll() while extracting TarGz %s: %w", layer, err)
 	}
 
@@ -63,7 +63,7 @@ func ExtractTarGz(repo string, module string, digest string, pathPattern string)
 
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := os.Mkdir(filepath.Join(installPath, header.Name), 0755); err != nil {
+			if err := os.Mkdir(filepath.Join(installPath, header.Name), 0o755); err != nil {
 				return "", fmt.Errorf("failure in Mkdir() storage while extracting TarGz %s: %w", layer, err)
 			}
 		case tar.TypeReg:
@@ -80,7 +80,6 @@ func ExtractTarGz(repo string, module string, digest string, pathPattern string)
 			return "", fmt.Errorf("unknown type encountered while extracting TarGz %v in %s: %w",
 				header.Typeflag, filepath.Join(installPath, header.Name), err)
 		}
-
 	}
 
 	return installPath, nil
@@ -121,7 +120,7 @@ func DecodeYamlFromDigest(repo string, module string, digest string, pathPattern
 	}
 
 	// create directory
-	if err := os.MkdirAll(filepath.Dir(fullFilePath), 0770); err != nil {
+	if err := os.MkdirAll(filepath.Dir(fullFilePath), 0o770); err != nil {
 		return nil, err
 	}
 

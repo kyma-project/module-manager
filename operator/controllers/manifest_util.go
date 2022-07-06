@@ -3,19 +3,21 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"time"
+
 	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
 	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
 	"github.com/kyma-project/manifest-operator/operator/pkg/descriptor"
 	"github.com/kyma-project/manifest-operator/operator/pkg/labels"
 	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"path/filepath"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"time"
 )
 
 func getReadyConditionForComponent(manifest *v1alpha1.Manifest,
-	installName string) (*v1alpha1.ManifestCondition, bool) {
+	installName string,
+) (*v1alpha1.ManifestCondition, bool) {
 	status := &manifest.Status
 	for _, existingCondition := range status.Conditions {
 		if existingCondition.Type == v1alpha1.ConditionTypeReady && existingCondition.Reason == installName {
@@ -25,8 +27,8 @@ func getReadyConditionForComponent(manifest *v1alpha1.Manifest,
 	return &v1alpha1.ManifestCondition{}, false
 }
 
-func addReadyConditionForObjects(manifest *v1alpha1.Manifest, installItems []v1alpha1.InstallItem,
-	conditionStatus v1alpha1.ManifestConditionStatus, message string) {
+func addReadyConditionForObjects(manifest *v1alpha1.Manifest, installItems []v1alpha1.InstallItem, conditionStatus v1alpha1.ManifestConditionStatus, message string,
+) {
 	status := &manifest.Status
 	for _, installItem := range installItems {
 		condition, exists := getReadyConditionForComponent(manifest, installItem.ChartName)

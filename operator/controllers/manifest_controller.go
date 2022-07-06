@@ -55,7 +55,7 @@ type ManifestDeploy struct {
 	RequestErrChan manifest.RequestErrChan
 }
 
-// ManifestReconciler reconciles a Manifest object
+// ManifestReconciler reconciles a Manifest object.
 type ManifestReconciler struct {
 	client.Client
 	Scheme                  *runtime.Scheme
@@ -140,23 +140,23 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	return ctrl.Result{}, nil
 }
 
-func (r *ManifestReconciler) HandleInitialState(ctx context.Context, _ *logr.Logger,
-	manifestObj *v1alpha1.Manifest) error {
+func (r *ManifestReconciler) HandleInitialState(ctx context.Context, _ *logr.Logger, manifestObj *v1alpha1.Manifest,
+) error {
 	return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing, "initial state")
 }
 
-func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, logger *logr.Logger,
-	manifestObj *v1alpha1.Manifest) error {
+func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest,
+) error {
 	return r.jobAllocator(ctx, logger, manifestObj, manifest.CreateMode)
 }
 
-func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, logger *logr.Logger,
-	manifestObj *v1alpha1.Manifest) error {
+func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest,
+) error {
 	return r.jobAllocator(ctx, logger, manifestObj, manifest.DeletionMode)
 }
 
-func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest,
-	mode manifest.Mode) error {
+func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest, mode manifest.Mode,
+) error {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 	responseChan := make(manifest.RequestErrChan)
 
@@ -186,8 +186,8 @@ func (r *ManifestReconciler) HandleErrorState(ctx context.Context, manifestObj *
 		"observed generation change")
 }
 
-func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.Logger,
-	manifestObj *v1alpha1.Manifest) error {
+func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest,
+) error {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 	if manifestObj.Generation != manifestObj.Status.ObservedGeneration {
 		logger.Info("observed generation change for " + namespacedName.String())
@@ -227,8 +227,8 @@ func (r *ManifestReconciler) updateManifest(ctx context.Context, manifestObj *v1
 	return r.Update(ctx, manifestObj)
 }
 
-func (r *ManifestReconciler) updateManifestStatus(ctx context.Context, manifestObj *v1alpha1.Manifest,
-	state v1alpha1.ManifestState, message string) error {
+func (r *ManifestReconciler) updateManifestStatus(ctx context.Context, manifestObj *v1alpha1.Manifest, state v1alpha1.ManifestState, message string,
+) error {
 	manifestObj.Status.State = state
 	switch state {
 	case v1alpha1.ManifestStateReady:
@@ -244,8 +244,8 @@ func (r *ManifestReconciler) updateManifestStatus(ctx context.Context, manifestO
 	return r.Status().Update(ctx, manifestObj.SetObservedGeneration())
 }
 
-func (r *ManifestReconciler) HandleCharts(deployInfo manifest.DeployInfo, mode manifest.Mode,
-	logger *logr.Logger) *manifest.RequestError {
+func (r *ManifestReconciler) HandleCharts(deployInfo manifest.DeployInfo, mode manifest.Mode, logger *logr.Logger,
+) *manifest.RequestError {
 	args := PrepareArgs(&deployInfo)
 
 	// evaluate create or delete chart
@@ -277,7 +277,8 @@ func (r *ManifestReconciler) HandleCharts(deployInfo manifest.DeployInfo, mode m
 }
 
 func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *logr.Logger, chartCount int,
-	responseChan manifest.RequestErrChan, namespacedName client.ObjectKey) {
+	responseChan manifest.RequestErrChan, namespacedName client.ObjectKey,
+) {
 	// errorState takes precedence over processing
 	errorState := false
 	processing := false
@@ -286,7 +287,7 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 	for a := 1; a <= chartCount; a++ {
 		select {
 		case <-ctx.Done():
-			logger.Error(ctx.Err(), fmt.Sprintf("context closed, error occured while handling response for %s",
+			logger.Error(ctx.Err(), fmt.Sprintf("context closed, error occurred while handling response for %s",
 				namespacedName.String()))
 			return
 		case response := <-responseChan:
@@ -374,8 +375,8 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 	return
 }
 
-func (r *ManifestReconciler) SyncRemoteResource(ctx context.Context, manifestObj *v1alpha1.Manifest,
-	removeFinalizer bool) (bool, error) {
+func (r *ManifestReconciler) SyncRemoteResource(ctx context.Context, manifestObj *v1alpha1.Manifest, removeFinalizer bool,
+) (bool, error) {
 	// check remote object
 	remoteInterface, remoteManifest, err := NewRemoteInterface(ctx, r.Client, manifestObj)
 	if err != nil {
@@ -419,14 +420,12 @@ func ManifestRateLimiter() ratelimiter.RateLimiter {
 }
 
 func PrepareArgs(deployInfo *manifest.DeployInfo) map[string]string {
-	var (
-		args = map[string]string{
-			// check --set flags parameter from manifest
-			"set": deployInfo.Overrides,
-			// comma seperated values of manifest command line flags
-			"flags": deployInfo.ClientConfig,
-		}
-	)
+	args := map[string]string{
+		// check --set flags parameter from manifest
+		"set": deployInfo.Overrides,
+		// comma separated values of manifest command line flags
+		"flags": deployInfo.ClientConfig,
+	}
 	if deployInfo.RepoName != "" {
 		deployInfo.ChartName = fmt.Sprintf("%s/%s", deployInfo.RepoName, deployInfo.ChartName)
 	}
@@ -439,7 +438,7 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 	r.Workers.StartWorkers(ctx, r.DeployChan, r.HandleCharts)
 
 	// default config from kubebuilder
-	//r.RestConfig = mgr.GetConfig()
+	// r.RestConfig = mgr.GetConfig()
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Manifest{}).
