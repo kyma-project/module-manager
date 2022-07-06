@@ -55,7 +55,7 @@ type OCIRef struct {
 type ManifestSpec struct {
 	// OCIRef specifies OCI image configuration for Manifest
 	// +optional
-	OCIRef OCIRef `json:"ociRef,omitempty"`
+	Config OCIRef `json:"config,omitempty"`
 
 	// Installs specifies a list of installations for Manifest
 	Installs []InstallInfo `json:"installs,omitempty"`
@@ -100,6 +100,13 @@ type ManifestStatus struct {
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
+// InstallItem describes install information
+type InstallItem struct {
+	ChartName    string `json:"name,omitempty"`
+	ClientConfig string `json:"clientConfig,omitempty"`
+	Overrides    string `json:"overrides,omitempty"`
+}
+
 // ManifestCondition describes condition information for Manifest.
 type ManifestCondition struct {
 	//Type of ManifestCondition
@@ -120,6 +127,10 @@ type ManifestCondition struct {
 	// Timestamp for when Manifest last transitioned from one status to another.
 	// +optional
 	LastTransitionTime *metav1.Time `json:"lastTransitionTime,omitempty"`
+
+	// InstallInfo contains a list of installations for Manifest
+	// +optional
+	InstallInfo InstallItem `json:"installInfo,omitempty"`
 }
 
 type ManifestConditionType string
@@ -152,7 +163,7 @@ const (
 
 // Sync defines settings used to apply the manifest synchronization to other clusters
 type Sync struct {
-	// +kubebuilder:default:=true
+	// +kubebuilder:default:=false
 	// Enabled set to true will look up a kubeconfig for the remote cluster based on the strategy
 	// and synchronize its state there.
 	Enabled bool `json:"enabled,omitempty"`
