@@ -9,6 +9,7 @@ import (
 	"github.com/kyma-project/manifest-operator/operator/pkg/labels"
 	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"path/filepath"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"time"
 )
@@ -63,7 +64,7 @@ func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, def
 	// extract config
 	config := manifestObj.Spec.Config
 	decodedConfig, err := descriptor.DecodeYamlFromDigest(config.Repo, config.Module, config.Digest,
-		fmt.Sprintf("%s", config.Digest))
+		filepath.Join(fmt.Sprintf("%s", config.Digest), "installConfig.yaml"))
 	if err != nil {
 		return nil, err
 	}
@@ -88,8 +89,8 @@ func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, def
 
 	for _, install := range manifestObj.Spec.Installs {
 		// extract helm chart from layer digest
-		chartPath, err := descriptor.ExtractTarGz(fmt.Sprintf("%s-%s", install.Name, install.Digest),
-			install.Repo, install.Module, install.Digest)
+		chartPath, err := descriptor.ExtractTarGz(install.Repo, install.Module, install.Digest,
+			fmt.Sprintf("%s-%s", install.Name, install.Digest))
 		if err != nil {
 			return nil, err
 		}

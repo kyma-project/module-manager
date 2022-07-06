@@ -16,21 +16,11 @@ type ManifestConfig struct {
 	name string
 }
 
-func ExtractTarGz(pathPattern string, repo string, module string, digest string) (string, error) {
+func ExtractTarGz(repo string, module string, digest string, pathPattern string) (string, error) {
 	reference := fmt.Sprintf("%s/%s@%s", repo, module, digest)
 	layer, err := crane.PullLayer(reference)
 	if err != nil {
 		return "", err
-	}
-
-	blobReadCloser, err := layer.Compressed()
-	if err != nil {
-		return "", fmt.Errorf("fetching blob resulted in an error %s: %w", layer, err)
-	}
-
-	uncompressedStream, err := gzip.NewReader(blobReadCloser)
-	if err != nil {
-		return "", fmt.Errorf("failure in NewReader() while extracting TarGz %s: %w", layer, err)
 	}
 
 	// check existing dir
@@ -41,6 +31,16 @@ func ExtractTarGz(pathPattern string, repo string, module string, digest string)
 	}
 	if dir != nil {
 		return installPath, nil
+	}
+
+	blobReadCloser, err := layer.Compressed()
+	if err != nil {
+		return "", fmt.Errorf("fetching blob resulted in an error %s: %w", layer, err)
+	}
+
+	uncompressedStream, err := gzip.NewReader(blobReadCloser)
+	if err != nil {
+		return "", fmt.Errorf("failure in NewReader() while extracting TarGz %s: %w", layer, err)
 	}
 
 	// create new dir
@@ -86,12 +86,25 @@ func ExtractTarGz(pathPattern string, repo string, module string, digest string)
 	return installPath, nil
 }
 
-func DecodeYamlFromDigest(repo string, module string, digest string,
-	pattern string) (interface{}, error) {
+func DecodeYamlFromDigest(repo string, module string, digest string, pathPattern string) (interface{}, error) {
+	var configDecoder interface{}
 	reference := fmt.Sprintf("%s/%s@%s", repo, module, digest)
 	layer, err := crane.PullLayer(reference)
 	if err != nil {
 		return nil, err
+	}
+
+	fullFilePath := filepath.Join(os.TempDir(), pathPattern)
+	// check existing file
+	file, err := os.Open(fullFilePath)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("opening file for install config caused an error %s: %w", layer, err)
+	}
+	if file != nil {
+		if err = yaml.NewYAMLOrJSONDecoder(file, 2048).Decode(&configDecoder); err != nil {
+			return nil, fmt.Errorf("reading content for install config caused an error %s: %w", layer, err)
+		}
+		return configDecoder, nil
 	}
 
 	// yaml is not compressed
@@ -100,23 +113,11 @@ func DecodeYamlFromDigest(repo string, module string, digest string,
 		return nil, fmt.Errorf("fetching blob resulted in an error %s: %w", layer, err)
 	}
 
-	var configDecoder interface{}
 	err = yaml.NewYAMLOrJSONDecoder(blob, 2048).Decode(&configDecoder)
 
 	bytes, err := yaml2.Marshal(configDecoder)
 	if err != nil {
 		return nil, fmt.Errorf("yaml marshal for install config caused an error %s: %w", layer, err)
-	}
-
-	fullFilePath := filepath.Join(os.TempDir(), pattern, "installConfig.yaml")
-
-	// check existing file
-	file, err := os.Open(fullFilePath)
-	if err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("opening file for install config caused an error %s: %w", layer, err)
-	}
-	if file != nil {
-		return configDecoder, nil
 	}
 
 	// create directory
