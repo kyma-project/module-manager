@@ -37,18 +37,24 @@ type CustomState struct {
 
 // InstallInfo defines installation information
 type InstallInfo struct {
-	OCIRef `json:",inline"`
-	Type   string `json:"type"`
-	Name   string `json:"name"`
+	OCIRef  OCIRef  `json:"ociRef,omitempty"`
+	HelmRef HelmRef `json:"helmRef,omitempty"`
+	Type    string  `json:"type"`
+	Name    string  `json:"name"`
+}
+
+// HelmRef defines installation
+type HelmRef struct {
+	Url       string `json:"url,omitempty"`
+	ChartName string `json:"chartName,omitempty"`
+	Version   string `json:"version,omitempty"`
 }
 
 // OCIRef defines OCI image configuration
 type OCIRef struct {
-	Repo    string `json:"repo"`
-	Module  string `json:"module"`
-	Tag     string `json:"tag,omitempty"`
-	Version string `json:"version,omitempty"`
-	Digest  string `json:"digest,omitempty"`
+	Repo   string `json:"repo"`
+	Module string `json:"module"`
+	Ref    string `json:"ref,omitempty"`
 }
 
 // ManifestSpec defines the specification of Manifest

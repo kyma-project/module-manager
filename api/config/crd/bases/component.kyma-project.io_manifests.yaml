@@ -45,15 +45,11 @@ spec:
               config:
                 description: OCIRef specifies OCI image configuration for Manifest
                 properties:
-                  digest:
-                    type: string
                   module:
                     type: string
+                  ref:
+                    type: string
                   repo:
-                    type: string
-                  tag:
-                    type: string
-                  version:
                     type: string
                 required:
                 - module
@@ -81,24 +77,35 @@ spec:
                 items:
                   description: InstallInfo defines installation information
                   properties:
-                    digest:
-                      type: string
-                    module:
-                      type: string
+                    helmRef:
+                      description: HelmRef defines installation
+                      properties:
+                        chartName:
+                          type: string
+                        url:
+                          type: string
+                        version:
+                          type: string
+                      type: object
                     name:
                       type: string
-                    repo:
-                      type: string
-                    tag:
-                      type: string
+                    ociRef:
+                      description: OCIRef defines OCI image configuration
+                      properties:
+                        module:
+                          type: string
+                        ref:
+                          type: string
+                        repo:
+                          type: string
+                      required:
+                      - module
+                      - repo
+                      type: object
                     type:
                       type: string
-                    version:
-                      type: string
                   required:
-                  - module
                   - name
-                  - repo
                   - type
                   type: object
                 type: array
