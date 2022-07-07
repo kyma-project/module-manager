@@ -102,6 +102,17 @@ spec:
                       - module
                       - repo
                       type: object
+                    overrideRef:
+                      description: OverrideInfo defines ConfigMap override for InstallInfo
+                      properties:
+                        name:
+                          type: string
+                        namespace:
+                          type: string
+                      required:
+                      - name
+                      - namespace
+                      type: object
                     type:
                       type: string
                   required:

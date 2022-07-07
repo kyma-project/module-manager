@@ -37,10 +37,17 @@ type CustomState struct {
 
 // InstallInfo defines installation information
 type InstallInfo struct {
-	OCIRef  OCIRef  `json:"ociRef,omitempty"`
-	HelmRef HelmRef `json:"helmRef,omitempty"`
-	Type    string  `json:"type"`
-	Name    string  `json:"name"`
+	OCIRef      OCIRef       `json:"ociRef,omitempty"`
+	HelmRef     HelmRef      `json:"helmRef,omitempty"`
+	Type        string       `json:"type"`
+	Name        string       `json:"name"`
+	OverrideRef OverrideInfo `json:"overrideRef,omitempty"`
+}
+
+// OverrideInfo defines ConfigMap override for InstallInfo
+type OverrideInfo struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
 }
 
 // HelmRef defines installation
