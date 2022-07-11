@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 const ManifestKind = "Manifest"
@@ -28,34 +29,75 @@ func (manifest *Manifest) SetObservedGeneration() *Manifest {
 }
 
 type CustomState struct {
+	// APIVersion defines api version of the custom resource
 	APIVersion string `json:"apiVersion,omitempty"`
-	Kind       string `json:"kind,omitempty"`
-	Name       string `json:"name,omitempty"`
-	Namespace  string `json:"namespace,omitempty"`
-	State      string `json:"state,omitempty"`
+
+	// Kind defines the kind of the custom resource
+	Kind string `json:"kind,omitempty"`
+
+	// Name defines the name of the custom resource
+	Name string `json:"name,omitempty"`
+
+	// Namespace defines the namespace of the custom resource
+	Namespace string `json:"namespace,omitempty"`
+
+	// Namespace defines the desired state of the custom resource
+	State string `json:"state,omitempty"`
 }
 
 // InstallInfo defines installation information
 type InstallInfo struct {
-	OCIRef `json:",inline"`
-	Type   string `json:"type"`
-	Name   string `json:"name"`
+	// Ref can either be described as ImageSpec ot HelmChartSpec
+	//+kubebuilder:pruning:PreserveUnknownFields
+	Ref runtime.RawExtension `json:"ref"`
+
+	// Name specifies a unique install name for Manifest
+	Name string `json:"name"`
+
+	// OverrideSelector defines a label selector for external overrides
+	OverrideSelector metav1.LabelSelector `json:"overrideSelector,omitempty"`
 }
 
-// OCIRef defines OCI image configuration
-type OCIRef struct {
-	Repo    string `json:"repo"`
-	Module  string `json:"module"`
-	Tag     string `json:"tag,omitempty"`
+// ImageSpec defines installation
+type ImageSpec struct {
+	// Repo defines the Image repo
+	Repo string `json:"repo,omitempty"`
+
+	// Name defines the Image name
+	Name string `json:"name,omitempty"`
+
+	// Ref is either a sha value, tag or version
+	Ref string `json:"ref,omitempty"`
+
+	// RefTypeMetadata defines the chart as "oci-ref"
+	RefTypeMetadata `json:",inline"`
+}
+
+// HelmChartSpec defines the specification for a helm chart
+type HelmChartSpec struct {
+	// Url defines the helm repo URL
+	Url string `json:"url,omitempty"`
+
+	// ChartName defines the helm chart name
+	ChartName string `json:"chartName,omitempty"`
+
+	// Version defines the helm chart version
 	Version string `json:"version,omitempty"`
-	Digest  string `json:"digest,omitempty"`
+
+	// RefTypeMetadata defines the chart as "helm-chart"
+	RefTypeMetadata `json:",inline"`
+}
+
+type RefTypeMetadata struct {
+	// +kubebuilder:validation:Enum=helm-chart;oci-ref
+	Type string `json:"type"`
 }
 
 // ManifestSpec defines the specification of Manifest
 type ManifestSpec struct {
-	// OCIRef specifies OCI image configuration for Manifest
+	// DefaultConfig specifies OCI image configuration for Manifest
 	// +optional
-	Config OCIRef `json:"config,omitempty"`
+	DefaultConfig ImageSpec `json:"defaultConfig,omitempty"`
 
 	// Installs specifies a list of installations for Manifest
 	Installs []InstallInfo `json:"installs,omitempty"`
@@ -102,9 +144,14 @@ type ManifestStatus struct {
 
 // InstallItem describes install information
 type InstallItem struct {
-	ChartName    string `json:"name,omitempty"`
+	// ChartName defines the name for InstallItem
+	ChartName string `json:"name,omitempty"`
+
+	// ClientConfig defines the client config for InstallItem
 	ClientConfig string `json:"clientConfig,omitempty"`
-	Overrides    string `json:"overrides,omitempty"`
+
+	// Overrides defines the overrides for InstallItem
+	Overrides string `json:"overrides,omitempty"`
 }
 
 // ManifestCondition describes condition information for Manifest.

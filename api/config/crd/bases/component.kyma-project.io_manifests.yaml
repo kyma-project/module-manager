@@ -42,64 +42,109 @@ spec:
           spec:
             description: ManifestSpec defines the specification of Manifest
             properties:
-              config:
-                description: OCIRef specifies OCI image configuration for Manifest
-                properties:
-                  digest:
-                    type: string
-                  module:
-                    type: string
-                  repo:
-                    type: string
-                  tag:
-                    type: string
-                  version:
-                    type: string
-                required:
-                - module
-                - repo
-                type: object
               customStates:
                 description: CustomStates specifies a list of resources with their
                   desires states for Manifest
                 items:
                   properties:
                     apiVersion:
+                      description: APIVersion defines api version of the custom resource
                       type: string
                     kind:
+                      description: Kind defines the kind of the custom resource
                       type: string
                     name:
+                      description: Name defines the name of the custom resource
                       type: string
                     namespace:
+                      description: Namespace defines the namespace of the custom resource
                       type: string
                     state:
+                      description: Namespace defines the desired state of the custom
+                        resource
                       type: string
                   type: object
                 type: array
+              defaultConfig:
+                description: DefaultConfig specifies OCI image configuration for Manifest
+                properties:
+                  name:
+                    description: Name defines the Image name
+                    type: string
+                  ref:
+                    description: Ref is either a sha value, tag or version
+                    type: string
+                  repo:
+                    description: Repo defines the Image repo
+                    type: string
+                  type:
+                    enum:
+                    - helm-chart
+                    - oci-ref
+                    type: string
+                required:
+                - type
+                type: object
               installs:
                 description: Installs specifies a list of installations for Manifest
                 items:
                   description: InstallInfo defines installation information
                   properties:
-                    digest:
-                      type: string
-                    module:
-                      type: string
                     name:
+                      description: Name specifies a unique install name for Manifest
                       type: string
-                    repo:
-                      type: string
-                    tag:
-                      type: string
-                    type:
-                      type: string
-                    version:
-                      type: string
+                    overrideSelector:
+                      description: OverrideSelector defines a label selector for external
+                        overrides
+                      properties:
+                        matchExpressions:
+                          description: matchExpressions is a list of label selector
+                            requirements. The requirements are ANDed.
+                          items:
+                            description: A label selector requirement is a selector
+                              that contains values, a key, and an operator that relates
+                              the key and values.
+                            properties:
+                              key:
+                                description: key is the label key that the selector
+                                  applies to.
+                                type: string
+                              operator:
+                                description: operator represents a key's relationship
+                                  to a set of values. Valid operators are In, NotIn,
+                                  Exists and DoesNotExist.
+                                type: string
+                              values:
+                                description: values is an array of string values.
+                                  If the operator is In or NotIn, the values array
+                                  must be non-empty. If the operator is Exists or
+                                  DoesNotExist, the values array must be empty. This
+                                  array is replaced during a strategic merge patch.
+                                items:
+                                  type: string
+                                type: array
+                            required:
+                            - key
+                            - operator
+                            type: object
+                          type: array
+                        matchLabels:
+                          additionalProperties:
+                            type: string
+                          description: matchLabels is a map of {key,value} pairs.
+                            A single {key,value} in the matchLabels map is equivalent
+                            to an element of matchExpressions, whose key field is
+                            "key", the operator is "In", and the values array contains
+                            only "value". The requirements are ANDed.
+                          type: object
+                      type: object
+                    ref:
+                      description: Ref can either be described as ImageSpec ot HelmChartSpec
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
                   required:
-                  - module
                   - name
-                  - repo
-                  - type
+                  - ref
                   type: object
                 type: array
               sync:
@@ -137,10 +182,14 @@ spec:
                         Manifest
                       properties:
                         clientConfig:
+                          description: ClientConfig defines the client config for
+                            InstallItem
                           type: string
                         name:
+                          description: ChartName defines the name for InstallItem
                           type: string
                         overrides:
+                          description: Overrides defines the overrides for InstallItem
                           type: string
                       type: object
                     lastTransitionTime:
