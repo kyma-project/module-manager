@@ -1,0 +1,33 @@
+apiVersion: component.kyma-project.io/v1alpha1
+kind: Manifest
+metadata:
+  creationTimestamp: "2022-07-06T14:17:16Z"
+  finalizers:
+  - component.kyma-project.io/manifest
+  generation: 2
+  labels:
+    operator.kyma-project.io/channel: stable
+    operator.kyma-project.io/controller-name: manifest
+    operator.kyma-project.io/kyma-name: kyma-sample
+  name: manifestkyma-sample
+  namespace: default
+  ownerReferences:
+  - apiVersion: operator.kyma-project.io/v1alpha1
+    kind: Kyma
+    name: kyma-sample
+    uid: a90b64db-6581-4ddf-9c5b-1cee14f107ad
+  resourceVersion: "459320"
+  uid: 6bb62a80-1c78-4c23-98a8-93a3f4323bbc
+spec:
+  config:
+    digest: sha256:9d37fb366e4371b44c94496f3db276bd6f3a1019c9d44077b689c68ec6486c1e
+    module: kyma-project.io/module/example
+    repo: k3d-registry.localhost:52445/signed/component-descriptors
+  installs:
+  - digest: sha256:600989483c323dac3ddec5c636c76e23714bedac3192cb1d7ee4b99c06db708b
+    module: kyma-project.io/module/example
+    name: nginx-ingress
+    repo: k3d-registry.localhost:52445/signed/component-descriptors
+    type: helm-chart
+  sync:
+    enabled: false

@@ -138,13 +138,14 @@ spec:
                             only "value". The requirements are ANDed.
                           type: object
                       type: object
-                    ref:
-                      description: Ref can either be described as ImageSpec ot HelmChartSpec
+                    source:
+                      description: Source can either be described as ImageSpec or
+                        HelmChartSpec
                       type: object
                       x-kubernetes-preserve-unknown-fields: true
                   required:
                   - name
-                  - ref
+                  - source
                   type: object
                 type: array
               sync:
@@ -181,12 +182,12 @@ spec:
                       description: InstallInfo contains a list of installations for
                         Manifest
                       properties:
+                        chartName:
+                          description: ChartName defines the name for InstallItem
+                          type: string
                         clientConfig:
                           description: ClientConfig defines the client config for
                             InstallItem
-                          type: string
-                        name:
-                          description: ChartName defines the name for InstallItem
                           type: string
                         overrides:
                           description: Overrides defines the overrides for InstallItem

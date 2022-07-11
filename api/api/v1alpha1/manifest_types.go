@@ -47,9 +47,9 @@ type CustomState struct {
 
 // InstallInfo defines installation information
 type InstallInfo struct {
-	// Ref can either be described as ImageSpec ot HelmChartSpec
+	// Source can either be described as ImageSpec or HelmChartSpec
 	//+kubebuilder:pruning:PreserveUnknownFields
-	Ref runtime.RawExtension `json:"ref"`
+	Source runtime.RawExtension `json:"source"`
 
 	// Name specifies a unique install name for Manifest
 	Name string `json:"name"`
@@ -145,7 +145,7 @@ type ManifestStatus struct {
 // InstallItem describes install information
 type InstallItem struct {
 	// ChartName defines the name for InstallItem
-	ChartName string `json:"name,omitempty"`
+	ChartName string `json:"chartName,omitempty"`
 
 	// ClientConfig defines the client config for InstallItem
 	ClientConfig string `json:"clientConfig,omitempty"`
