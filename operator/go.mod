@@ -2,7 +2,10 @@ module github.com/kyma-project/manifest-operator/operator
 
 go 1.18
 
+replace github.com/kyma-project/manifest-operator/api => /Users/d063994/SAPDevelop/go/manifest-operator/api
+
 require (
+	github.com/alecthomas/jsonschema v0.0.0-20220216202328-9eeeec9d044b
 	github.com/go-logr/logr v1.2.3
 	github.com/gofrs/flock v0.8.1
 	github.com/google/go-containerregistry v0.10.0
@@ -11,7 +14,6 @@ require (
 	github.com/onsi/gomega v1.18.1
 	github.com/pkg/errors v0.9.1
 	golang.org/x/time v0.0.0-20220210224613-90d013bbcef8
-	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b
 	helm.sh/helm/v3 v3.9.0
 	k8s.io/api v0.24.0
 	k8s.io/apiextensions-apiserver v0.24.0
@@ -80,6 +82,7 @@ require (
 	github.com/gosuri/uitable v0.0.4 // indirect
 	github.com/gregjones/httpcache v0.0.0-20190611155906-901d90724c79 // indirect
 	github.com/huandu/xstrings v1.3.2 // indirect
+	github.com/iancoleman/orderedmap v0.0.0-20190318233801-ac98e3ecb4b0 // indirect
 	github.com/imdario/mergo v0.3.12 // indirect
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
 	github.com/jmoiron/sqlx v1.3.4 // indirect
@@ -148,6 +151,7 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
+	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
 	k8s.io/apiserver v0.24.0 // indirect
 	k8s.io/component-base v0.24.0 // indirect
 	k8s.io/klog/v2 v2.60.1 // indirect

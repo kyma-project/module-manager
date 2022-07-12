@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"github.com/kyma-project/manifest-operator/operator/pkg/descriptor"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -435,6 +436,10 @@ func PrepareArgs(deployInfo *manifest.DeployInfo) map[string]string {
 func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
 	r.DeployChan = make(chan ManifestDeploy)
 	r.Workers.StartWorkers(ctx, r.DeployChan, r.HandleCharts)
+
+	if err := descriptor.InitializeSchemaValidators(); err != nil {
+		return err
+	}
 
 	// default config from kubebuilder
 	// r.RestConfig = mgr.GetConfig()
