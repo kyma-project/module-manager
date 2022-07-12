@@ -18,14 +18,15 @@ package main
 
 import (
 	"flag"
+	"os"
+	"time"
+
 	manifestv1alpha1 "github.com/kyma-project/manifest-operator/api/api/v1alpha1"
 	opLabels "github.com/kyma-project/manifest-operator/operator/pkg/labels"
 	v1 "k8s.io/api/core/v1"
 	apiExtensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"os"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
-	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -57,7 +58,7 @@ func init() {
 
 func main() {
 	var metricsAddr string
-	var enableLeaderElection, verifyInstallation bool
+	var enableLeaderElection, verifyInstallation, customStateCheck bool
 	var probeAddr string
 	var requeueSuccessInterval, requeueFailureInterval, requeueWaitingInterval time.Duration
 	var concurrentReconciles, workersConcurrentManifests int
@@ -83,6 +84,8 @@ func main() {
 	flag.BoolVar(&verifyInstallation, "verify-installation", false,
 		"Indicates if installed resources should be verified after installation, "+
 			"before marking the resource state to a consistent state.")
+	flag.BoolVar(&customStateCheck, "custom-state-check", false,
+		"Indicates if desired state should be checked on custom resources")
 
 	opts := zap.Options{
 		Development: true,
@@ -128,6 +131,7 @@ func main() {
 		Workers:                 manifestWorkers,
 		MaxConcurrentReconciles: concurrentReconciles,
 		VerifyInstallation:      verifyInstallation,
+		CustomStateCheck:        customStateCheck,
 		RequeueIntervals: controllers.RequeueIntervals{
 			Success: requeueSuccessInterval,
 			Failure: requeueFailureInterval,

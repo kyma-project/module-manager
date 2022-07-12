@@ -18,7 +18,6 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
 const ManifestKind = "Manifest"
@@ -29,75 +28,47 @@ func (manifest *Manifest) SetObservedGeneration() *Manifest {
 }
 
 type CustomState struct {
-	// APIVersion defines api version of the custom resource
 	APIVersion string `json:"apiVersion,omitempty"`
-
-	// Kind defines the kind of the custom resource
-	Kind string `json:"kind,omitempty"`
-
-	// Name defines the name of the custom resource
-	Name string `json:"name,omitempty"`
-
-	// Namespace defines the namespace of the custom resource
-	Namespace string `json:"namespace,omitempty"`
-
-	// Namespace defines the desired state of the custom resource
-	State string `json:"state,omitempty"`
+	Kind       string `json:"kind,omitempty"`
+	Name       string `json:"name,omitempty"`
+	Namespace  string `json:"namespace,omitempty"`
+	State      string `json:"state,omitempty"`
 }
 
 // InstallInfo defines installation information
 type InstallInfo struct {
-	// Source can either be described as ImageSpec or HelmChartSpec
-	//+kubebuilder:pruning:PreserveUnknownFields
-	Source runtime.RawExtension `json:"source"`
-
-	// Name specifies a unique install name for Manifest
-	Name string `json:"name"`
-
-	// OverrideSelector defines a label selector for external overrides
-	OverrideSelector metav1.LabelSelector `json:"overrideSelector,omitempty"`
+	OCIRef      OCIRef       `json:"ociRef,omitempty"`
+	HelmRef     HelmRef      `json:"helmRef,omitempty"`
+	Type        string       `json:"type"`
+	Name        string       `json:"name"`
+	OverrideRef OverrideInfo `json:"overrideRef,omitempty"`
 }
 
-// ImageSpec defines installation
-type ImageSpec struct {
-	// Repo defines the Image repo
-	Repo string `json:"repo,omitempty"`
-
-	// Name defines the Image name
-	Name string `json:"name,omitempty"`
-
-	// Ref is either a sha value, tag or version
-	Ref string `json:"ref,omitempty"`
-
-	// RefTypeMetadata defines the chart as "oci-ref"
-	RefTypeMetadata `json:",inline"`
+// OverrideInfo defines ConfigMap override for InstallInfo
+type OverrideInfo struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
 }
 
-// HelmChartSpec defines the specification for a helm chart
-type HelmChartSpec struct {
-	// Url defines the helm repo URL
-	Url string `json:"url,omitempty"`
-
-	// ChartName defines the helm chart name
+// HelmRef defines installation
+type HelmRef struct {
+	Url       string `json:"url,omitempty"`
 	ChartName string `json:"chartName,omitempty"`
-
-	// Version defines the helm chart version
-	Version string `json:"version,omitempty"`
-
-	// RefTypeMetadata defines the chart as "helm-chart"
-	RefTypeMetadata `json:",inline"`
+	Version   string `json:"version,omitempty"`
 }
 
-type RefTypeMetadata struct {
-	// +kubebuilder:validation:Enum=helm-chart;oci-ref
-	Type string `json:"type"`
+// OCIRef defines OCI image configuration
+type OCIRef struct {
+	Repo   string `json:"repo"`
+	Module string `json:"module"`
+	Ref    string `json:"ref,omitempty"`
 }
 
 // ManifestSpec defines the specification of Manifest
 type ManifestSpec struct {
-	// DefaultConfig specifies OCI image configuration for Manifest
+	// OCIRef specifies OCI image configuration for Manifest
 	// +optional
-	DefaultConfig ImageSpec `json:"defaultConfig,omitempty"`
+	Config OCIRef `json:"config,omitempty"`
 
 	// Installs specifies a list of installations for Manifest
 	Installs []InstallInfo `json:"installs,omitempty"`
@@ -144,14 +115,9 @@ type ManifestStatus struct {
 
 // InstallItem describes install information
 type InstallItem struct {
-	// ChartName defines the name for InstallItem
-	ChartName string `json:"chartName,omitempty"`
-
-	// ClientConfig defines the client config for InstallItem
+	ChartName    string `json:"name,omitempty"`
 	ClientConfig string `json:"clientConfig,omitempty"`
-
-	// Overrides defines the overrides for InstallItem
-	Overrides string `json:"overrides,omitempty"`
+	Overrides    string `json:"overrides,omitempty"`
 }
 
 // ManifestCondition describes condition information for Manifest.

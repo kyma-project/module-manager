@@ -3,6 +3,7 @@ package manifest
 import (
 	"context"
 	"fmt"
+
 	"github.com/go-logr/logr"
 	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
 	manifestRest "github.com/kyma-project/manifest-operator/operator/pkg/rest"
@@ -25,7 +26,7 @@ const (
 	DeletionMode
 )
 
-// ChartInfo defines chart information
+// ChartInfo defines chart information.
 type ChartInfo struct {
 	ChartPath    string
 	RepoName     string
@@ -131,6 +132,9 @@ func (o *Operations) VerifyResources(deployInfo DeployInfo) (bool, error) {
 	}
 	if len(targetResources) > len(existingResources) {
 		return false, nil
+	}
+	if deployInfo.CheckFn == nil {
+		return true, nil
 	}
 	return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.ManifestLabels, deployInfo.ObjectKey, o.logger)
 }
@@ -241,6 +245,6 @@ func (o *Operations) getManifestForChartPath(chartPath, chartName string, action
 		return "", err
 	}
 	// TODO: Uncomment below to print manifest
-	//fmt.Println(release.Manifest)
+	// fmt.Println(release.Manifest)
 	return release.Manifest, nil
 }
