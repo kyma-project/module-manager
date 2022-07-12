@@ -23,9 +23,9 @@ import (
 
 const ManifestKind = "Manifest"
 
-func (manifest *Manifest) SetObservedGeneration() *Manifest {
-	manifest.Status.ObservedGeneration = manifest.Generation
-	return manifest
+func (m *Manifest) SetObservedGeneration() *Manifest {
+	m.Status.ObservedGeneration = m.Generation
+	return m
 }
 
 type CustomState struct {
@@ -81,9 +81,6 @@ type HelmChartSpec struct {
 
 	// ChartName defines the helm chart name
 	ChartName string `json:"chartName,omitempty"`
-
-	// Version defines the helm chart version
-	Version string `json:"version,omitempty"`
 
 	// Type defines the chart as "oci-ref"
 	// +kubebuilder:validation:Enum=helm-chart;oci-ref
