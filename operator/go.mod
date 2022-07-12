@@ -2,17 +2,16 @@ module github.com/kyma-project/manifest-operator/operator
 
 go 1.18
 
-replace github.com/kyma-project/manifest-operator/api => /Users/d063994/SAPDevelop/go/manifest-operator/api
-
 require (
 	github.com/alecthomas/jsonschema v0.0.0-20220216202328-9eeeec9d044b
 	github.com/go-logr/logr v1.2.3
 	github.com/gofrs/flock v0.8.1
 	github.com/google/go-containerregistry v0.10.0
-	github.com/kyma-project/manifest-operator/api v0.0.0-20220706124452-392c2a3bc1b1
+	github.com/kyma-project/manifest-operator/api v0.0.0-20220712084514-8fd3e3ef93d5
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.18.1
 	github.com/pkg/errors v0.9.1
+	github.com/xeipuuv/gojsonschema v1.2.0
 	golang.org/x/time v0.0.0-20220210224613-90d013bbcef8
 	helm.sh/helm/v3 v3.9.0
 	k8s.io/api v0.24.0
@@ -130,7 +129,6 @@ require (
 	github.com/vbatts/tar-split v0.11.2 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
-	github.com/xeipuuv/gojsonschema v1.2.0 // indirect
 	github.com/xlab/treeprint v0.0.0-20181112141820-a009c3971eca // indirect
 	go.starlark.net v0.0.0-20200306205701-8dd3e2ee1dd5 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
