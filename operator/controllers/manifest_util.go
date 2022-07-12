@@ -57,7 +57,7 @@ func addReadyConditionForObjects(manifest *v1alpha1.Manifest, installItems []v1a
 }
 
 func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClient client.Client,
-	verifyInstallation bool, customStateCheck bool) ([]manifest.DeployInfo, error) {
+	verifyInstallation bool, customStateCheck bool, codec *v1alpha1.Codec) ([]manifest.DeployInfo, error) {
 	deployInfos := make([]manifest.DeployInfo, 0)
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 	kymaOwnerLabel, ok := manifestObj.Labels[labels.ComponentOwner]
@@ -96,7 +96,7 @@ func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, def
 	var chartInfo manifest.ChartInfo
 
 	for _, install := range manifestObj.Spec.Installs {
-		specType, err := descriptor.GetSpecType(install.Source.Raw)
+		specType, err := v1alpha1.GetSpecType(install.Source.Raw)
 		if err != nil {
 			return nil, err
 		}
@@ -104,7 +104,7 @@ func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, def
 		switch specType {
 		case v1alpha1.HelmChartType:
 			var helmChartSpec v1alpha1.HelmChartSpec
-			if err = descriptor.Decode(install.Source.Raw, &helmChartSpec, specType); err != nil {
+			if err = codec.Decode(install.Source.Raw, &helmChartSpec, specType); err != nil {
 				return nil, err
 			}
 
@@ -116,7 +116,7 @@ func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, def
 
 		case v1alpha1.OciRefType:
 			var imageSpec v1alpha1.ImageSpec
-			if err = descriptor.Decode(install.Source.Raw, &imageSpec, specType); err != nil {
+			if err = codec.Decode(install.Source.Raw, &imageSpec, specType); err != nil {
 				return nil, err
 			}
 
