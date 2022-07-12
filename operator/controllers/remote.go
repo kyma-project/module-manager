@@ -3,6 +3,8 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"path"
+
 	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
 	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
 	"github.com/kyma-project/manifest-operator/operator/pkg/labels"
@@ -11,7 +13,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"path"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )

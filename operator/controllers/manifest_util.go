@@ -3,6 +3,9 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"time"
+
 	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
 	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
 	"github.com/kyma-project/manifest-operator/operator/pkg/descriptor"
@@ -10,11 +13,11 @@ import (
 	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"time"
 )
 
 func getReadyConditionForComponent(manifest *v1alpha1.Manifest,
-	installName string) (*v1alpha1.ManifestCondition, bool) {
+	installName string,
+) (*v1alpha1.ManifestCondition, bool) {
 	status := &manifest.Status
 	for _, existingCondition := range status.Conditions {
 		if existingCondition.Type == v1alpha1.ConditionTypeReady && existingCondition.Reason == installName {
@@ -24,8 +27,8 @@ func getReadyConditionForComponent(manifest *v1alpha1.Manifest,
 	return &v1alpha1.ManifestCondition{}, false
 }
 
-func addReadyConditionForObjects(manifest *v1alpha1.Manifest, installItems []v1alpha1.InstallItem,
-	conditionStatus v1alpha1.ManifestConditionStatus, message string) {
+func addReadyConditionForObjects(manifest *v1alpha1.Manifest, installItems []v1alpha1.InstallItem, conditionStatus v1alpha1.ManifestConditionStatus, message string,
+) {
 	status := &manifest.Status
 	for _, installItem := range installItems {
 		condition, exists := getReadyConditionForComponent(manifest, installItem.ChartName)
@@ -52,7 +55,8 @@ func addReadyConditionForObjects(manifest *v1alpha1.Manifest, installItems []v1a
 	}
 }
 
-func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClient client.Client, verifyInstallation bool) ([]manifest.DeployInfo, error) {
+func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClient client.Client,
+	verifyInstallation bool, customStateCheck bool) ([]manifest.DeployInfo, error) {
 	deployInfos := make([]manifest.DeployInfo, 0)
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 	kymaOwnerLabel, ok := manifestObj.Labels[labels.ComponentOwner]
@@ -63,7 +67,7 @@ func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, def
 	// extract config
 	config := manifestObj.Spec.Config
 	decodedConfig, err := descriptor.DecodeYamlFromDigest(config.Repo, config.Module, config.Digest,
-		fmt.Sprintf("%s", config.Digest))
+		filepath.Join(fmt.Sprintf("%s", config.Digest), "installConfig.yaml"))
 	if err != nil {
 		return nil, err
 	}
@@ -88,8 +92,8 @@ func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, def
 
 	for _, install := range manifestObj.Spec.Installs {
 		// extract helm chart from layer digest
-		chartPath, err := descriptor.ExtractTarGz(fmt.Sprintf("%s-%s", install.Name, install.Digest),
-			install.Repo, install.Module, install.Digest)
+		chartPath, err := descriptor.ExtractTarGz(install.Repo, install.Module, install.Digest,
+			fmt.Sprintf("%s-%s", install.Name, install.Digest))
 		if err != nil {
 			return nil, err
 		}
@@ -114,8 +118,7 @@ func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, def
 				break
 			}
 		}
-
-		deployInfos = append(deployInfos, manifest.DeployInfo{
+		deployInfo := manifest.DeployInfo{
 			Ctx:            ctx,
 			ManifestLabels: manifestObj.Labels,
 			ChartInfo: manifest.ChartInfo{
@@ -129,7 +132,11 @@ func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, def
 			RestConfig: restConfig,
 			CheckFn:    customResCheck.CheckProcessingFn,
 			ReadyCheck: verifyInstallation,
-		})
+		}
+		if !customStateCheck {
+			deployInfo.CheckFn = nil
+		}
+		deployInfos = append(deployInfos, deployInfo)
 	}
 
 	return deployInfos, nil

@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+
 	"github.com/go-logr/logr"
 	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
 )

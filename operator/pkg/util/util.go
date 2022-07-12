@@ -3,6 +3,9 @@ package util
 import (
 	"flag"
 	"fmt"
+	"os"
+	"path"
+
 	"github.com/pkg/errors"
 	"helm.sh/helm/v3/pkg/kube"
 	v1 "k8s.io/api/core/v1"
@@ -12,8 +15,6 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
-	"os"
-	"path"
 	yaml2 "sigs.k8s.io/yaml"
 )
 
@@ -50,7 +51,7 @@ func FilterExistingResources(resources kube.ResourceList) (kube.ResourceList, er
 			return errors.Wrapf(err, "could not get information about the resource %s / %s", info.Name, info.Namespace)
 		}
 
-		//TODO: Adapt standard labels / annotations here
+		// TODO: Adapt standard labels / annotations here
 
 		requireUpdate.Append(info)
 		return nil

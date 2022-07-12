@@ -3,6 +3,7 @@ package custom
 import (
 	"context"
 	"fmt"
+
 	"github.com/kyma-project/manifest-operator/operator/pkg/labels"
 	"github.com/kyma-project/manifest-operator/operator/pkg/util"
 	v1 "k8s.io/api/core/v1"

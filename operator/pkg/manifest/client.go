@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"reflect"
+	"time"
+
 	manifestRest "github.com/kyma-project/manifest-operator/operator/pkg/rest"
 	"github.com/kyma-project/manifest-operator/operator/pkg/util"
 	"helm.sh/helm/v3/pkg/action"
@@ -16,8 +19,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/resource"
 	"k8s.io/client-go/kubernetes"
-	"reflect"
-	"time"
 )
 
 type OperationType string
@@ -81,7 +82,7 @@ func (h *HelmClient) SetDefaultClientConfig(actionClient *action.Install, releas
 	actionClient.WaitForJobs = false
 	actionClient.DryRun = true
 	actionClient.Replace = true     // Skip the name check
-	actionClient.IncludeCRDs = true //include CRDs in the templated output
+	actionClient.IncludeCRDs = true // include CRDs in the templated output
 	actionClient.ClientOnly = true
 	actionClient.ReleaseName = releaseName
 	actionClient.Namespace = v1.NamespaceDefault

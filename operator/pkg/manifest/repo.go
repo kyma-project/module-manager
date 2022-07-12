@@ -3,6 +3,13 @@ package manifest
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/go-logr/logr"
 	"github.com/gofrs/flock"
 	"github.com/pkg/errors"
@@ -13,13 +20,8 @@ import (
 	"helm.sh/helm/v3/pkg/downloader"
 	"helm.sh/helm/v3/pkg/getter"
 	"helm.sh/helm/v3/pkg/repo"
-	"io/ioutil"
-	"os"
-	"path/filepath"
+
 	"sigs.k8s.io/yaml"
-	"strings"
-	"sync"
-	"time"
 )
 
 type RepoHandler struct {
@@ -150,7 +152,7 @@ func (r *RepoHandler) Add(repoName string, url string) error {
 
 	f.Update(&c)
 	repoConfig := r.settings.RepositoryConfig
-	if err := f.WriteFile(repoConfig, 0644); err != nil {
+	if err := f.WriteFile(repoConfig, 0o644); err != nil {
 		return err
 	}
 	fmt.Printf("%q has been added to your repositories\n", repoName)
