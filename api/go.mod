@@ -3,7 +3,7 @@ module github.com/kyma-project/manifest-operator/api
 go 1.18
 
 require (
-	github.com/alecthomas/jsonschema v0.0.0-20220216202328-9eeeec9d044b
+	github.com/invopop/jsonschema v0.5.0
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.19.0
 	github.com/xeipuuv/gojsonschema v1.2.0

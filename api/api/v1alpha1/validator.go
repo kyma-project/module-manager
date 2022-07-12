@@ -3,7 +3,7 @@ package v1alpha1
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/alecthomas/jsonschema"
+	"github.com/invopop/jsonschema"
 	"github.com/xeipuuv/gojsonschema"
 	"sigs.k8s.io/yaml"
 )
