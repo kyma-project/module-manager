@@ -67,6 +67,7 @@ type ManifestReconciler struct {
 	MaxConcurrentReconciles int
 	VerifyInstallation      bool
 	CustomStateCheck        bool
+	Codec                   *v1alpha1.Codec
 }
 
 const configReadError = "reading install config resulted in an error"
@@ -167,7 +168,7 @@ func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logg
 	go r.ResponseHandlerFunc(ctx, logger, chartCount, responseChan, namespacedName)
 
 	// send deploy requests
-	deployInfos, err := prepareDeployInfos(ctx, manifestObj, r.Client, r.VerifyInstallation, r.CustomStateCheck)
+	deployInfos, err := prepareDeployInfos(ctx, manifestObj, r.Client, r.VerifyInstallation, r.CustomStateCheck, r.Codec)
 	if err != nil {
 		return err
 	}
@@ -199,13 +200,13 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 	logger.Info("checking consistent state for " + namespacedName.String())
 
 	// send deploy requests
-	deployInfos, err := prepareDeployInfos(ctx, manifestObj, r.Client, r.VerifyInstallation, r.CustomStateCheck)
+	deployInfos, err := prepareDeployInfos(ctx, manifestObj, r.Client, r.VerifyInstallation, r.CustomStateCheck, r.Codec)
 	if err != nil {
 		return err
 	}
 
 	for _, deployInfo := range deployInfos {
-		args := PrepareArgs(&deployInfo)
+		args := prepareArgs(&deployInfo)
 		manifestOperations, err := manifest.NewOperations(logger, deployInfo.RestConfig, deployInfo.ReleaseName,
 			cli.New(), args)
 		if err != nil {
@@ -247,7 +248,7 @@ func (r *ManifestReconciler) updateManifestStatus(ctx context.Context, manifestO
 
 func (r *ManifestReconciler) HandleCharts(deployInfo manifest.DeployInfo, mode manifest.Mode, logger *logr.Logger,
 ) *manifest.RequestError {
-	args := PrepareArgs(&deployInfo)
+	args := prepareArgs(&deployInfo)
 
 	// evaluate create or delete chart
 	create := mode == manifest.CreateMode
@@ -418,17 +419,13 @@ func ManifestRateLimiter() ratelimiter.RateLimiter {
 		&workqueue.BucketRateLimiter{Limiter: rate.NewLimiter(rate.Limit(30), 200)})
 }
 
-func PrepareArgs(deployInfo *manifest.DeployInfo) map[string]string {
-	args := map[string]string{
+func prepareArgs(deployInfo *manifest.DeployInfo) map[string]string {
+	return map[string]string{
 		// check --set flags parameter from manifest
 		"set": deployInfo.Overrides,
 		// comma separated values of manifest command line flags
 		"flags": deployInfo.ClientConfig,
 	}
-	if deployInfo.RepoName != "" {
-		deployInfo.ChartName = fmt.Sprintf("%s/%s", deployInfo.RepoName, deployInfo.ChartName)
-	}
-	return args
 }
 
 // SetupWithManager sets up the controller with the Manager.
