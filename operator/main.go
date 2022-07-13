@@ -113,6 +113,11 @@ func main() {
 						labels.Set{opLabels.ManagedBy: opLabels.KymaOperator},
 					),
 				},
+				&v1.ConfigMap{}: {
+					Label: labels.SelectorFromSet(
+						labels.Set{opLabels.ManagedBy: opLabels.KymaOperator},
+					),
+				},
 			},
 		}),
 	})

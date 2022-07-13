@@ -27,7 +27,6 @@ spec:
         chartName: nginx-ingress
         url: https://helm.nginx.com/stable
         type: helm-chart
-        version: ""
       name: nginx-stable
       overrideSelector:
         matchLabels:

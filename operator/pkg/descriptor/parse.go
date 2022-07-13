@@ -4,11 +4,14 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"fmt"
-	"github.com/google/go-containerregistry/pkg/crane"
 	"io"
-	"k8s.io/apimachinery/pkg/util/yaml"
 	"os"
 	"path/filepath"
+
+	"github.com/google/go-containerregistry/pkg/crane"
+
+	"k8s.io/apimachinery/pkg/util/yaml"
+
 	yaml2 "sigs.k8s.io/yaml"
 )
 
