@@ -329,7 +329,7 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 				"resource", namespacedName)
 		}
 
-		overrideBytes, err := json.Marshal(response.ClientConfig)
+		overrideBytes, err := json.Marshal(response.Overrides)
 		if err != nil {
 			logger.Error(err, "error marshalling chart values for",
 				"resource", namespacedName)
@@ -453,8 +453,7 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 		For(&v1alpha1.Manifest{}).
 		Watches(&source.Kind{Type: &v1.Secret{}}, handler.Funcs{}).
 		Watches(&source.Kind{Type: &v1.ConfigMap{}}, &handler.EnqueueRequestForOwner{
-			OwnerType:    &v1alpha1.Manifest{},
-			IsController: true,
+			OwnerType: &v1alpha1.Manifest{},
 		}).
 		WithOptions(controller.Options{
 			RateLimiter:             ManifestRateLimiter(),

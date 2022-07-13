@@ -115,7 +115,7 @@ func main() {
 				},
 				&v1.ConfigMap{}: {
 					Label: labels.SelectorFromSet(
-						labels.Set{opLabels.ManagedBy: opLabels.KymaOperator},
+						labels.Set{opLabels.ManagedBy: opLabels.ManifestOperator},
 					),
 				},
 			},

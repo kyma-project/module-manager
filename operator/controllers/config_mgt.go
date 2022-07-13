@@ -190,7 +190,7 @@ func addOwnerRefToConfigMap(
 ) error {
 	// we now verify that we already own the config map
 	previousOwnerRefs := len(configMap.GetOwnerReferences())
-	if err := controllerutil.SetControllerReference(manifestObj, configMap, restClient.Scheme()); err != nil {
+	if err := controllerutil.SetOwnerReference(manifestObj, configMap, restClient.Scheme()); err != nil {
 		return fmt.Errorf("override configuration could not be owned to watch for overrides: %w", err)
 	}
 	if previousOwnerRefs != len(configMap.GetOwnerReferences()) {

@@ -5,7 +5,7 @@ metadata:
   namespace: default
   labels:
     extension.kyma-project.io/config-override: override-me-invalid
-    operator.kyma-project.io/managed-by: kyma-operator
+    operator.kyma-project.io/managed-by: manifest-operator
 data:
   configs: |
     - name: invalid-chart
@@ -19,7 +19,7 @@ metadata:
   namespace: default
   labels:
     extension.kyma-project.io/config-override: override-me
-    operator.kyma-project.io/managed-by: kyma-operator
+    operator.kyma-project.io/managed-by: manifest-operator
 data:
   configs: |
     - name: nginx-stable
