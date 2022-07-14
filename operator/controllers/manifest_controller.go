@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -322,9 +323,21 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 			message = "installation processing"
 		}
 
+		configBytes, err := json.Marshal(response.ClientConfig)
+		if err != nil {
+			logger.Error(err, "error marshalling chart config for",
+				"resource", namespacedName)
+		}
+
+		overrideBytes, err := json.Marshal(response.Overrides)
+		if err != nil {
+			logger.Error(err, "error marshalling chart values for",
+				"resource", namespacedName)
+		}
+
 		addReadyConditionForObjects(latestManifestObj, []v1alpha1.InstallItem{{
-			ClientConfig: response.ClientConfig,
-			Overrides:    response.Overrides,
+			ClientConfig: string(configBytes),
+			Overrides:    string(overrideBytes),
 			ChartName:    response.ChartName,
 		}}, status, message)
 	}
@@ -419,8 +432,8 @@ func ManifestRateLimiter() ratelimiter.RateLimiter {
 		&workqueue.BucketRateLimiter{Limiter: rate.NewLimiter(rate.Limit(30), 200)})
 }
 
-func prepareArgs(deployInfo *manifest.DeployInfo) map[string]string {
-	return map[string]string{
+func prepareArgs(deployInfo *manifest.DeployInfo) map[string]map[string]interface{} {
+	return map[string]map[string]interface{}{
 		// check --set flags parameter from manifest
 		"set": deployInfo.Overrides,
 		// comma separated values of manifest command line flags
@@ -439,6 +452,9 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Manifest{}).
 		Watches(&source.Kind{Type: &v1.Secret{}}, handler.Funcs{}).
+		Watches(&source.Kind{Type: &v1.ConfigMap{}}, &handler.EnqueueRequestForOwner{
+			OwnerType: &v1alpha1.Manifest{},
+		}).
 		WithOptions(controller.Options{
 			RateLimiter:             ManifestRateLimiter(),
 			MaxConcurrentReconciles: r.MaxConcurrentReconciles,

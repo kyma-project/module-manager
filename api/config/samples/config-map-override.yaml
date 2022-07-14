@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-ingress-override-invalid
+  namespace: default
+  labels:
+    extension.kyma-project.io/config-override: override-me-invalid
+    operator.kyma-project.io/managed-by: manifest-operator
+data:
+  configs: |
+    - name: invalid-chart
+      clientConfig: "CreateNamespace=true,Namespace=override-ns"
+      overrides: "override=1"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-ingress-override
+  namespace: default
+  labels:
+    extension.kyma-project.io/config-override: override-me
+    operator.kyma-project.io/managed-by: manifest-operator
+data:
+  configs: |
+    - name: nginx-stable
+      clientConfig: "CreateNamespace=true,Namespace=override-ns"
+      overrides: "override=1"
+    - name: some-other-random-chart-name
+      clientConfig: "Namespace=my-amazing-ns"
+      overrides: "oo=1"
