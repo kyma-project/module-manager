@@ -12,6 +12,7 @@ import (
 	"helm.sh/helm/v3/pkg/strvals"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/rest"
 	"path/filepath"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -19,7 +20,7 @@ import (
 )
 
 func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClient client.Client,
-	verifyInstallation bool, customStateCheck bool, codec *v1alpha1.Codec,
+	verifyInstallation bool, customStateCheck bool, codec *v1alpha1.Codec, defaultRestConfig *rest.Config,
 ) ([]manifest.DeployInfo, error) {
 	deployInfos := make([]manifest.DeployInfo, 0)
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
@@ -51,7 +52,7 @@ func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, def
 
 	// evaluate rest config
 	clusterClient := &custom.ClusterClient{DefaultClient: defaultClient}
-	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, manifestObj.Namespace)
+	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, manifestObj.Namespace, defaultRestConfig)
 	if err != nil {
 		return nil, err
 	}

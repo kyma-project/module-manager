@@ -78,6 +78,7 @@ const configReadError = "reading install config resulted in an error"
 //+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;patch;get;list;watch
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -158,8 +159,8 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, logger *lo
 	return r.jobAllocator(ctx, logger, manifestObj, manifest.DeletionMode)
 }
 
-func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest, mode manifest.Mode,
-) error {
+func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest,
+	mode manifest.Mode) error {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 	responseChan := make(manifest.RequestErrChan)
 
@@ -169,7 +170,8 @@ func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logg
 	go r.ResponseHandlerFunc(ctx, logger, chartCount, responseChan, namespacedName)
 
 	// send deploy requests
-	deployInfos, err := prepareDeployInfos(ctx, manifestObj, r.Client, r.VerifyInstallation, r.CustomStateCheck, r.Codec)
+	deployInfos, err := prepareDeployInfos(ctx, manifestObj, r.Client, r.VerifyInstallation,
+		r.CustomStateCheck, r.Codec, r.RestConfig)
 	if err != nil {
 		return err
 	}
@@ -201,7 +203,8 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 	logger.Info("checking consistent state for " + namespacedName.String())
 
 	// send deploy requests
-	deployInfos, err := prepareDeployInfos(ctx, manifestObj, r.Client, r.VerifyInstallation, r.CustomStateCheck, r.Codec)
+	deployInfos, err := prepareDeployInfos(ctx, manifestObj, r.Client, r.VerifyInstallation, r.CustomStateCheck,
+		r.Codec, r.RestConfig)
 	if err != nil {
 		return err
 	}
@@ -391,7 +394,7 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 func (r *ManifestReconciler) SyncRemoteResource(ctx context.Context, manifestObj *v1alpha1.Manifest, removeFinalizer bool,
 ) (bool, error) {
 	// check remote object
-	remoteInterface, remoteManifest, err := NewRemoteInterface(ctx, r.Client, manifestObj)
+	remoteInterface, remoteManifest, err := NewRemoteInterface(ctx, r.Client, manifestObj, r.RestConfig)
 	if err != nil {
 		return false, err
 	}
@@ -447,7 +450,7 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 	r.Workers.StartWorkers(ctx, r.DeployChan, r.HandleCharts)
 
 	// default config from kubebuilder
-	// r.RestConfig = mgr.GetConfig()
+	r.RestConfig = mgr.GetConfig()
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Manifest{}).

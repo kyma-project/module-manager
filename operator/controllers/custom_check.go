@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"k8s.io/client-go/rest"
 
 	"github.com/go-logr/logr"
 	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
@@ -16,7 +17,8 @@ type CustomResourceCheck struct {
 	custom.Check
 }
 
-func (c *CustomResourceCheck) CheckProcessingFn(ctx context.Context, manifestLabels map[string]string, namespacedName client.ObjectKey, logger *logr.Logger) (bool, error) {
+func (c *CustomResourceCheck) CheckProcessingFn(ctx context.Context, manifestLabels map[string]string,
+	namespacedName client.ObjectKey, logger *logr.Logger, defaultRestConfig *rest.Config) (bool, error) {
 	kymaOwnerLabel, ok := manifestLabels[labels.ComponentOwner]
 	if !ok {
 		err := fmt.Errorf("label %s not set for manifest resource %s", labels.ComponentOwner, namespacedName)
@@ -26,7 +28,7 @@ func (c *CustomResourceCheck) CheckProcessingFn(ctx context.Context, manifestLab
 
 	// evaluate rest config
 	clusterClient := &custom.ClusterClient{DefaultClient: c.DefaultClient}
-	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, namespacedName.Namespace)
+	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, namespacedName.Namespace, defaultRestConfig)
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("error while evaluating rest config for manifest resource %s", namespacedName))
 		return false, err
