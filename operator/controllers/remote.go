@@ -34,7 +34,7 @@ func NewRemoteInterface(ctx context.Context, nativeClient client.Client, nativeO
 	}
 
 	remoteCluster := &custom.ClusterClient{DefaultClient: nativeClient}
-	restConfig, err := remoteCluster.GetRestConfig(ctx, kymaOwner, nativeObject.Namespace, defaultRestConfig)
+	restConfig, err := remoteCluster.GetRemoteOrDefaultConfig(ctx, kymaOwner, nativeObject.Namespace, defaultRestConfig)
 	if err != nil {
 		return nil, nil, err
 	}
