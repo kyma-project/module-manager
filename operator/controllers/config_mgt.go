@@ -39,11 +39,11 @@ func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, def
 	}
 	installConfigObj, ok := decodedConfig.(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf(configReadError)
+		return nil, fmt.Errorf("can not decodedConfig")
 	}
 	configs, ok := installConfigObj["configs"].([]interface{})
 	if !ok {
-		return nil, fmt.Errorf(configReadError)
+		return nil, fmt.Errorf("can not parse configs field")
 	}
 
 	// evaluate rest config
@@ -133,28 +133,43 @@ func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *v1alpha1.Codec,
 	return nil, fmt.Errorf("unsupported type %s of install for Manifest %s", specType, namespacedName)
 }
 
-func getConfigAndOverridesForInstall(installName string, configs []interface{}) (string, string, error) {
-	var defaultOverrides string
-	var clientConfig string
-
+func getConfigAndOverridesForInstall(installName string, configs []interface{}) (map[string]interface{}, map[string]interface{}, error) {
+	overrides := map[string]interface{}{}
+	clientConfig := map[string]interface{}{}
+	var err error
 	for _, config := range configs {
 		mappedConfig, ok := config.(map[string]interface{})
 		if !ok {
-			return "", "", fmt.Errorf(configReadError)
+			return clientConfig, overrides, fmt.Errorf("can not parse config field")
 		}
 		if mappedConfig["name"] == installName {
-			defaultOverrides, ok = mappedConfig["overrides"].(string)
-			if !ok {
-				return "", "", fmt.Errorf(configReadError)
+			overrides, err = parseConfig(mappedConfig, "overrides")
+			if err != nil {
+				return clientConfig, overrides, err
 			}
-			clientConfig, ok = mappedConfig["clientConfig"].(string)
-			if !ok {
-				return "", "", fmt.Errorf(configReadError)
+
+			clientConfig, err = parseConfig(mappedConfig, "clientConfig")
+			if err != nil {
+				return clientConfig, overrides, err
 			}
 			break
 		}
 	}
-	return clientConfig, defaultOverrides, nil
+	return clientConfig, overrides, nil
+}
+
+func parseConfig(mappedConfig map[string]interface{}, field string) (map[string]interface{}, error) {
+	destination := map[string]interface{}{}
+	if _, ok := mappedConfig[field]; ok {
+		original, ok := mappedConfig[field].(string)
+		if !ok {
+			return destination, fmt.Errorf("%s field miss configured", field)
+		}
+		if err := strvals.ParseInto(original, destination); err != nil {
+			return destination, fmt.Errorf("can not parse %s field: %w", field, err)
+		}
+	}
+	return destination, nil
 }
 
 func getConfigMapForInstall(ctx context.Context, restClient client.Client, install v1alpha1.InstallInfo,
@@ -204,17 +219,8 @@ func addOwnerRefToConfigMap(
 func mergeConfigsWithOverrides(ctx context.Context, install v1alpha1.InstallInfo, restClient client.Client,
 	manifestObj *v1alpha1.Manifest, configs []interface{}) (map[string]interface{}, map[string]interface{}, error) {
 
-	defaultConfigString, defaultChartValuesString, err := getConfigAndOverridesForInstall(install.Name, configs)
+	defaultConfig, defaultOverrides, err := getConfigAndOverridesForInstall(install.Name, configs)
 	if err != nil {
-		return nil, nil, err
-	}
-
-	defaultConfig := map[string]interface{}{}
-	if err := strvals.ParseInto(defaultConfigString, defaultConfig); err != nil {
-		return nil, nil, err
-	}
-	defaultChartValues := map[string]interface{}{}
-	if err := strvals.ParseInto(defaultChartValuesString, defaultChartValues); err != nil {
 		return nil, nil, err
 	}
 
@@ -229,28 +235,19 @@ func mergeConfigsWithOverrides(ctx context.Context, install v1alpha1.InstallInfo
 			return nil, nil, err
 		}
 
-		customConfigString, customChartValuesString, err :=
+		customConfig, customOverrides, err :=
 			getConfigAndOverridesForInstall(install.Name, customOverrideConfigs)
 		if err != nil {
-			return nil, nil, err
-		}
-
-		customConfig := map[string]interface{}{}
-		if err := strvals.ParseInto(customConfigString, customConfig); err != nil {
-			return nil, nil, err
-		}
-		customChartValues := map[string]interface{}{}
-		if err := strvals.ParseInto(customChartValuesString, customChartValues); err != nil {
 			return nil, nil, err
 		}
 
 		if err = mergo.Merge(&defaultConfig, customConfig, mergo.WithOverride); err != nil {
 			return nil, nil, err
 		}
-		if err = mergo.Merge(&defaultChartValues, customChartValues, mergo.WithOverride); err != nil {
+		if err = mergo.Merge(&defaultOverrides, customOverrides, mergo.WithOverride); err != nil {
 			return nil, nil, err
 		}
 	}
 
-	return defaultConfig, defaultChartValues, nil
+	return defaultConfig, defaultOverrides, nil
 }
