@@ -71,13 +71,12 @@ type ManifestReconciler struct {
 	Codec                   *v1alpha1.Codec
 }
 
-const configReadError = "reading install config resulted in an error"
-
 //+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;patch;get;list;watch
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
