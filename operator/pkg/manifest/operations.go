@@ -62,13 +62,13 @@ func (r *RequestError) Error() string {
 }
 
 type Operations struct {
-	logger       *logr.Logger
-	kubeClient   *kube.Client
-	helmClient   *HelmClient
-	repoHandler  *RepoHandler
-	restGetter   *manifestRest.ManifestRESTClientGetter
-	actionClient *action.Install
-	args         map[string]map[string]interface{}
+	logger        *logr.Logger
+	kubeClient    *kube.Client
+	helmClient    *HelmClient
+	repoHandler   *RepoHandler
+	restGetter    *manifestRest.ManifestRESTClientGetter
+	actionClient  *action.Install
+	helmOverrides map[string]interface{}
 }
 
 func NewOperations(logger *logr.Logger, restConfig *rest.Config, releaseName string, settings *cli.EnvSettings, args map[string]map[string]interface{}) (*Operations, error) {
@@ -78,17 +78,23 @@ func NewOperations(logger *logr.Logger, restConfig *rest.Config, releaseName str
 	if err != nil {
 		return &Operations{}, err
 	}
-
-	operations := &Operations{
-		logger:      logger,
-		restGetter:  restGetter,
-		repoHandler: NewRepoHandler(logger, settings),
-		kubeClient:  kubeClient,
-		helmClient:  NewHelmClient(kubeClient, restGetter, clientSet, settings),
-		args:        args,
+	helmOverrides, ok := args["set"]
+	if !ok {
+		helmOverrides = map[string]interface{}{}
 	}
-
-	operations.actionClient, err = operations.helmClient.NewInstallActionClient(v1.NamespaceDefault, releaseName, args)
+	operations := &Operations{
+		logger:        logger,
+		restGetter:    restGetter,
+		repoHandler:   NewRepoHandler(logger, settings),
+		kubeClient:    kubeClient,
+		helmClient:    NewHelmClient(kubeClient, restGetter, clientSet, settings),
+		helmOverrides: helmOverrides,
+	}
+	helmFlags, ok := args["flags"]
+	if !ok {
+		helmFlags = map[string]interface{}{}
+	}
+	operations.actionClient, err = operations.helmClient.NewInstallActionClient(v1.NamespaceDefault, releaseName, helmFlags)
 	if err != nil {
 		return &Operations{}, err
 	}
@@ -101,8 +107,7 @@ func (o *Operations) getClusterResources(deployInfo DeployInfo, operation HelmOp
 			return nil, nil, err
 		}
 	}
-
-	manifest, err := o.getManifestForChartPath(deployInfo.ChartPath, deployInfo.ChartName, o.actionClient, o.args)
+	manifest, err := o.getManifestForChartPath(deployInfo.ChartPath, deployInfo.ChartName, o.actionClient, o.helmOverrides)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -169,9 +174,9 @@ func (o *Operations) Install(deployInfo DeployInfo) (bool, error) {
 	o.logger.Info("Install Complete!! Happy Manifesting!", "release", deployInfo.ReleaseName, "chart", deployInfo.ChartName)
 
 	// update manifest chart in a separate go-routine
-	if err = o.repoHandler.Update(); err != nil {
-		return false, err
-	}
+	//if err = o.repoHandler.Update(); err != nil {
+	//	return false, err
+	//}
 
 	// check custom function, if provided
 	if deployInfo.CheckFn != nil {
@@ -217,7 +222,7 @@ func (o *Operations) Uninstall(deployInfo DeployInfo) (bool, error) {
 	return true, nil
 }
 
-func (o *Operations) getManifestForChartPath(chartPath, chartName string, actionClient *action.Install, args map[string]map[string]interface{}) (string, error) {
+func (o *Operations) getManifestForChartPath(chartPath, chartName string, actionClient *action.Install, helmOverrides map[string]interface{}) (string, error) {
 	var err error
 	if chartPath == "" {
 		chartPath, err = o.helmClient.DownloadChart(actionClient, chartName)
@@ -232,13 +237,8 @@ func (o *Operations) getManifestForChartPath(chartPath, chartName string, action
 		return "", err
 	}
 
-	mergedVals, ok := args["set"]
-	if !ok {
-		mergedVals = map[string]interface{}{}
-	}
-
 	// retrieve manifest
-	release, err := actionClient.Run(chartRequested, mergedVals)
+	release, err := actionClient.Run(chartRequested, helmOverrides)
 	if err != nil {
 		return "", err
 	}

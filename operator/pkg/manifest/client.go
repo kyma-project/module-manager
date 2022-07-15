@@ -56,14 +56,14 @@ func (h *HelmClient) getGenericConfig(namespace string) (*action.Configuration, 
 	return actionConfig, nil
 }
 
-func (h *HelmClient) NewInstallActionClient(namespace, releaseName string, args map[string]map[string]interface{}) (*action.Install, error) {
+func (h *HelmClient) NewInstallActionClient(namespace, releaseName string, helmFlags map[string]interface{}) (*action.Install, error) {
 	actionConfig, err := h.getGenericConfig(namespace)
 	if err != nil {
 		return nil, err
 	}
 	actionClient := action.NewInstall(actionConfig)
 	h.SetDefaultClientConfig(actionClient, releaseName)
-	return actionClient, h.SetFlags(args, actionClient)
+	return actionClient, h.SetFlags(helmFlags, actionClient)
 }
 
 func (h *HelmClient) NewUninstallActionClient(namespace string) (*action.Uninstall, error) {
@@ -92,16 +92,11 @@ func (h *HelmClient) SetDefaultClientConfig(actionClient *action.Install, releas
 	}
 }
 
-func (h *HelmClient) SetFlags(args map[string]map[string]interface{}, actionClient *action.Install) error {
+func (h *HelmClient) SetFlags(flags map[string]interface{}, actionClient *action.Install) error {
 	clientValue := reflect.Indirect(reflect.ValueOf(actionClient))
 
-	mergedVals, ok := args["flags"]
-	if !ok {
-		mergedVals = map[string]interface{}{}
-	}
-
 	// TODO: as per requirements add more Kind types
-	for flagKey, flagValue := range mergedVals {
+	for flagKey, flagValue := range flags {
 		value := clientValue.FieldByName(flagKey)
 		if !value.IsValid() || !value.CanSet() {
 			continue
