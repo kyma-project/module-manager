@@ -39,7 +39,7 @@ func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, def
 	}
 	installConfigObj, ok := decodedConfig.(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("can not decodedConfig")
+		return nil, fmt.Errorf("cannot parse decoded default configuration for Manifest %s", namespacedName)
 	}
 	configs, ok := installConfigObj["configs"].([]interface{})
 	if !ok {
