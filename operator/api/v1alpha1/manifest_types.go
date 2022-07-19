@@ -85,11 +85,6 @@ type HelmChartSpec struct {
 	Type RefTypeMetadata `json:"type"`
 }
 
-//+kubebuilder:pruning:PreserveUnknownFields
-//+kubebuilder:validation:XEmbeddedResource
-//+kubebuilder:object:generate=false
-type CustomResource unstructured.Unstructured
-
 type RefTypeMetadata string
 
 const (
@@ -100,18 +95,21 @@ const (
 // ManifestSpec defines the specification of Manifest
 type ManifestSpec struct {
 	// Config specifies OCI image configuration for Manifest
-	// +optional
+	// +kubebuilder:validation:Optional
 	Config ImageSpec `json:"config,omitempty"`
 
 	// Installs specifies a list of installations for Manifest
 	Installs []InstallInfo `json:"installs,omitempty"`
 
 	// CustomStates specifies a list of resources with their desires states for Manifest
-	// +optional
+	// +kubebuilder:validation:Optional
 	CustomStates []CustomState `json:"customStates,omitempty"`
 
+	//+kubebuilder:pruning:PreserveUnknownFields
+	//+kubebuilder:validation:XEmbeddedResource
+	//+kubebuilder:object:generate=false
 	// CustomResource specifies a resource which will be watched for state updates
-	CustomResource CustomResource `json:"customResource,omitempty"`
+	CustomResource unstructured.Unstructured `json:"customResource,omitempty"`
 
 	// CustomResourceDefinitions specifies the custom resource definitions' ImageSpec
 	CustomResourceDefinitions []ImageSpec `json:"customResourcesDefinitions,omitempty"`
@@ -140,11 +138,11 @@ type ManifestStatus struct {
 	State ManifestState `json:"state,omitempty"`
 
 	// List of status conditions to indicate the status of Manifest.
-	// +optional
+	// +kubebuilder:validation:Optional
 	Conditions []ManifestCondition `json:"conditions,omitempty"`
 
 	// Observed generation
-	// +optional
+	// +kubebuilder:validation:Optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
@@ -170,19 +168,19 @@ type ManifestCondition struct {
 	Status ManifestConditionStatus `json:"status"`
 
 	// Human-readable message indicating details about the last status transition.
-	// +optional
+	// +kubebuilder:validation:Optional
 	Message string `json:"message,omitempty"`
 
 	// Machine-readable text indicating the reason for the condition's last transition.
-	// +optional
+	// +kubebuilder:validation:Optional
 	Reason string `json:"reason,omitempty"`
 
 	// Timestamp for when Manifest last transitioned from one status to another.
-	// +optional
+	// +kubebuilder:validation:Optional
 	LastTransitionTime *metav1.Time `json:"lastTransitionTime,omitempty"`
 
 	// InstallInfo contains a list of installations for Manifest
-	// +optional
+	// +kubebuilder:validation:Optional
 	InstallInfo InstallItem `json:"installInfo,omitempty"`
 }
 
@@ -206,29 +204,6 @@ const (
 	// ConditionStatusUnknown signifies ManifestConditionStatus unknown
 	ConditionStatusUnknown ManifestConditionStatus = "Unknown"
 )
-
-type SyncStrategy string
-
-const (
-	SyncStrategyRemoteSecret SyncStrategy = "remote-secret"
-	SyncStrategyLocalSecret  SyncStrategy = "local-secret"
-)
-
-// Sync defines settings used to apply the manifest synchronization to other clusters
-type Sync struct {
-	// +kubebuilder:default:=false
-	// Enabled set to true will look up a kubeconfig for the remote cluster based on the strategy
-	// and synchronize its state there.
-	Enabled bool `json:"enabled,omitempty"`
-
-	// Strategy determines the way to lookup the remotely synced kubeconfig, by default it is fetched from a secret
-	Strategy SyncStrategy `json:"strategy,omitempty"`
-
-	// The target namespace, if empty the namespace is reflected from the control plane
-	// Note that cleanup is currently not supported if you are switching the namespace, so you will
-	// manually need to cleanup old synchronized Manifests
-	Namespace string `json:"namespace,omitempty"`
-}
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
