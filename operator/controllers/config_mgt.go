@@ -166,7 +166,7 @@ func parseConfig(mappedConfig map[string]interface{}, field string) (map[string]
 			return destination, fmt.Errorf("cannot parse '.config.%s' inside default configuration for Manifest %s", namespacedName)
 		}
 		if err := strvals.ParseInto(original, destination); err != nil {
-			return destination, fmt.Errorf("can not parse %s field: %w", field, err)
+			return destination, fmt.Errorf("cannot parse '.config.%s' to a map inside default configuration for Manifest %s", namespacedName)
 		}
 	}
 	return destination, nil
