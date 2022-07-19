@@ -14,15 +14,15 @@ spec:
     repo: k3d-registry.localhost:52445/signed/component-descriptors
     type: oci-ref
   installs:
-#    - source:
-#        name: nginx-ingress
-#        repo: k3d-registry.localhost:52445/signed/component-descriptors
-#        ref: sha256:600989483c323dac3ddec5c636c76e23714bedac3192cb1d7ee4b99c06db708b
-#        type: oci-ref
-#      name: nginx-ingress
-#      overrideSelector:
-#        matchLabels:
-#          extension.kyma-project.io/config-override: override-me
+    - source:
+        name: your-own-chart
+        repo: k3d-registry.localhost:52445/signed/component-descriptors
+        ref: sha256:600989483c323dac3ddec5c636c76e23714bedac3192cb1d7ee4b99c06db708b
+        type: oci-ref
+      name: nginx-ingress
+      overrideSelector:
+        matchLabels:
+          extension.kyma-project.io/config-override: override-me
     - source:
         chartName: nginx-ingress
         url: https://helm.nginx.com/stable

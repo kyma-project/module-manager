@@ -53,9 +53,6 @@ type InstallInfo struct {
 
 	// Name specifies a unique install name for Manifest
 	Name string `json:"name"`
-
-	// OverrideSelector defines a label selector for external overrides
-	OverrideSelector metav1.LabelSelector `json:"overrideSelector,omitempty"`
 }
 
 // ImageSpec defines installation
