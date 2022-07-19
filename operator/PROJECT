@@ -4,9 +4,17 @@ layout:
 projectName: operator
 repo: github.com/kyma-project/manifest-operator/operator
 resources:
-- controller: true
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
   domain: kyma-project.io
   group: component
   kind: Manifest
+  path: github.com/kyma-project/manifest-operator/operator/api/v1alpha1
   version: v1alpha1
+  webhooks:
+    defaulting: true
+    validation: true
+    webhookVersion: v1
 version: "3"

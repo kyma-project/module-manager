@@ -23,7 +23,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
+	"github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
 	"github.com/kyma-project/manifest-operator/operator/pkg/labels"
 	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
 	"golang.org/x/time/rate"
@@ -78,7 +78,6 @@ const configReadError = "reading install config resulted in an error"
 //+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;patch;get;list;watch
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
-//+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -116,7 +115,8 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, r.updateManifest(ctx, &manifestObj)
 	}
 
-	if manifestObj.Spec.Sync.Enabled {
+	// TODO: correct this
+	if false {
 		if updatedRequired, err := r.SyncRemoteResource(ctx, &manifestObj, false); err != nil {
 			return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Failure)}, err
 		} else if updatedRequired {
@@ -347,7 +347,8 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 
 	// handle deletion if no previous error occurred
 	if !errorState && !latestManifestObj.DeletionTimestamp.IsZero() && !processing {
-		if latestManifestObj.Spec.Sync.Enabled {
+		// TODO: correct this
+		if false {
 			// remove finalizer on remote resource
 			if _, err := r.SyncRemoteResource(ctx, latestManifestObj, true); err != nil {
 				errorState = true

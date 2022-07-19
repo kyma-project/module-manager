@@ -6,7 +6,7 @@ import (
 	"k8s.io/client-go/rest"
 	"path"
 
-	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
+	"github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
 	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
 	"github.com/kyma-project/manifest-operator/operator/pkg/labels"
 	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"

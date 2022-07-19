@@ -21,12 +21,13 @@ import (
 	"os"
 	"time"
 
-	manifestv1alpha1 "github.com/kyma-project/manifest-operator/api/api/v1alpha1"
-	opLabels "github.com/kyma-project/manifest-operator/operator/pkg/labels"
+	manifestv1alpha1 "github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	apiExtensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
+
+	opLabels "github.com/kyma-project/manifest-operator/operator/pkg/labels"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -39,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	componentv1alpha1 "github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
 	"github.com/kyma-project/manifest-operator/operator/controllers"
 	//+kubebuilder:scaffold:imports
 )
@@ -53,6 +55,7 @@ func init() {
 	utilruntime.Must(manifestv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(apiExtensionsv1.AddToScheme(scheme))
 
+	utilruntime.Must(componentv1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
@@ -161,6 +164,10 @@ func main() {
 		}
 	}
 
+	if err = (&componentv1alpha1.Manifest{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "Manifest")
+		os.Exit(1)
+	}
 	//+kubebuilder:scaffold:builder
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")

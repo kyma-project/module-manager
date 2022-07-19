@@ -48,12 +48,6 @@ func (m *Manifest) Default() {
 	if m.Spec.Installs == nil {
 		m.Spec.Installs = make([]InstallInfo, 0)
 	}
-
-	if &m.Spec.Sync == nil {
-		m.Spec.Sync = Sync{
-			Enabled: false,
-		}
-	}
 }
 
 //+kubebuilder:webhook:path=/validate-component-kyma-project-io-v1alpha1-manifest, mutating=false,failurePolicy=fail,sideEffects=None,groups=component.kyma-project.io,resources=manifests,verbs=create;update,versions=v1alpha1,name=vmanifest.kb.io,admissionReviewVersions=v1

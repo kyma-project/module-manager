@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
+	"github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )

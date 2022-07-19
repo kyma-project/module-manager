@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -55,7 +56,7 @@ type InstallInfo struct {
 	Name string `json:"name"`
 }
 
-// ImageSpec defines installation
+// ImageSpec defines OCI Image specifications
 type ImageSpec struct {
 	// Repo defines the Image repo
 	Repo string `json:"repo,omitempty"`
@@ -84,6 +85,10 @@ type HelmChartSpec struct {
 	Type RefTypeMetadata `json:"type"`
 }
 
+//+kubebuilder:pruning:PreserveUnknownFields
+//+kubebuilder:validation:XEmbeddedResource
+type CustomResource unstructured.Unstructured
+
 type RefTypeMetadata string
 
 const (
@@ -93,9 +98,9 @@ const (
 
 // ManifestSpec defines the specification of Manifest
 type ManifestSpec struct {
-	// DefaultConfig specifies OCI image configuration for Manifest
+	// Config specifies OCI image configuration for Manifest
 	// +optional
-	DefaultConfig ImageSpec `json:"defaultConfig,omitempty"`
+	Config ImageSpec `json:"config,omitempty"`
 
 	// Installs specifies a list of installations for Manifest
 	Installs []InstallInfo `json:"installs,omitempty"`
@@ -104,9 +109,11 @@ type ManifestSpec struct {
 	// +optional
 	CustomStates []CustomState `json:"customStates,omitempty"`
 
-	// Sync specifies the sync strategy for Manifest
-	// +optional
-	Sync Sync `json:"sync,omitempty"`
+	// CustomResources specifies a resource which will be watched for state updates
+	CustomResources CustomResource `json:"customResources,omitempty"`
+
+	// CustomResourceDefinitions specifies the custom resource definitions' ImageSpec
+	CustomResourceDefinitions []ImageSpec `json:"customResourcesDefinitions,omitempty"`
 }
 
 // +kubebuilder:validation:Enum=Processing;Deleting;Ready;Error
