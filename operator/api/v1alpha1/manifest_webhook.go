@@ -41,8 +41,8 @@ var _ webhook.Defaulter = &Manifest{}
 
 // Default implements webhook.Defaulter so a webhook will be registered for the type
 func (m *Manifest) Default() {
-	if &m.Spec.DefaultConfig == nil {
-		m.Spec.DefaultConfig = ImageSpec{}
+	if &m.Spec.Config == nil {
+		m.Spec.Config = ImageSpec{}
 	}
 
 	if m.Spec.Installs == nil {

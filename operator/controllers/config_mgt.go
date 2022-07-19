@@ -28,7 +28,7 @@ func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, def
 	}
 
 	// extract config
-	config := manifestObj.Spec.DefaultConfig
+	config := manifestObj.Spec.Config
 
 	decodedConfig, err := descriptor.DecodeYamlFromDigest(config.Repo, config.Name, config.Ref,
 		filepath.Join(fmt.Sprintf("%s", config.Ref), "installConfig.yaml"))
@@ -174,19 +174,19 @@ func addOwnerRefToConfigMap(
 func mergeConfigsWithOverrides(install v1alpha1.InstallInfo, configs []interface{}) (
 	map[string]interface{}, map[string]interface{}, error) {
 
-	defaultConfigString, defaultChartValuesString, err := getConfigAndOverridesForInstall(install.Name, configs)
+	configString, chartValuesString, err := getConfigAndOverridesForInstall(install.Name, configs)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	defaultConfig := map[string]interface{}{}
-	if err := strvals.ParseInto(defaultConfigString, defaultConfig); err != nil {
+	config := map[string]interface{}{}
+	if err := strvals.ParseInto(configString, config); err != nil {
 		return nil, nil, err
 	}
-	defaultChartValues := map[string]interface{}{}
-	if err := strvals.ParseInto(defaultChartValuesString, defaultChartValues); err != nil {
+	chartValues := map[string]interface{}{}
+	if err := strvals.ParseInto(chartValuesString, chartValues); err != nil {
 		return nil, nil, err
 	}
 
-	return defaultConfig, defaultChartValues, nil
+	return config, chartValues, nil
 }
