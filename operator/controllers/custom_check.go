@@ -28,7 +28,7 @@ func (c *CustomResourceCheck) CheckProcessingFn(ctx context.Context, manifestLab
 
 	// evaluate rest config
 	clusterClient := &custom.ClusterClient{DefaultClient: c.DefaultClient}
-	restConfig, err := clusterClient.GetRemoteOrDefaultConfig(ctx, kymaOwnerLabel, namespacedName.Namespace, defaultRestConfig)
+	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, namespacedName.Namespace, defaultRestConfig)
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("error while evaluating rest config for manifest resource %s", namespacedName))
 		return false, err

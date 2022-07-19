@@ -25,7 +25,7 @@ func (cc *ClusterClient) GetNewClient(restConfig *rest.Config, options client.Op
 	return client, nil
 }
 
-func (cc *ClusterClient) GetRemoteOrDefaultConfig(ctx context.Context, kymaOwner string, namespace string,
+func (cc *ClusterClient) GetRestConfig(ctx context.Context, kymaOwner string, namespace string,
 	defaultRestConfig *rest.Config) (*rest.Config, error) {
 	kubeConfigSecretList := &v1.SecretList{}
 	gr := v1.SchemeGroupVersion.WithResource(string(v1.ResourceSecrets)).GroupResource()

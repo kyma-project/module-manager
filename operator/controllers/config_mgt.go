@@ -49,7 +49,7 @@ func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, def
 
 	// evaluate rest config
 	clusterClient := &custom.ClusterClient{DefaultClient: defaultClient}
-	restConfig, err := clusterClient.GetRemoteOrDefaultConfig(ctx, kymaOwnerLabel, manifestObj.Namespace, defaultRestConfig)
+	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, manifestObj.Namespace, defaultRestConfig)
 	if err != nil {
 		return nil, err
 	}
