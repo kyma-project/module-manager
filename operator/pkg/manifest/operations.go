@@ -174,9 +174,12 @@ func (o *Operations) Install(deployInfo DeployInfo) (bool, error) {
 	o.logger.Info("Install Complete!! Happy Manifesting!", "release", deployInfo.ReleaseName, "chart", deployInfo.ChartName)
 
 	// update manifest chart in a separate go-routine
-	//if err = o.repoHandler.Update(); err != nil {
-	//	return false, err
-	//}
+       // if no chart path is passed, it's a remote helm repo
+       if deployInfo.ChartPath == "" {
+         if err = o.repoHandler.Update(); err != nil {
+		  return false, err
+	  }
+	}
 
 	// check custom function, if provided
 	if deployInfo.CheckFn != nil {
