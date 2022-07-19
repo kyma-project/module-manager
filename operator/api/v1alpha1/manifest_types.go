@@ -87,6 +87,7 @@ type HelmChartSpec struct {
 
 //+kubebuilder:pruning:PreserveUnknownFields
 //+kubebuilder:validation:XEmbeddedResource
+//+kubebuilder:object:generate=false
 type CustomResource unstructured.Unstructured
 
 type RefTypeMetadata string
@@ -109,8 +110,8 @@ type ManifestSpec struct {
 	// +optional
 	CustomStates []CustomState `json:"customStates,omitempty"`
 
-	// CustomResources specifies a resource which will be watched for state updates
-	CustomResources CustomResource `json:"customResources,omitempty"`
+	// CustomResource specifies a resource which will be watched for state updates
+	CustomResource CustomResource `json:"customResource,omitempty"`
 
 	// CustomResourceDefinitions specifies the custom resource definitions' ImageSpec
 	CustomResourceDefinitions []ImageSpec `json:"customResourcesDefinitions,omitempty"`
