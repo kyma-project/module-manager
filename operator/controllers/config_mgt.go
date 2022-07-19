@@ -43,7 +43,7 @@ func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, def
 	}
 	configs, ok := installConfigObj["configs"].([]interface{})
 	if !ok {
-		return nil, fmt.Errorf("can not parse configs field")
+		return nil, fmt.Errorf("cannot parse 'configs' inside default configuration for Manifest %s", namespacedName)
 	}
 
 	// evaluate rest config
