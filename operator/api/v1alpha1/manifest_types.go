@@ -110,12 +110,12 @@ type ManifestSpec struct {
 
 	//+kubebuilder:pruning:PreserveUnknownFields
 	//+kubebuilder:object:generate=false
-	// StateCR specifies a resource which will be watched for state updates
-	StateCR unstructured.Unstructured `json:"stateCR"`
+	// Resource specifies a resource to be watched for state updates
+	Resource unstructured.Unstructured `json:"resource"`
 
-	// PreInstallCRDs specifies the custom resource definitions' ImageSpec
+	// CRDs specifies the custom resource definitions' ImageSpec
 	// +kubebuilder:validation:Optional
-	PreInstallCRDs []ImageSpec `json:"preInstallCRDs"`
+	CRDs []ImageSpec `json:"crds"`
 }
 
 // +kubebuilder:validation:Enum=Processing;Deleting;Ready;Error

@@ -66,6 +66,33 @@ spec:
                 - repo
                 - type
                 type: object
+              crds:
+                description: CRDs specifies the custom resource definitions' ImageSpec
+                items:
+                  description: ImageSpec defines OCI Image specifications
+                  properties:
+                    name:
+                      description: Name defines the Image name
+                      type: string
+                    ref:
+                      description: Ref is either a sha value, tag or version
+                      type: string
+                    repo:
+                      description: Repo defines the Image repo
+                      type: string
+                    type:
+                      description: Type defines the chart as "oci-ref"
+                      enum:
+                      - helm-chart
+                      - oci-ref
+                      type: string
+                  required:
+                  - name
+                  - ref
+                  - repo
+                  - type
+                  type: object
+                type: array
               customStates:
                 description: CustomStates specifies a list of resources with their
                   desires states for Manifest
@@ -113,42 +140,14 @@ spec:
                   - source
                   type: object
                 type: array
-              preInstallCRDs:
-                description: PreInstallCRDs specifies the custom resource definitions'
-                  ImageSpec
-                items:
-                  description: ImageSpec defines OCI Image specifications
-                  properties:
-                    name:
-                      description: Name defines the Image name
-                      type: string
-                    ref:
-                      description: Ref is either a sha value, tag or version
-                      type: string
-                    repo:
-                      description: Repo defines the Image repo
-                      type: string
-                    type:
-                      description: Type defines the chart as "oci-ref"
-                      enum:
-                      - helm-chart
-                      - oci-ref
-                      type: string
-                  required:
-                  - name
-                  - ref
-                  - repo
-                  - type
-                  type: object
-                type: array
-              stateCR:
-                description: StateCR specifies a resource which will be watched for
-                  state updates
+              resource:
+                description: Resource specifies a resource to be watched for state
+                  updates
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
             required:
             - installs
-            - stateCR
+            - resource
             type: object
           status:
             description: Status signifies the current status of the Manifest
