@@ -40,7 +40,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: ManifestSpec defines the specification of Manifest
+            description: Spec specifies the content and configuration for Manifest
             properties:
               config:
                 description: Config specifies OCI image configuration for Manifest
@@ -61,39 +61,11 @@ spec:
                     - oci-ref
                     type: string
                 required:
+                - name
+                - ref
+                - repo
                 - type
                 type: object
-              customResource:
-                description: CustomResource specifies a resource which will be watched
-                  for state updates
-                type: object
-                x-kubernetes-embedded-resource: true
-                x-kubernetes-preserve-unknown-fields: true
-              customResourcesDefinitions:
-                description: CustomResourceDefinitions specifies the custom resource
-                  definitions' ImageSpec
-                items:
-                  description: ImageSpec defines OCI Image specifications
-                  properties:
-                    name:
-                      description: Name defines the Image name
-                      type: string
-                    ref:
-                      description: Ref is either a sha value, tag or version
-                      type: string
-                    repo:
-                      description: Repo defines the Image repo
-                      type: string
-                    type:
-                      description: Type defines the chart as "oci-ref"
-                      enum:
-                      - helm-chart
-                      - oci-ref
-                      type: string
-                  required:
-                  - type
-                  type: object
-                type: array
               customStates:
                 description: CustomStates specifies a list of resources with their
                   desires states for Manifest
@@ -115,6 +87,12 @@ spec:
                       description: Namespace defines the desired state of the custom
                         resource
                       type: string
+                  required:
+                  - apiVersion
+                  - kind
+                  - name
+                  - namespace
+                  - state
                   type: object
                 type: array
               installs:
@@ -135,12 +113,49 @@ spec:
                   - source
                   type: object
                 type: array
+              preInstallCRDs:
+                description: PreInstallCRDs specifies the custom resource definitions'
+                  ImageSpec
+                items:
+                  description: ImageSpec defines OCI Image specifications
+                  properties:
+                    name:
+                      description: Name defines the Image name
+                      type: string
+                    ref:
+                      description: Ref is either a sha value, tag or version
+                      type: string
+                    repo:
+                      description: Repo defines the Image repo
+                      type: string
+                    type:
+                      description: Type defines the chart as "oci-ref"
+                      enum:
+                      - helm-chart
+                      - oci-ref
+                      type: string
+                  required:
+                  - name
+                  - ref
+                  - repo
+                  - type
+                  type: object
+                type: array
+              stateCR:
+                description: StateCR specifies a resource which will be watched for
+                  state updates
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
+            required:
+            - installs
+            - stateCR
             type: object
           status:
-            description: ManifestStatus defines the observed state of Manifest
+            description: Status signifies the current status of the Manifest
             properties:
               conditions:
-                description: List of status conditions to indicate the status of Manifest.
+                description: Conditions is a list of status conditions to indicate
+                  the status of Manifest
                 items:
                   description: ManifestCondition describes condition information for
                     Manifest.
@@ -174,8 +189,11 @@ spec:
                         the condition's last transition.
                       type: string
                     status:
-                      description: Status of the ManifestCondition. Value can be one
-                        of ("True", "False", "Unknown").
+                      description: Status of the ManifestCondition
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
                       type: string
                     type:
                       description: Type of ManifestCondition
@@ -186,17 +204,29 @@ spec:
                   type: object
                 type: array
               observedGeneration:
-                description: Observed generation
+                description: ObservedGeneration
                 format: int64
                 type: integer
               state:
-                enum:
-                - Processing
-                - Deleting
-                - Ready
-                - Error
+                allOf:
+                - enum:
+                  - Processing
+                  - Deleting
+                  - Ready
+                  - Error
+                - enum:
+                  - Ready
+                  - Processing
+                  - Error
+                  - Deleting
+                description: State signifies current state of Manifest
                 type: string
+            required:
+            - state
             type: object
+        required:
+        - metadata
+        - spec
         type: object
     served: true
     storage: true

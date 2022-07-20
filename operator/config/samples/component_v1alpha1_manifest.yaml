@@ -8,9 +8,10 @@ metadata:
   name: manifestkyma-sample
   namespace: default
 spec:
-  resource:
-    kind: ConfigMap
-    resource: configMaps
+  preInstallCRDs:
+  stateCR:
+    kind: ConfigMapExt
+    resource: configMapsexts
     apiVersion: v1
     data: generated_from_manifest
     metadata:

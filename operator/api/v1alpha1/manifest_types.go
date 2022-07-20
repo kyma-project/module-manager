@@ -31,19 +31,19 @@ func (m *Manifest) SetObservedGeneration() *Manifest {
 
 type CustomState struct {
 	// APIVersion defines api version of the custom resource
-	APIVersion string `json:"apiVersion,omitempty"`
+	APIVersion string `json:"apiVersion"`
 
 	// Kind defines the kind of the custom resource
-	Kind string `json:"kind,omitempty"`
+	Kind string `json:"kind"`
 
 	// Name defines the name of the custom resource
-	Name string `json:"name,omitempty"`
+	Name string `json:"name"`
 
 	// Namespace defines the namespace of the custom resource
-	Namespace string `json:"namespace,omitempty"`
+	Namespace string `json:"namespace"`
 
 	// Namespace defines the desired state of the custom resource
-	State string `json:"state,omitempty"`
+	State string `json:"state"`
 }
 
 // InstallInfo defines installation information
@@ -59,13 +59,13 @@ type InstallInfo struct {
 // ImageSpec defines OCI Image specifications
 type ImageSpec struct {
 	// Repo defines the Image repo
-	Repo string `json:"repo,omitempty"`
+	Repo string `json:"repo"`
 
 	// Name defines the Image name
-	Name string `json:"name,omitempty"`
+	Name string `json:"name"`
 
 	// Ref is either a sha value, tag or version
-	Ref string `json:"ref,omitempty"`
+	Ref string `json:"ref"`
 
 	// Type defines the chart as "oci-ref"
 	// +kubebuilder:validation:Enum=helm-chart;oci-ref
@@ -75,13 +75,16 @@ type ImageSpec struct {
 // HelmChartSpec defines the specification for a helm chart
 type HelmChartSpec struct {
 	// Url defines the helm repo URL
-	Url string `json:"url,omitempty"`
+	// +kubebuilder:validation:Optional
+	Url string `json:"url"`
 
 	// ChartName defines the helm chart name
-	ChartName string `json:"chartName,omitempty"`
+	// +kubebuilder:validation:Optional
+	ChartName string `json:"chartName"`
 
 	// Type defines the chart as "oci-ref"
 	// +kubebuilder:validation:Enum=helm-chart;oci-ref
+	// +kubebuilder:validation:Optional
 	Type RefTypeMetadata `json:"type"`
 }
 
@@ -96,23 +99,23 @@ const (
 type ManifestSpec struct {
 	// Config specifies OCI image configuration for Manifest
 	// +kubebuilder:validation:Optional
-	Config ImageSpec `json:"config,omitempty"`
+	Config ImageSpec `json:"config"`
 
 	// Installs specifies a list of installations for Manifest
-	Installs []InstallInfo `json:"installs,omitempty"`
+	Installs []InstallInfo `json:"installs"`
 
 	// CustomStates specifies a list of resources with their desires states for Manifest
 	// +kubebuilder:validation:Optional
-	CustomStates []CustomState `json:"customStates,omitempty"`
+	CustomStates []CustomState `json:"customStates"`
 
 	//+kubebuilder:pruning:PreserveUnknownFields
-	//+kubebuilder:validation:XEmbeddedResource
 	//+kubebuilder:object:generate=false
-	// CustomResource specifies a resource which will be watched for state updates
-	CustomResource unstructured.Unstructured `json:"customResource,omitempty"`
+	// StateCR specifies a resource which will be watched for state updates
+	StateCR unstructured.Unstructured `json:"stateCR"`
 
-	// CustomResourceDefinitions specifies the custom resource definitions' ImageSpec
-	CustomResourceDefinitions []ImageSpec `json:"customResourcesDefinitions,omitempty"`
+	// PreInstallCRDs specifies the custom resource definitions' ImageSpec
+	// +kubebuilder:validation:Optional
+	PreInstallCRDs []ImageSpec `json:"preInstallCRDs"`
 }
 
 // +kubebuilder:validation:Enum=Processing;Deleting;Ready;Error
@@ -135,53 +138,58 @@ const (
 
 // ManifestStatus defines the observed state of Manifest
 type ManifestStatus struct {
-	State ManifestState `json:"state,omitempty"`
+	// State signifies current state of Manifest
+	// +kubebuilder:validation:Enum=Ready;Processing;Error;Deleting;
+	State ManifestState `json:"state"`
 
-	// List of status conditions to indicate the status of Manifest.
+	// Conditions is a list of status conditions to indicate the status of Manifest
 	// +kubebuilder:validation:Optional
-	Conditions []ManifestCondition `json:"conditions,omitempty"`
+	Conditions []ManifestCondition `json:"conditions"`
 
-	// Observed generation
+	// ObservedGeneration
 	// +kubebuilder:validation:Optional
-	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	ObservedGeneration int64 `json:"observedGeneration"`
 }
 
-// InstallItem describes install information
+// InstallItem describes install information for ManifestCondition
 type InstallItem struct {
 	// ChartName defines the name for InstallItem
-	ChartName string `json:"chartName,omitempty"`
+	// +kubebuilder:validation:Optional
+	ChartName string `json:"chartName"`
 
 	// ClientConfig defines the client config for InstallItem
-	ClientConfig string `json:"clientConfig,omitempty"`
+	// +kubebuilder:validation:Optional
+	ClientConfig string `json:"clientConfig"`
 
 	// Overrides defines the overrides for InstallItem
-	Overrides string `json:"overrides,omitempty"`
+	// +kubebuilder:validation:Optional
+	Overrides string `json:"overrides"`
 }
 
 // ManifestCondition describes condition information for Manifest.
 type ManifestCondition struct {
-	//Type of ManifestCondition
+	// Type of ManifestCondition
 	Type ManifestConditionType `json:"type"`
 
-	// Status of the ManifestCondition.
-	// Value can be one of ("True", "False", "Unknown").
+	// Status of the ManifestCondition
+	// +kubebuilder:validation:Enum=True;False;Unknown
 	Status ManifestConditionStatus `json:"status"`
 
 	// Human-readable message indicating details about the last status transition.
 	// +kubebuilder:validation:Optional
-	Message string `json:"message,omitempty"`
+	Message string `json:"message"`
 
 	// Machine-readable text indicating the reason for the condition's last transition.
 	// +kubebuilder:validation:Optional
-	Reason string `json:"reason,omitempty"`
+	Reason string `json:"reason"`
 
 	// Timestamp for when Manifest last transitioned from one status to another.
 	// +kubebuilder:validation:Optional
-	LastTransitionTime *metav1.Time `json:"lastTransitionTime,omitempty"`
+	LastTransitionTime *metav1.Time `json:"lastTransitionTime"`
 
 	// InstallInfo contains a list of installations for Manifest
 	// +kubebuilder:validation:Optional
-	InstallInfo InstallItem `json:"installInfo,omitempty"`
+	InstallInfo InstallItem `json:"installInfo"`
 }
 
 type ManifestConditionType string
@@ -213,10 +221,14 @@ const (
 // Manifest is the Schema for the manifests API
 type Manifest struct {
 	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
+	metav1.ObjectMeta `json:"metadata"`
 
-	Spec   ManifestSpec   `json:"spec,omitempty"`
-	Status ManifestStatus `json:"status,omitempty"`
+	// Spec specifies the content and configuration for Manifest
+	Spec ManifestSpec `json:"spec"`
+
+	// Status signifies the current status of the Manifest
+	// +kubebuilder:validation:Optional
+	Status ManifestStatus `json:"status"`
 }
 
 //+kubebuilder:object:root=true
@@ -224,7 +236,7 @@ type Manifest struct {
 // ManifestList contains a list of Manifest
 type ManifestList struct {
 	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
+	metav1.ListMeta `json:"metadata"`
 	Items           []Manifest `json:"items"`
 }
 

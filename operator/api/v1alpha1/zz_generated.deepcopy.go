@@ -196,9 +196,9 @@ func (in *ManifestSpec) DeepCopyInto(out *ManifestSpec) {
 		*out = make([]CustomState, len(*in))
 		copy(*out, *in)
 	}
-	in.CustomResource.DeepCopyInto(&out.CustomResource)
-	if in.CustomResourceDefinitions != nil {
-		in, out := &in.CustomResourceDefinitions, &out.CustomResourceDefinitions
+	in.StateCR.DeepCopyInto(&out.StateCR)
+	if in.PreInstallCRDs != nil {
+		in, out := &in.PreInstallCRDs, &out.PreInstallCRDs
 		*out = make([]ImageSpec, len(*in))
 		copy(*out, *in)
 	}
