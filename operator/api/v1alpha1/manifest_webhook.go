@@ -41,18 +41,12 @@ var _ webhook.Defaulter = &Manifest{}
 
 // Default implements webhook.Defaulter so a webhook will be registered for the type
 func (m *Manifest) Default() {
-	if &m.Spec.DefaultConfig == nil {
-		m.Spec.DefaultConfig = ImageSpec{}
+	if &m.Spec.Config == nil {
+		m.Spec.Config = ImageSpec{}
 	}
 
 	if m.Spec.Installs == nil {
 		m.Spec.Installs = make([]InstallInfo, 0)
-	}
-
-	if &m.Spec.Sync == nil {
-		m.Spec.Sync = Sync{
-			Enabled: false,
-		}
 	}
 }
 

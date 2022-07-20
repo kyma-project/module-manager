@@ -3,9 +3,10 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"k8s.io/client-go/rest"
 	"path"
 
-	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
+	"github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
 	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
 	"github.com/kyma-project/manifest-operator/operator/pkg/labels"
 	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
@@ -23,7 +24,8 @@ type RemoteInterface struct {
 	NativeObject *v1alpha1.Manifest
 }
 
-func NewRemoteInterface(ctx context.Context, nativeClient client.Client, nativeObject *v1alpha1.Manifest) (*RemoteInterface, *v1alpha1.Manifest, error) {
+func NewRemoteInterface(ctx context.Context, nativeClient client.Client, nativeObject *v1alpha1.Manifest,
+	defaultRestConfig *rest.Config) (*RemoteInterface, *v1alpha1.Manifest, error) {
 	namespacedName := client.ObjectKeyFromObject(nativeObject)
 	kymaOwner, ok := nativeObject.Labels[labels.ComponentOwner]
 	if !ok {
@@ -32,7 +34,7 @@ func NewRemoteInterface(ctx context.Context, nativeClient client.Client, nativeO
 	}
 
 	remoteCluster := &custom.ClusterClient{DefaultClient: nativeClient}
-	restConfig, err := remoteCluster.GetRestConfig(ctx, kymaOwner, nativeObject.Namespace)
+	restConfig, err := remoteCluster.GetRestConfig(ctx, kymaOwner, nativeObject.Namespace, defaultRestConfig)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.9.0
+    controller-gen.kubebuilder.io/version: v0.9.2
   creationTimestamp: null
   name: manifests.component.kyma-project.io
 spec:
@@ -40,8 +40,59 @@ spec:
           metadata:
             type: object
           spec:
-            description: ManifestSpec defines the specification of Manifest
+            description: Spec specifies the content and configuration for Manifest
             properties:
+              config:
+                description: Config specifies OCI image configuration for Manifest
+                properties:
+                  name:
+                    description: Name defines the Image name
+                    type: string
+                  ref:
+                    description: Ref is either a sha value, tag or version
+                    type: string
+                  repo:
+                    description: Repo defines the Image repo
+                    type: string
+                  type:
+                    description: Type defines the chart as "oci-ref"
+                    enum:
+                    - helm-chart
+                    - oci-ref
+                    type: string
+                required:
+                - name
+                - ref
+                - repo
+                - type
+                type: object
+              crds:
+                description: CRDs specifies the custom resource definitions' ImageSpec
+                items:
+                  description: ImageSpec defines OCI Image specifications
+                  properties:
+                    name:
+                      description: Name defines the Image name
+                      type: string
+                    ref:
+                      description: Ref is either a sha value, tag or version
+                      type: string
+                    repo:
+                      description: Repo defines the Image repo
+                      type: string
+                    type:
+                      description: Type defines the chart as "oci-ref"
+                      enum:
+                      - helm-chart
+                      - oci-ref
+                      type: string
+                  required:
+                  - name
+                  - ref
+                  - repo
+                  - type
+                  type: object
+                type: array
               customStates:
                 description: CustomStates specifies a list of resources with their
                   desires states for Manifest
@@ -63,29 +114,14 @@ spec:
                       description: Namespace defines the desired state of the custom
                         resource
                       type: string
+                  required:
+                  - apiVersion
+                  - kind
+                  - name
+                  - namespace
+                  - state
                   type: object
                 type: array
-              defaultConfig:
-                description: DefaultConfig specifies OCI image configuration for Manifest
-                properties:
-                  name:
-                    description: Name defines the Image name
-                    type: string
-                  ref:
-                    description: Ref is either a sha value, tag or version
-                    type: string
-                  repo:
-                    description: Repo defines the Image repo
-                    type: string
-                  type:
-                    description: Type defines the chart as "oci-ref"
-                    enum:
-                    - helm-chart
-                    - oci-ref
-                    type: string
-                required:
-                - type
-                type: object
               installs:
                 description: Installs specifies a list of installations for Manifest
                 items:
@@ -94,51 +130,6 @@ spec:
                     name:
                       description: Name specifies a unique install name for Manifest
                       type: string
-                    overrideSelector:
-                      description: OverrideSelector defines a label selector for external
-                        overrides
-                      properties:
-                        matchExpressions:
-                          description: matchExpressions is a list of label selector
-                            requirements. The requirements are ANDed.
-                          items:
-                            description: A label selector requirement is a selector
-                              that contains values, a key, and an operator that relates
-                              the key and values.
-                            properties:
-                              key:
-                                description: key is the label key that the selector
-                                  applies to.
-                                type: string
-                              operator:
-                                description: operator represents a key's relationship
-                                  to a set of values. Valid operators are In, NotIn,
-                                  Exists and DoesNotExist.
-                                type: string
-                              values:
-                                description: values is an array of string values.
-                                  If the operator is In or NotIn, the values array
-                                  must be non-empty. If the operator is Exists or
-                                  DoesNotExist, the values array must be empty. This
-                                  array is replaced during a strategic merge patch.
-                                items:
-                                  type: string
-                                type: array
-                            required:
-                            - key
-                            - operator
-                            type: object
-                          type: array
-                        matchLabels:
-                          additionalProperties:
-                            type: string
-                          description: matchLabels is a map of {key,value} pairs.
-                            A single {key,value} in the matchLabels map is equivalent
-                            to an element of matchExpressions, whose key field is
-                            "key", the operator is "In", and the values array contains
-                            only "value". The requirements are ANDed.
-                          type: object
-                      type: object
                     source:
                       description: Source can either be described as ImageSpec or
                         HelmChartSpec
@@ -149,32 +140,21 @@ spec:
                   - source
                   type: object
                 type: array
-              sync:
-                description: Sync specifies the sync strategy for Manifest
-                properties:
-                  enabled:
-                    default: false
-                    description: Enabled set to true will look up a kubeconfig for
-                      the remote cluster based on the strategy and synchronize its
-                      state there.
-                    type: boolean
-                  namespace:
-                    description: The target namespace, if empty the namespace is reflected
-                      from the control plane Note that cleanup is currently not supported
-                      if you are switching the namespace, so you will manually need
-                      to cleanup old synchronized Manifests
-                    type: string
-                  strategy:
-                    description: Strategy determines the way to lookup the remotely
-                      synced kubeconfig, by default it is fetched from a secret
-                    type: string
+              resource:
+                description: Resource specifies a resource to be watched for state
+                  updates
                 type: object
+                x-kubernetes-preserve-unknown-fields: true
+            required:
+            - installs
+            - resource
             type: object
           status:
-            description: ManifestStatus defines the observed state of Manifest
+            description: Status signifies the current status of the Manifest
             properties:
               conditions:
-                description: List of status conditions to indicate the status of Manifest.
+                description: Conditions is a list of status conditions to indicate
+                  the status of Manifest
                 items:
                   description: ManifestCondition describes condition information for
                     Manifest.
@@ -208,8 +188,11 @@ spec:
                         the condition's last transition.
                       type: string
                     status:
-                      description: Status of the ManifestCondition. Value can be one
-                        of ("True", "False", "Unknown").
+                      description: Status of the ManifestCondition
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
                       type: string
                     type:
                       description: Type of ManifestCondition
@@ -220,17 +203,29 @@ spec:
                   type: object
                 type: array
               observedGeneration:
-                description: Observed generation
+                description: ObservedGeneration
                 format: int64
                 type: integer
               state:
-                enum:
-                - Processing
-                - Deleting
-                - Ready
-                - Error
+                allOf:
+                - enum:
+                  - Processing
+                  - Deleting
+                  - Ready
+                  - Error
+                - enum:
+                  - Ready
+                  - Processing
+                  - Error
+                  - Deleting
+                description: State signifies current state of Manifest
                 type: string
+            required:
+            - state
             type: object
+        required:
+        - metadata
+        - spec
         type: object
     served: true
     storage: true

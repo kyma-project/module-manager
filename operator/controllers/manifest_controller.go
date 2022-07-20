@@ -23,7 +23,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
+	"github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
 	"github.com/kyma-project/manifest-operator/operator/pkg/labels"
 	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
 	"golang.org/x/time/rate"
@@ -115,7 +115,8 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, r.updateManifest(ctx, &manifestObj)
 	}
 
-	if manifestObj.Spec.Sync.Enabled {
+	// TODO: correct this
+	if false {
 		if updatedRequired, err := r.SyncRemoteResource(ctx, &manifestObj, false); err != nil {
 			return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Failure)}, err
 		} else if updatedRequired {
@@ -158,8 +159,8 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, logger *lo
 	return r.jobAllocator(ctx, logger, manifestObj, manifest.DeletionMode)
 }
 
-func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest, mode manifest.Mode,
-) error {
+func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest,
+	mode manifest.Mode) error {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 	responseChan := make(manifest.RequestErrChan)
 
@@ -169,7 +170,8 @@ func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logg
 	go r.ResponseHandlerFunc(ctx, logger, chartCount, responseChan, namespacedName)
 
 	// send deploy requests
-	deployInfos, err := prepareDeployInfos(ctx, manifestObj, r.Client, r.VerifyInstallation, r.CustomStateCheck, r.Codec)
+	deployInfos, err := prepareDeployInfos(ctx, manifestObj, r.Client, r.VerifyInstallation,
+		r.CustomStateCheck, r.Codec, r.RestConfig)
 	if err != nil {
 		return err
 	}
@@ -201,7 +203,8 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 	logger.Info("checking consistent state for " + namespacedName.String())
 
 	// send deploy requests
-	deployInfos, err := prepareDeployInfos(ctx, manifestObj, r.Client, r.VerifyInstallation, r.CustomStateCheck, r.Codec)
+	deployInfos, err := prepareDeployInfos(ctx, manifestObj, r.Client, r.VerifyInstallation, r.CustomStateCheck,
+		r.Codec, r.RestConfig)
 	if err != nil {
 		return err
 	}
@@ -344,7 +347,8 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 
 	// handle deletion if no previous error occurred
 	if !errorState && !latestManifestObj.DeletionTimestamp.IsZero() && !processing {
-		if latestManifestObj.Spec.Sync.Enabled {
+		// TODO: correct this
+		if false {
 			// remove finalizer on remote resource
 			if _, err := r.SyncRemoteResource(ctx, latestManifestObj, true); err != nil {
 				errorState = true
@@ -391,7 +395,7 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 func (r *ManifestReconciler) SyncRemoteResource(ctx context.Context, manifestObj *v1alpha1.Manifest, removeFinalizer bool,
 ) (bool, error) {
 	// check remote object
-	remoteInterface, remoteManifest, err := NewRemoteInterface(ctx, r.Client, manifestObj)
+	remoteInterface, remoteManifest, err := NewRemoteInterface(ctx, r.Client, manifestObj, r.RestConfig)
 	if err != nil {
 		return false, err
 	}
@@ -447,7 +451,7 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 	r.Workers.StartWorkers(ctx, r.DeployChan, r.HandleCharts)
 
 	// default config from kubebuilder
-	// r.RestConfig = mgr.GetConfig()
+	r.RestConfig = mgr.GetConfig()
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Manifest{}).

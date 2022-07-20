@@ -3,23 +3,21 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"github.com/imdario/mergo"
-	"github.com/kyma-project/manifest-operator/api/api/v1alpha1"
+	"github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
 	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
 	"github.com/kyma-project/manifest-operator/operator/pkg/descriptor"
 	"github.com/kyma-project/manifest-operator/operator/pkg/labels"
 	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
 	"helm.sh/helm/v3/pkg/strvals"
 	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/rest"
 	"path/filepath"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/yaml"
 )
 
 func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClient client.Client,
-	verifyInstallation bool, customStateCheck bool, codec *v1alpha1.Codec,
+	verifyInstallation bool, customStateCheck bool, codec *v1alpha1.Codec, defaultRestConfig *rest.Config,
 ) ([]manifest.DeployInfo, error) {
 	deployInfos := make([]manifest.DeployInfo, 0)
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
@@ -30,7 +28,7 @@ func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, def
 	}
 
 	// extract config
-	config := manifestObj.Spec.DefaultConfig
+	config := manifestObj.Spec.Config
 
 	decodedConfig, err := descriptor.DecodeYamlFromDigest(config.Repo, config.Name, config.Ref,
 		filepath.Join(fmt.Sprintf("%s", config.Ref), "installConfig.yaml"))
@@ -51,7 +49,7 @@ func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, def
 
 	// evaluate rest config
 	clusterClient := &custom.ClusterClient{DefaultClient: defaultClient}
-	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, manifestObj.Namespace)
+	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, manifestObj.Namespace, defaultRestConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +60,7 @@ func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, def
 			return nil, err
 		}
 
-		mergedConfig, mergedChartValues, err := mergeConfigsWithOverrides(ctx, install, defaultClient, manifestObj, configs)
+		mergedConfig, mergedChartValues, err := mergeConfigsWithOverrides(install, configs)
 		if err != nil {
 			return nil, err
 		}
@@ -157,34 +155,6 @@ func getConfigAndOverridesForInstall(installName string, configs []interface{}) 
 	return clientConfig, defaultOverrides, nil
 }
 
-func getConfigMapForInstall(ctx context.Context, restClient client.Client, install v1alpha1.InstallInfo,
-	manifestObj *v1alpha1.Manifest) (*v1.ConfigMap, error) {
-	namespacedName := client.ObjectKeyFromObject(manifestObj)
-	selector, err := metav1.LabelSelectorAsSelector(&install.OverrideSelector)
-	if err != nil {
-		return nil, fmt.Errorf("selector invalid: %w", err)
-	}
-	overrideConfigMaps := &v1.ConfigMapList{}
-	if err := restClient.List(ctx, overrideConfigMaps,
-		client.MatchingLabelsSelector{Selector: selector}); err != nil {
-		return nil, fmt.Errorf("error while fetching ConfigMap for Manifest %s with install %s:  %w",
-			namespacedName, install.Name, err)
-	}
-
-	if len(overrideConfigMaps.Items) > 1 {
-		return nil, fmt.Errorf("selector %s invalid: more than one ConfigMap available "+
-			"for Manifest %s with install %s",
-			selector.String(), namespacedName, install.Name)
-	} else if len(overrideConfigMaps.Items) == 0 {
-		return nil, fmt.Errorf("selector %s invalid: no ConfigMap available "+
-			"for Manifest %s with install %s",
-			selector.String(), namespacedName, install.Name)
-	}
-
-	validConfigMap := &overrideConfigMaps.Items[0]
-	return validConfigMap, addOwnerRefToConfigMap(ctx, validConfigMap, manifestObj, restClient)
-}
-
 func addOwnerRefToConfigMap(
 	ctx context.Context, configMap *v1.ConfigMap, manifestObj *v1alpha1.Manifest, restClient client.Client,
 ) error {
@@ -201,56 +171,22 @@ func addOwnerRefToConfigMap(
 	return nil
 }
 
-func mergeConfigsWithOverrides(ctx context.Context, install v1alpha1.InstallInfo, restClient client.Client,
-	manifestObj *v1alpha1.Manifest, configs []interface{}) (map[string]interface{}, map[string]interface{}, error) {
+func mergeConfigsWithOverrides(install v1alpha1.InstallInfo, configs []interface{}) (
+	map[string]interface{}, map[string]interface{}, error) {
 
-	defaultConfigString, defaultChartValuesString, err := getConfigAndOverridesForInstall(install.Name, configs)
+	configString, chartValuesString, err := getConfigAndOverridesForInstall(install.Name, configs)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	defaultConfig := map[string]interface{}{}
-	if err := strvals.ParseInto(defaultConfigString, defaultConfig); err != nil {
+	config := map[string]interface{}{}
+	if err := strvals.ParseInto(configString, config); err != nil {
 		return nil, nil, err
 	}
-	defaultChartValues := map[string]interface{}{}
-	if err := strvals.ParseInto(defaultChartValuesString, defaultChartValues); err != nil {
+	chartValues := map[string]interface{}{}
+	if err := strvals.ParseInto(chartValuesString, chartValues); err != nil {
 		return nil, nil, err
 	}
 
-	if install.OverrideSelector.Size() != 0 {
-		overridesConfigMap, err := getConfigMapForInstall(ctx, restClient, install, manifestObj)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		var customOverrideConfigs []interface{}
-		if err = yaml.Unmarshal([]byte(overridesConfigMap.Data["configs"]), &customOverrideConfigs); err != nil {
-			return nil, nil, err
-		}
-
-		customConfigString, customChartValuesString, err :=
-			getConfigAndOverridesForInstall(install.Name, customOverrideConfigs)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		customConfig := map[string]interface{}{}
-		if err := strvals.ParseInto(customConfigString, customConfig); err != nil {
-			return nil, nil, err
-		}
-		customChartValues := map[string]interface{}{}
-		if err := strvals.ParseInto(customChartValuesString, customChartValues); err != nil {
-			return nil, nil, err
-		}
-
-		if err = mergo.Merge(&defaultConfig, customConfig, mergo.WithOverride); err != nil {
-			return nil, nil, err
-		}
-		if err = mergo.Merge(&defaultChartValues, customChartValues, mergo.WithOverride); err != nil {
-			return nil, nil, err
-		}
-	}
-
-	return defaultConfig, defaultChartValues, nil
+	return config, chartValues, nil
 }
