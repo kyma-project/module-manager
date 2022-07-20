@@ -9,11 +9,14 @@ import (
 	"github.com/kyma-project/manifest-operator/operator/pkg/labels"
 	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
 	"helm.sh/helm/v3/pkg/strvals"
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/rest"
 	"path/filepath"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+)
+
+const (
+	configReadError = "reading install %s resulted in an error for " + v1alpha1.ManifestKind + " %s"
+	configFileName  = "installConfig.yaml"
 )
 
 func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClient client.Client,
@@ -31,17 +34,17 @@ func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, def
 	config := manifestObj.Spec.Config
 
 	decodedConfig, err := descriptor.DecodeYamlFromDigest(config.Repo, config.Name, config.Ref,
-		filepath.Join(fmt.Sprintf("%s", config.Ref), "installConfig.yaml"))
+		filepath.Join(fmt.Sprintf("%s", config.Ref), configFileName))
 	if err != nil {
 		return nil, err
 	}
 	installConfigObj, ok := decodedConfig.(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf(configReadError)
+		return nil, fmt.Errorf(configReadError, ".spec.config", namespacedName)
 	}
 	configs, ok := installConfigObj["configs"].([]interface{})
 	if !ok {
-		return nil, fmt.Errorf(configReadError)
+		return nil, fmt.Errorf(configReadError, "chart config object of .spec.config", namespacedName)
 	}
 
 	// evaluate rest config
@@ -60,7 +63,7 @@ func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, def
 			return nil, err
 		}
 
-		mergedConfig, mergedChartValues, err := mergeConfigsWithOverrides(install, configs)
+		mergedConfig, mergedChartValues, err := parseChartConfigAndValues(install, configs, namespacedName.String())
 		if err != nil {
 			return nil, err
 		}
@@ -131,23 +134,24 @@ func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *v1alpha1.Codec,
 	return nil, fmt.Errorf("unsupported type %s of install for Manifest %s", specType, namespacedName)
 }
 
-func getConfigAndOverridesForInstall(installName string, configs []interface{}) (string, string, error) {
+func getConfigAndValuesForInstall(installName string, configs []interface{}, namespacedName string) (
+	string, string, error) {
 	var defaultOverrides string
 	var clientConfig string
 
 	for _, config := range configs {
 		mappedConfig, ok := config.(map[string]interface{})
 		if !ok {
-			return "", "", fmt.Errorf(configReadError)
+			return "", "", fmt.Errorf(configReadError, "config object", namespacedName)
 		}
 		if mappedConfig["name"] == installName {
 			defaultOverrides, ok = mappedConfig["overrides"].(string)
 			if !ok {
-				return "", "", fmt.Errorf(configReadError)
+				return "", "", fmt.Errorf(configReadError, "config object overrides", namespacedName)
 			}
 			clientConfig, ok = mappedConfig["clientConfig"].(string)
 			if !ok {
-				return "", "", fmt.Errorf(configReadError)
+				return "", "", fmt.Errorf(configReadError, "chart config", namespacedName)
 			}
 			break
 		}
@@ -155,26 +159,11 @@ func getConfigAndOverridesForInstall(installName string, configs []interface{}) 
 	return clientConfig, defaultOverrides, nil
 }
 
-func addOwnerRefToConfigMap(
-	ctx context.Context, configMap *v1.ConfigMap, manifestObj *v1alpha1.Manifest, restClient client.Client,
-) error {
-	// we now verify that we already own the config map
-	previousOwnerRefs := len(configMap.GetOwnerReferences())
-	if err := controllerutil.SetOwnerReference(manifestObj, configMap, restClient.Scheme()); err != nil {
-		return fmt.Errorf("override configuration could not be owned to watch for overrides: %w", err)
-	}
-	if previousOwnerRefs != len(configMap.GetOwnerReferences()) {
-		if err := restClient.Update(ctx, configMap); err != nil {
-			return fmt.Errorf("error updating newly set owner config map: %w", err)
-		}
-	}
-	return nil
-}
-
-func mergeConfigsWithOverrides(install v1alpha1.InstallInfo, configs []interface{}) (
+func parseChartConfigAndValues(install v1alpha1.InstallInfo, configs []interface{},
+	namespacedName string) (
 	map[string]interface{}, map[string]interface{}, error) {
 
-	configString, chartValuesString, err := getConfigAndOverridesForInstall(install.Name, configs)
+	configString, valuesString, err := getConfigAndValuesForInstall(install.Name, configs, namespacedName)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -183,10 +172,10 @@ func mergeConfigsWithOverrides(install v1alpha1.InstallInfo, configs []interface
 	if err := strvals.ParseInto(configString, config); err != nil {
 		return nil, nil, err
 	}
-	chartValues := map[string]interface{}{}
-	if err := strvals.ParseInto(chartValuesString, chartValues); err != nil {
+	values := map[string]interface{}{}
+	if err := strvals.ParseInto(valuesString, values); err != nil {
 		return nil, nil, err
 	}
 
-	return config, chartValues, nil
+	return config, values, nil
 }

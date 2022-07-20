@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"os"
 	"path/filepath"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -100,4 +102,25 @@ func readFile(fileName string) ([][]byte, error) {
 	}
 
 	return yamlStructs, nil
+}
+
+func CreateCRDs(ctx context.Context, crds []*apiextensionsv1.CustomResourceDefinition,
+	destinationClient client.Client) error {
+	for _, crd := range crds {
+
+		existingCrd := apiextensionsv1.CustomResourceDefinition{}
+		err := destinationClient.Get(ctx, client.ObjectKeyFromObject(crd), &existingCrd)
+
+		if client.IgnoreNotFound(err) != nil {
+			return err
+		}
+
+		if errors.IsNotFound(err) {
+			if err = destinationClient.Create(ctx, crd); err != nil {
+				return err
+			}
+		}
+
+	}
+	return nil
 }
