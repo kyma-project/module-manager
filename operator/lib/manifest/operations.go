@@ -5,9 +5,9 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
-	manifestRest "github.com/kyma-project/manifest-operator/operator/pkg/rest"
-	"github.com/kyma-project/manifest-operator/operator/pkg/util"
+	"github.com/kyma-project/manifest-operator/operator/lib/custom"
+	manifestRest "github.com/kyma-project/manifest-operator/operator/lib/rest"
+	"github.com/kyma-project/manifest-operator/operator/lib/util"
 	"github.com/pkg/errors"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
@@ -46,9 +46,9 @@ type DeployInfo struct {
 	ReadyCheck bool
 }
 
-type RequestErrChan chan *RequestError
+type ResponseChan chan *ChartResponse
 
-type RequestError struct {
+type ChartResponse struct {
 	Ready             bool
 	ChartName         string
 	ClientConfig      map[string]interface{}
@@ -57,7 +57,7 @@ type RequestError struct {
 	Err               error
 }
 
-func (r *RequestError) Error() string {
+func (r *ChartResponse) Error() string {
 	return r.Err.Error()
 }
 

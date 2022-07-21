@@ -19,7 +19,7 @@ type ManifestConfig struct {
 	name string
 }
 
-func ExtractTarGz(repo string, module string, digest string, pathPattern string) (string, error) {
+func GetPathFromExtractedTarGz(repo string, module string, digest string, pathPattern string) (string, error) {
 	reference := fmt.Sprintf("%s/%s@%s", repo, module, digest)
 	layer, err := crane.PullLayer(reference)
 	if err != nil {

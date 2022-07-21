@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"github.com/kyma-project/manifest-operator/operator/lib/types"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -42,7 +43,7 @@ var _ webhook.Defaulter = &Manifest{}
 // Default implements webhook.Defaulter so a webhook will be registered for the type
 func (m *Manifest) Default() {
 	if &m.Spec.Config == nil {
-		m.Spec.Config = ImageSpec{}
+		m.Spec.Config = types.ImageSpec{}
 	}
 
 	if m.Spec.Installs == nil {
@@ -77,7 +78,7 @@ func (m *Manifest) ValidateDelete() error {
 func (m *Manifest) validateInstalls() error {
 	fieldErrors := make(field.ErrorList, 0)
 
-	codec, err := NewCodec()
+	codec, err := types.NewCodec()
 	if err != nil {
 		fieldErrors = append(fieldErrors,
 			field.Invalid(field.NewPath("spec").Child("installs"),
@@ -86,7 +87,7 @@ func (m *Manifest) validateInstalls() error {
 
 	if len(fieldErrors) == 0 {
 		for _, install := range m.Spec.Installs {
-			specType, err := GetSpecType(install.Source.Raw)
+			specType, err := types.GetSpecType(install.Source.Raw)
 			if err != nil {
 				fieldErrors = append(fieldErrors,
 					field.Invalid(field.NewPath("spec").Child("installs"),

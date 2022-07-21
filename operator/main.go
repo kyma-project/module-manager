@@ -18,6 +18,7 @@ package main
 
 import (
 	"flag"
+	"github.com/kyma-project/manifest-operator/operator/lib/types"
 	"os"
 	"time"
 
@@ -27,7 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 
-	opLabels "github.com/kyma-project/manifest-operator/operator/pkg/labels"
+	opLabels "github.com/kyma-project/manifest-operator/operator/lib/labels"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -133,7 +134,7 @@ func main() {
 	manifestWorkers := controllers.NewManifestWorkers(&workersLogger, workersConcurrentManifests)
 	context := ctrl.SetupSignalHandler()
 
-	codec, err := manifestv1alpha1.NewCodec()
+	codec, err := types.NewCodec()
 	if err != nil {
 		setupLog.Error(err, "unable to initialize codec")
 		os.Exit(1)

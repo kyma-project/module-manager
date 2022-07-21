@@ -1,4 +1,4 @@
-package pkg
+package custom
 
 import (
 	"context"
@@ -7,8 +7,8 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
-	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
-	"github.com/kyma-project/manifest-operator/operator/pkg/labels"
+	"github.com/kyma-project/manifest-operator/operator/lib/custom"
+	"github.com/kyma-project/manifest-operator/operator/lib/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -57,8 +57,4 @@ func (c *CustomResourceCheck) CheckProcessingFn(ctx context.Context, manifestLab
 	}
 
 	return ready, nil
-}
-
-func (c *CustomResourceCheck) CheckReadyFn(ctx context.Context, manifestLabels map[string]string, namespacedName client.ObjectKey, logger *logr.Logger) (bool, error) {
-	return true, nil
 }

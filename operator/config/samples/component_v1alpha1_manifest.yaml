@@ -18,23 +18,23 @@ spec:
     resource: kymas
     apiVersion: operator.kyma-project.io/v1alpha1
     metadata:
-      name: config.map.manifest
+      name: kyma.from.manifest
       namespace: default
     spec:
       profile: production
       channel: stable
   config:
-    ref: sha256:36e6fab01f4892c516f088d7d52680d243aaeed415c27bdf9e521184e66ad2df
+    ref: sha256:c9f7103442b88057edc02bc90e101e93b43c79a6137aa1b2cfb3b44f1a8f3255
     name: kyma-project.io/module/example
     repo: k3d-registry.localhost:52445/signed/component-descriptors
     type: oci-ref
   installs:
     - source:
-        name: nginx-ingress
+        name: kyma-project.io/module/example
         repo: k3d-registry.localhost:52445/signed/component-descriptors
         ref: sha256:600989483c323dac3ddec5c636c76e23714bedac3192cb1d7ee4b99c06db708b
         type: oci-ref
-      name: nginx-stable
+      name: nginx-ingress
     - source:
         chartName: mysql
         url: https://charts.bitnami.com/bitnami

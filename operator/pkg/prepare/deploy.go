@@ -1,13 +1,16 @@
-package pkg
+package prepare
 
 import (
 	"context"
 	"fmt"
 	"github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
-	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
-	"github.com/kyma-project/manifest-operator/operator/pkg/descriptor"
-	"github.com/kyma-project/manifest-operator/operator/pkg/labels"
-	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
+	"github.com/kyma-project/manifest-operator/operator/lib/crd"
+	"github.com/kyma-project/manifest-operator/operator/lib/custom"
+	"github.com/kyma-project/manifest-operator/operator/lib/descriptor"
+	"github.com/kyma-project/manifest-operator/operator/lib/labels"
+	"github.com/kyma-project/manifest-operator/operator/lib/manifest"
+	"github.com/kyma-project/manifest-operator/operator/lib/types"
+	manifestCustom "github.com/kyma-project/manifest-operator/operator/pkg/custom"
 	"helm.sh/helm/v3/pkg/strvals"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/rest"
@@ -20,8 +23,8 @@ const (
 	configFileName  = "installConfig.yaml"
 )
 
-func PrepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClient client.Client,
-	verifyInstallation bool, customStateCheck bool, codec *v1alpha1.Codec, defaultRestConfig *rest.Config,
+func GetDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClient client.Client,
+	verifyInstallation bool, customStateCheck bool, codec *types.Codec, defaultRestConfig *rest.Config,
 ) ([]manifest.DeployInfo, error) {
 	deployInfos := make([]manifest.DeployInfo, 0)
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
@@ -49,7 +52,7 @@ func PrepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, def
 	}
 
 	// evaluate rest config
-	customResCheck := &CustomResourceCheck{DefaultClient: defaultClient}
+	customResCheck := &manifestCustom.CustomResourceCheck{DefaultClient: defaultClient}
 
 	// evaluate rest config
 	clusterClient := &custom.ClusterClient{DefaultClient: defaultClient}
@@ -63,35 +66,14 @@ func PrepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, def
 		return nil, err
 	}
 
-	// check crd
-	crdsPath, err := getCrdsSpec(manifestObj.Spec.CRDs)
-	if err != nil {
+	// check crds - if present do not update
+	if err = installCrds(ctx, destinationClient, manifestObj.Spec.CRDs); err != nil {
 		return nil, err
 	}
 
-	crds, err := manifest.GetCRDsFromPath(ctx, crdsPath)
-	if err != nil {
+	// check cr - if present do to not update
+	if err = installCr(ctx, destinationClient, manifestObj.Spec.Resource); err != nil {
 		return nil, err
-	}
-
-	if err = manifest.CreateCRDs(ctx, crds, destinationClient); err != nil {
-		return nil, err
-	}
-
-	// check cr
-	existingCustomResource := unstructured.Unstructured{}
-	existingCustomResource.SetGroupVersionKind(manifestObj.Spec.Resource.GroupVersionKind())
-	customResourceKey := client.ObjectKey{
-		Name:      manifestObj.Spec.Resource.GetName(),
-		Namespace: manifestObj.Spec.Resource.GetNamespace(),
-	}
-	if err = destinationClient.Get(ctx, customResourceKey, &existingCustomResource); client.IgnoreNotFound(err) != nil {
-		return nil, err
-	}
-	if err != nil {
-		if err = destinationClient.Create(ctx, &manifestObj.Spec.Resource); err != nil {
-			return nil, err
-		}
 	}
 
 	// installs
@@ -129,24 +111,58 @@ func PrepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, def
 	return deployInfos, nil
 }
 
-func getCrdsSpec(crdImage v1alpha1.ImageSpec) (
-	string, error) {
+func installCrds(ctx context.Context, destinationClient client.Client, crdImage types.ImageSpec) error {
 	// extract helm chart from layer digest
-	return descriptor.ExtractTarGz(crdImage.Repo, crdImage.Name, crdImage.Ref,
+	crdsPath, err := descriptor.GetPathFromExtractedTarGz(crdImage.Repo, crdImage.Name, crdImage.Ref,
 		fmt.Sprintf("%s-%s", crdImage.Name, crdImage.Ref))
+	if err != nil {
+		return err
+	}
+
+	crds, err := crd.GetCRDsFromPath(ctx, crdsPath)
+	if err != nil {
+		return err
+	}
+
+	if err = crd.CreateCRDs(ctx, crds, destinationClient); err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *v1alpha1.Codec,
+func installCr(ctx context.Context, destinationClient client.Client, resource unstructured.Unstructured) error {
+	// check cr
+	existingCustomResource := unstructured.Unstructured{}
+	existingCustomResource.SetGroupVersionKind(resource.GroupVersionKind())
+	customResourceKey := client.ObjectKey{
+		Name:      resource.GetName(),
+		Namespace: resource.GetNamespace(),
+	}
+	err := destinationClient.Get(ctx, customResourceKey, &existingCustomResource)
+	if client.IgnoreNotFound(err) != nil {
+		return err
+	}
+	if err != nil {
+		if err = destinationClient.Create(ctx, &resource); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *types.Codec,
 	manifestObj *v1alpha1.Manifest) (*manifest.ChartInfo, error) {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
-	specType, err := v1alpha1.GetSpecType(install.Source.Raw)
+	specType, err := types.GetSpecType(install.Source.Raw)
 	if err != nil {
 		return nil, err
 	}
 
 	switch specType {
-	case v1alpha1.HelmChartType:
-		var helmChartSpec v1alpha1.HelmChartSpec
+	case types.HelmChartType:
+		var helmChartSpec types.HelmChartSpec
 		if err = codec.Decode(install.Source.Raw, &helmChartSpec, specType); err != nil {
 			return nil, err
 		}
@@ -157,14 +173,14 @@ func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *v1alpha1.Codec,
 			Url:       helmChartSpec.Url,
 		}, nil
 
-	case v1alpha1.OciRefType:
-		var imageSpec v1alpha1.ImageSpec
+	case types.OciRefType:
+		var imageSpec types.ImageSpec
 		if err = codec.Decode(install.Source.Raw, &imageSpec, specType); err != nil {
 			return nil, err
 		}
 
 		// extract helm chart from layer digest
-		chartPath, err := descriptor.ExtractTarGz(imageSpec.Repo, imageSpec.Name, imageSpec.Ref,
+		chartPath, err := descriptor.GetPathFromExtractedTarGz(imageSpec.Repo, imageSpec.Name, imageSpec.Ref,
 			fmt.Sprintf("%s-%s", install.Name, imageSpec.Ref))
 		if err != nil {
 			return nil, err
