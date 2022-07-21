@@ -1,4 +1,4 @@
-package controllers
+package pkg
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"github.com/kyma-project/manifest-operator/operator/pkg/labels"
 	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
 	"helm.sh/helm/v3/pkg/strvals"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/rest"
 	"path/filepath"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -19,7 +20,7 @@ const (
 	configFileName  = "installConfig.yaml"
 )
 
-func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClient client.Client,
+func PrepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClient client.Client,
 	verifyInstallation bool, customStateCheck bool, codec *v1alpha1.Codec, defaultRestConfig *rest.Config,
 ) ([]manifest.DeployInfo, error) {
 	deployInfos := make([]manifest.DeployInfo, 0)
@@ -57,21 +58,58 @@ func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, def
 		return nil, err
 	}
 
+	destinationClient, err := clusterClient.GetNewClient(restConfig, client.Options{})
+	if err != nil {
+		return nil, err
+	}
+
+	// check crd
+	crdsPath, err := getCrdsSpec(manifestObj.Spec.CRDs)
+	if err != nil {
+		return nil, err
+	}
+
+	crds, err := manifest.GetCRDsFromPath(ctx, crdsPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = manifest.CreateCRDs(ctx, crds, destinationClient); err != nil {
+		return nil, err
+	}
+
+	// check cr
+	existingCustomResource := unstructured.Unstructured{}
+	existingCustomResource.SetGroupVersionKind(manifestObj.Spec.Resource.GroupVersionKind())
+	customResourceKey := client.ObjectKey{
+		Name:      manifestObj.Spec.Resource.GetName(),
+		Namespace: manifestObj.Spec.Resource.GetNamespace(),
+	}
+	if err = destinationClient.Get(ctx, customResourceKey, &existingCustomResource); client.IgnoreNotFound(err) != nil {
+		return nil, err
+	}
+	if err != nil {
+		if err = destinationClient.Create(ctx, &manifestObj.Spec.Resource); err != nil {
+			return nil, err
+		}
+	}
+
+	// installs
 	for _, install := range manifestObj.Spec.Installs {
 		chartInfo, err := getChartInfoForInstall(install, codec, manifestObj)
 		if err != nil {
 			return nil, err
 		}
 
-		mergedConfig, mergedChartValues, err := parseChartConfigAndValues(install, configs, namespacedName.String())
+		chartConfig, chartValues, err := parseChartConfigAndValues(install, configs, namespacedName.String())
 		if err != nil {
 			return nil, err
 		}
 
 		// common deploy properties
 		chartInfo.ReleaseName = install.Name
-		chartInfo.Overrides = mergedChartValues
-		chartInfo.ClientConfig = mergedConfig
+		chartInfo.Overrides = chartValues
+		chartInfo.ClientConfig = chartConfig
 
 		deployInfo := manifest.DeployInfo{
 			Ctx:            ctx,
@@ -89,6 +127,13 @@ func prepareDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, def
 	}
 
 	return deployInfos, nil
+}
+
+func getCrdsSpec(crdImage v1alpha1.ImageSpec) (
+	string, error) {
+	// extract helm chart from layer digest
+	return descriptor.ExtractTarGz(crdImage.Repo, crdImage.Name, crdImage.Ref,
+		fmt.Sprintf("%s-%s", crdImage.Name, crdImage.Ref))
 }
 
 func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *v1alpha1.Codec,

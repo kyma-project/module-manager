@@ -8,14 +8,21 @@ metadata:
   name: manifestkyma-sample
   namespace: default
 spec:
-  preInstallCRDs:
-  stateCR:
-    kind: ConfigMapExt
-    resource: configMapsexts
-    apiVersion: v1
-    data: generated_from_manifest
+  crds:
+    ref: sha256:58d0d837393f2e4db3b6febf26fa721479f03ccd36d5969998025a15c4a25a0d
+    name: kyma-project.io/module/example
+    repo: k3d-registry.localhost:52445/signed/component-descriptors
+    type: oci-ref
+  resource:
+    kind: Kyma
+    resource: kymas
+    apiVersion: operator.kyma-project.io/v1alpha1
     metadata:
       name: config.map.manifest
+      namespace: default
+    spec:
+      profile: production
+      channel: stable
   config:
     ref: sha256:36e6fab01f4892c516f088d7d52680d243aaeed415c27bdf9e521184e66ad2df
     name: kyma-project.io/module/example
@@ -23,13 +30,13 @@ spec:
     type: oci-ref
   installs:
     - source:
-        name: your-own-chart
+        name: nginx-ingress
         repo: k3d-registry.localhost:52445/signed/component-descriptors
         ref: sha256:600989483c323dac3ddec5c636c76e23714bedac3192cb1d7ee4b99c06db708b
         type: oci-ref
-      name: nginx-ingress
-    - source:
-        chartName: nginx-ingress
-        url: https://helm.nginx.com/stable
-        type: helm-chart
       name: nginx-stable
+    - source:
+        chartName: mysql
+        url: https://charts.bitnami.com/bitnami
+        type: helm-chart
+      name: bitnami

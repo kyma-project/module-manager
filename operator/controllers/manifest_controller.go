@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/kyma-project/manifest-operator/operator/internal/pkg"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -71,8 +72,6 @@ type ManifestReconciler struct {
 	Codec                   *v1alpha1.Codec
 }
 
-const configReadError = "reading install config resulted in an error"
-
 //+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests/finalizers,verbs=update
@@ -113,15 +112,6 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if !controllerutil.ContainsFinalizer(&manifestObj, labels.ManifestFinalizer) {
 		controllerutil.AddFinalizer(&manifestObj, labels.ManifestFinalizer)
 		return ctrl.Result{}, r.updateManifest(ctx, &manifestObj)
-	}
-
-	// TODO: correct this
-	if false {
-		if updatedRequired, err := r.SyncRemoteResource(ctx, &manifestObj, false); err != nil {
-			return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Failure)}, err
-		} else if updatedRequired {
-			return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Waiting)}, nil
-		}
 	}
 
 	// state handling
@@ -170,7 +160,7 @@ func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logg
 	go r.ResponseHandlerFunc(ctx, logger, chartCount, responseChan, namespacedName)
 
 	// send deploy requests
-	deployInfos, err := prepareDeployInfos(ctx, manifestObj, r.Client, r.VerifyInstallation,
+	deployInfos, err := pkg.PrepareDeployInfos(ctx, manifestObj, r.Client, r.VerifyInstallation,
 		r.CustomStateCheck, r.Codec, r.RestConfig)
 	if err != nil {
 		return err
@@ -203,7 +193,7 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 	logger.Info("checking consistent state for " + namespacedName.String())
 
 	// send deploy requests
-	deployInfos, err := prepareDeployInfos(ctx, manifestObj, r.Client, r.VerifyInstallation, r.CustomStateCheck,
+	deployInfos, err := pkg.PrepareDeployInfos(ctx, manifestObj, r.Client, r.VerifyInstallation, r.CustomStateCheck,
 		r.Codec, r.RestConfig)
 	if err != nil {
 		return err
@@ -347,16 +337,6 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 
 	// handle deletion if no previous error occurred
 	if !errorState && !latestManifestObj.DeletionTimestamp.IsZero() && !processing {
-		// TODO: correct this
-		if false {
-			// remove finalizer on remote resource
-			if _, err := r.SyncRemoteResource(ctx, latestManifestObj, true); err != nil {
-				errorState = true
-				logger.Error(err, "unexpected error while syncing remote ",
-					"resource", namespacedName)
-			}
-		}
-
 		if !errorState {
 			// remove finalizer
 			controllerutil.RemoveFinalizer(latestManifestObj, labels.ManifestFinalizer)
@@ -390,44 +370,6 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 		logger.Error(err, "error updating status", "resource", namespacedName)
 	}
 	return
-}
-
-func (r *ManifestReconciler) SyncRemoteResource(ctx context.Context, manifestObj *v1alpha1.Manifest, removeFinalizer bool,
-) (bool, error) {
-	// check remote object
-	remoteInterface, remoteManifest, err := NewRemoteInterface(ctx, r.Client, manifestObj, r.RestConfig)
-	if err != nil {
-		return false, err
-	}
-
-	if removeFinalizer {
-		return false, remoteInterface.RemoveFinalizerOnRemote(ctx, remoteManifest)
-	}
-
-	// sync state to remote manifest
-	if err = remoteInterface.StateSyncToRemote(ctx, remoteManifest); err != nil {
-		return false, err
-	}
-
-	// if native manifest in deletion mode trigger on remote resource
-	if !manifestObj.DeletionTimestamp.IsZero() {
-		return false, remoteInterface.HandleDeletingState(ctx, remoteManifest)
-	}
-
-	// sync spec to native manifest (user change)
-	if synced, err := remoteInterface.SpecSyncToNative(ctx, remoteManifest); err != nil {
-		return false, err
-	} else if !synced {
-		return true, r.Update(ctx, remoteInterface.NativeObject)
-	}
-
-	// sync spec to remote object (module template change)
-	remoteManifest, err = remoteInterface.SpecSyncToRemote(ctx, remoteManifest)
-	if err != nil {
-		return false, err
-	}
-
-	return false, nil
 }
 
 func ManifestRateLimiter() ratelimiter.RateLimiter {

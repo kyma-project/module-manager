@@ -164,10 +164,6 @@ func main() {
 		}
 	}
 
-	if err = (&componentv1alpha1.Manifest{}).SetupWebhookWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create webhook", "webhook", "Manifest")
-		os.Exit(1)
-	}
 	//+kubebuilder:scaffold:builder
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")
