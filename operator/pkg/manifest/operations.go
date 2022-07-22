@@ -5,9 +5,9 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	"github.com/kyma-project/manifest-operator/operator/lib/custom"
-	manifestRest "github.com/kyma-project/manifest-operator/operator/lib/rest"
-	"github.com/kyma-project/manifest-operator/operator/lib/util"
+	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
+	manifestRest "github.com/kyma-project/manifest-operator/operator/pkg/rest"
+	"github.com/kyma-project/manifest-operator/operator/pkg/util"
 	"github.com/pkg/errors"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"

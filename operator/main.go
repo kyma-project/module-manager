@@ -18,7 +18,7 @@ package main
 
 import (
 	"flag"
-	"github.com/kyma-project/manifest-operator/operator/lib/types"
+	"github.com/kyma-project/manifest-operator/operator/pkg/types"
 	"os"
 	"time"
 
@@ -28,7 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 
-	opLabels "github.com/kyma-project/manifest-operator/operator/lib/labels"
+	opLabels "github.com/kyma-project/manifest-operator/operator/pkg/labels"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.

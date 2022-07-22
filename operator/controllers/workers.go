@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	"github.com/kyma-project/manifest-operator/operator/lib/manifest"
+	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
 )
 
 type Workers interface {

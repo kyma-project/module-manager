@@ -3,7 +3,7 @@ package custom
 import (
 	"context"
 	"fmt"
-	"github.com/kyma-project/manifest-operator/operator/lib/types"
+	"github.com/kyma-project/manifest-operator/operator/pkg/types"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"

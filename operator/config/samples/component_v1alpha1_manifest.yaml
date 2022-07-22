@@ -14,15 +14,14 @@ spec:
     repo: k3d-registry.localhost:52445/signed/component-descriptors
     type: oci-ref
   resource:
-    kind: Kyma
-    resource: kymas
-    apiVersion: operator.kyma-project.io/v1alpha1
+    kind: SampleCRD
+    resource: samplecrds
+    apiVersion: component.kyma-project.io/v1alpha1
     metadata:
-      name: kyma.from.manifest
+      name: sample-crd-from-manifest
       namespace: default
     spec:
-      profile: production
-      channel: stable
+      randomkey: samplevalue
   config:
     ref: sha256:c9f7103442b88057edc02bc90e101e93b43c79a6137aa1b2cfb3b44f1a8f3255
     name: kyma-project.io/module/example

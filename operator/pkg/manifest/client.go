@@ -7,8 +7,8 @@ import (
 	"reflect"
 	"time"
 
-	manifestRest "github.com/kyma-project/manifest-operator/operator/lib/rest"
-	"github.com/kyma-project/manifest-operator/operator/lib/util"
+	manifestRest "github.com/kyma-project/manifest-operator/operator/pkg/rest"
+	"github.com/kyma-project/manifest-operator/operator/pkg/util"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/kube"

@@ -22,7 +22,7 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"github.com/kyma-project/manifest-operator/operator/lib/types"
+	"github.com/kyma-project/manifest-operator/operator/pkg/types"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
