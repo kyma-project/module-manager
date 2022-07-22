@@ -18,6 +18,7 @@ package main
 
 import (
 	"flag"
+	"github.com/kyma-project/manifest-operator/operator/pkg/types"
 	"os"
 	"time"
 
@@ -133,7 +134,7 @@ func main() {
 	manifestWorkers := controllers.NewManifestWorkers(&workersLogger, workersConcurrentManifests)
 	context := ctrl.SetupSignalHandler()
 
-	codec, err := manifestv1alpha1.NewCodec()
+	codec, err := types.NewCodec()
 	if err != nil {
 		setupLog.Error(err, "unable to initialize codec")
 		os.Exit(1)
@@ -164,10 +165,6 @@ func main() {
 		}
 	}
 
-	if err = (&componentv1alpha1.Manifest{}).SetupWebhookWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create webhook", "webhook", "Manifest")
-		os.Exit(1)
-	}
 	//+kubebuilder:scaffold:builder
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")

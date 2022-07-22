@@ -20,6 +20,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/kyma-project/manifest-operator/operator/internal/pkg/prepare"
+	"github.com/kyma-project/manifest-operator/operator/internal/pkg/util"
+	"github.com/kyma-project/manifest-operator/operator/pkg/ratelimit"
+	"github.com/kyma-project/manifest-operator/operator/pkg/types"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -51,9 +55,9 @@ type RequeueIntervals struct {
 }
 
 type ManifestDeploy struct {
-	Info           manifest.DeployInfo
-	Mode           manifest.Mode
-	RequestErrChan manifest.RequestErrChan
+	Info         manifest.DeployInfo
+	Mode         manifest.Mode
+	ResponseChan manifest.ResponseChan
 }
 
 // ManifestReconciler reconciles a Manifest object.
@@ -68,10 +72,8 @@ type ManifestReconciler struct {
 	MaxConcurrentReconciles int
 	VerifyInstallation      bool
 	CustomStateCheck        bool
-	Codec                   *v1alpha1.Codec
+	Codec                   *types.Codec
 }
-
-const configReadError = "reading install config resulted in an error"
 
 //+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests/status,verbs=get;update;patch
@@ -98,7 +100,7 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	randomizeDuration := func(input time.Duration) time.Duration {
 		millis := int(input / time.Millisecond)
-		res := randomizeByTenPercent(millis)
+		res := ratelimit.RandomizeByTenPercent(millis)
 		return time.Duration(res) * time.Millisecond
 	}
 
@@ -113,15 +115,6 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if !controllerutil.ContainsFinalizer(&manifestObj, labels.ManifestFinalizer) {
 		controllerutil.AddFinalizer(&manifestObj, labels.ManifestFinalizer)
 		return ctrl.Result{}, r.updateManifest(ctx, &manifestObj)
-	}
-
-	// TODO: correct this
-	if false {
-		if updatedRequired, err := r.SyncRemoteResource(ctx, &manifestObj, false); err != nil {
-			return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Failure)}, err
-		} else if updatedRequired {
-			return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Waiting)}, nil
-		}
 	}
 
 	// state handling
@@ -162,7 +155,7 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, logger *lo
 func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest,
 	mode manifest.Mode) error {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
-	responseChan := make(manifest.RequestErrChan)
+	responseChan := make(manifest.ResponseChan)
 
 	chartCount := len(manifestObj.Spec.Installs)
 
@@ -170,7 +163,7 @@ func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logg
 	go r.ResponseHandlerFunc(ctx, logger, chartCount, responseChan, namespacedName)
 
 	// send deploy requests
-	deployInfos, err := prepareDeployInfos(ctx, manifestObj, r.Client, r.VerifyInstallation,
+	deployInfos, err := prepare.GetDeployInfos(ctx, manifestObj, r.Client, r.VerifyInstallation,
 		r.CustomStateCheck, r.Codec, r.RestConfig)
 	if err != nil {
 		return err
@@ -178,9 +171,9 @@ func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logg
 
 	for _, deployInfo := range deployInfos {
 		r.DeployChan <- ManifestDeploy{
-			Info:           deployInfo,
-			Mode:           mode,
-			RequestErrChan: responseChan,
+			Info:         deployInfo,
+			Mode:         mode,
+			ResponseChan: responseChan,
 		}
 	}
 	return nil
@@ -203,7 +196,7 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 	logger.Info("checking consistent state for " + namespacedName.String())
 
 	// send deploy requests
-	deployInfos, err := prepareDeployInfos(ctx, manifestObj, r.Client, r.VerifyInstallation, r.CustomStateCheck,
+	deployInfos, err := prepare.GetDeployInfos(ctx, manifestObj, r.Client, r.VerifyInstallation, r.CustomStateCheck,
 		r.Codec, r.RestConfig)
 	if err != nil {
 		return err
@@ -238,20 +231,20 @@ func (r *ManifestReconciler) updateManifestStatus(ctx context.Context, manifestO
 	manifestObj.Status.State = state
 	switch state {
 	case v1alpha1.ManifestStateReady:
-		addReadyConditionForObjects(manifestObj, []v1alpha1.InstallItem{{ChartName: v1alpha1.ManifestKind}},
+		util.AddReadyConditionForObjects(manifestObj, []v1alpha1.InstallItem{{ChartName: v1alpha1.ManifestKind}},
 			v1alpha1.ConditionStatusTrue, message)
 	case "":
-		addReadyConditionForObjects(manifestObj, []v1alpha1.InstallItem{{ChartName: v1alpha1.ManifestKind}},
+		util.AddReadyConditionForObjects(manifestObj, []v1alpha1.InstallItem{{ChartName: v1alpha1.ManifestKind}},
 			v1alpha1.ConditionStatusUnknown, message)
 	default:
-		addReadyConditionForObjects(manifestObj, []v1alpha1.InstallItem{{ChartName: v1alpha1.ManifestKind}},
+		util.AddReadyConditionForObjects(manifestObj, []v1alpha1.InstallItem{{ChartName: v1alpha1.ManifestKind}},
 			v1alpha1.ConditionStatusFalse, message)
 	}
 	return r.Status().Update(ctx, manifestObj.SetObservedGeneration())
 }
 
 func (r *ManifestReconciler) HandleCharts(deployInfo manifest.DeployInfo, mode manifest.Mode, logger *logr.Logger,
-) *manifest.RequestError {
+) *manifest.ChartResponse {
 	args := prepareArgs(&deployInfo)
 
 	// evaluate create or delete chart
@@ -270,7 +263,7 @@ func (r *ManifestReconciler) HandleCharts(deployInfo manifest.DeployInfo, mode m
 		}
 	}
 
-	return &manifest.RequestError{
+	return &manifest.ChartResponse{
 		Ready:             ready,
 		ResNamespacedName: deployInfo.ObjectKey,
 		Err:               err,
@@ -281,12 +274,12 @@ func (r *ManifestReconciler) HandleCharts(deployInfo manifest.DeployInfo, mode m
 }
 
 func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *logr.Logger, chartCount int,
-	responseChan manifest.RequestErrChan, namespacedName client.ObjectKey,
+	responseChan manifest.ResponseChan, namespacedName client.ObjectKey,
 ) {
 	// errorState takes precedence over processing
 	errorState := false
 	processing := false
-	responses := make([]*manifest.RequestError, 0)
+	responses := make([]*manifest.ChartResponse, 0)
 
 	for a := 1; a <= chartCount; a++ {
 		select {
@@ -338,7 +331,7 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 				"resource", namespacedName)
 		}
 
-		addReadyConditionForObjects(latestManifestObj, []v1alpha1.InstallItem{{
+		util.AddReadyConditionForObjects(latestManifestObj, []v1alpha1.InstallItem{{
 			ClientConfig: string(configBytes),
 			Overrides:    string(overrideBytes),
 			ChartName:    response.ChartName,
@@ -347,16 +340,6 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 
 	// handle deletion if no previous error occurred
 	if !errorState && !latestManifestObj.DeletionTimestamp.IsZero() && !processing {
-		// TODO: correct this
-		if false {
-			// remove finalizer on remote resource
-			if _, err := r.SyncRemoteResource(ctx, latestManifestObj, true); err != nil {
-				errorState = true
-				logger.Error(err, "unexpected error while syncing remote ",
-					"resource", namespacedName)
-			}
-		}
-
 		if !errorState {
 			// remove finalizer
 			controllerutil.RemoveFinalizer(latestManifestObj, labels.ManifestFinalizer)
@@ -392,44 +375,6 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 	return
 }
 
-func (r *ManifestReconciler) SyncRemoteResource(ctx context.Context, manifestObj *v1alpha1.Manifest, removeFinalizer bool,
-) (bool, error) {
-	// check remote object
-	remoteInterface, remoteManifest, err := NewRemoteInterface(ctx, r.Client, manifestObj, r.RestConfig)
-	if err != nil {
-		return false, err
-	}
-
-	if removeFinalizer {
-		return false, remoteInterface.RemoveFinalizerOnRemote(ctx, remoteManifest)
-	}
-
-	// sync state to remote manifest
-	if err = remoteInterface.StateSyncToRemote(ctx, remoteManifest); err != nil {
-		return false, err
-	}
-
-	// if native manifest in deletion mode trigger on remote resource
-	if !manifestObj.DeletionTimestamp.IsZero() {
-		return false, remoteInterface.HandleDeletingState(ctx, remoteManifest)
-	}
-
-	// sync spec to native manifest (user change)
-	if synced, err := remoteInterface.SpecSyncToNative(ctx, remoteManifest); err != nil {
-		return false, err
-	} else if !synced {
-		return true, r.Update(ctx, remoteInterface.NativeObject)
-	}
-
-	// sync spec to remote object (module template change)
-	remoteManifest, err = remoteInterface.SpecSyncToRemote(ctx, remoteManifest)
-	if err != nil {
-		return false, err
-	}
-
-	return false, nil
-}
-
 func ManifestRateLimiter() ratelimiter.RateLimiter {
 	return workqueue.NewMaxOfRateLimiter(
 		workqueue.NewItemExponentialFailureRateLimiter(1*time.Second, 1000*time.Second),
@@ -456,9 +401,6 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Manifest{}).
 		Watches(&source.Kind{Type: &v1.Secret{}}, handler.Funcs{}).
-		Watches(&source.Kind{Type: &v1.ConfigMap{}}, &handler.EnqueueRequestForOwner{
-			OwnerType: &v1alpha1.Manifest{},
-		}).
 		WithOptions(controller.Options{
 			RateLimiter:             ManifestRateLimiter(),
 			MaxConcurrentReconciles: r.MaxConcurrentReconciles,

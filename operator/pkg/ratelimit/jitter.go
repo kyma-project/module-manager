@@ -1,4 +1,4 @@
-package controllers
+package ratelimit
 
 import (
 	"math/rand"
@@ -7,8 +7,9 @@ import (
 
 var randomSeed = rand.New(rand.NewSource(time.Now().UnixNano()))
 
-// randomizeByTenPercent returns the value that is randomly changed by at most +/- 10% from the input. May return the same value.
-func randomizeByTenPercent(val int) int {
+// RandomizeByTenPercent returns the value that is randomly changed by at most +/- 10% from the input.
+// May return the same value.
+func RandomizeByTenPercent(val int) int {
 	fv := float64(val)
 
 	var tenPercentOfVal float64 = 0.1 * fv

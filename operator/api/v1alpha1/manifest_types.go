@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"github.com/kyma-project/manifest-operator/operator/pkg/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -29,23 +30,6 @@ func (m *Manifest) SetObservedGeneration() *Manifest {
 	return m
 }
 
-type CustomState struct {
-	// APIVersion defines api version of the custom resource
-	APIVersion string `json:"apiVersion"`
-
-	// Kind defines the kind of the custom resource
-	Kind string `json:"kind"`
-
-	// Name defines the name of the custom resource
-	Name string `json:"name"`
-
-	// Namespace defines the namespace of the custom resource
-	Namespace string `json:"namespace"`
-
-	// Namespace defines the desired state of the custom resource
-	State string `json:"state"`
-}
-
 // InstallInfo defines installation information
 type InstallInfo struct {
 	// Source can either be described as ImageSpec or HelmChartSpec
@@ -56,57 +40,18 @@ type InstallInfo struct {
 	Name string `json:"name"`
 }
 
-// ImageSpec defines OCI Image specifications
-type ImageSpec struct {
-	// Repo defines the Image repo
-	Repo string `json:"repo"`
-
-	// Name defines the Image name
-	Name string `json:"name"`
-
-	// Ref is either a sha value, tag or version
-	Ref string `json:"ref"`
-
-	// Type defines the chart as "oci-ref"
-	// +kubebuilder:validation:Enum=helm-chart;oci-ref
-	Type RefTypeMetadata `json:"type"`
-}
-
-// HelmChartSpec defines the specification for a helm chart
-type HelmChartSpec struct {
-	// Url defines the helm repo URL
-	// +kubebuilder:validation:Optional
-	Url string `json:"url"`
-
-	// ChartName defines the helm chart name
-	// +kubebuilder:validation:Optional
-	ChartName string `json:"chartName"`
-
-	// Type defines the chart as "oci-ref"
-	// +kubebuilder:validation:Enum=helm-chart;oci-ref
-	// +kubebuilder:validation:Optional
-	Type RefTypeMetadata `json:"type"`
-}
-
-type RefTypeMetadata string
-
-const (
-	HelmChartType RefTypeMetadata = "helm-chart"
-	OciRefType    RefTypeMetadata = "oci-ref"
-)
-
 // ManifestSpec defines the specification of Manifest
 type ManifestSpec struct {
 	// Config specifies OCI image configuration for Manifest
 	// +kubebuilder:validation:Optional
-	Config ImageSpec `json:"config"`
+	Config types.ImageSpec `json:"config"`
 
 	// Installs specifies a list of installations for Manifest
 	Installs []InstallInfo `json:"installs"`
 
 	// CustomStates specifies a list of resources with their desires states for Manifest
 	// +kubebuilder:validation:Optional
-	CustomStates []CustomState `json:"customStates"`
+	CustomStates []types.CustomState `json:"customStates"`
 
 	//+kubebuilder:pruning:PreserveUnknownFields
 	//+kubebuilder:object:generate=false
@@ -115,7 +60,7 @@ type ManifestSpec struct {
 
 	// CRDs specifies the custom resource definitions' ImageSpec
 	// +kubebuilder:validation:Optional
-	CRDs []ImageSpec `json:"crds"`
+	CRDs types.ImageSpec `json:"crds"`
 }
 
 // +kubebuilder:validation:Enum=Processing;Deleting;Ready;Error

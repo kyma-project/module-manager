@@ -1,4 +1,4 @@
-package controllers
+package util
 
 import (
 	"time"
@@ -19,7 +19,7 @@ func getReadyConditionForComponent(manifest *v1alpha1.Manifest,
 	return &v1alpha1.ManifestCondition{}, false
 }
 
-func addReadyConditionForObjects(manifest *v1alpha1.Manifest, installItems []v1alpha1.InstallItem,
+func AddReadyConditionForObjects(manifest *v1alpha1.Manifest, installItems []v1alpha1.InstallItem,
 	conditionStatus v1alpha1.ManifestConditionStatus, message string,
 ) {
 	status := &manifest.Status

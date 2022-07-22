@@ -1,4 +1,4 @@
-package controllers
+package custom
 
 import (
 	"context"
@@ -57,8 +57,4 @@ func (c *CustomResourceCheck) CheckProcessingFn(ctx context.Context, manifestLab
 	}
 
 	return ready, nil
-}
-
-func (c *CustomResourceCheck) CheckReadyFn(ctx context.Context, manifestLabels map[string]string, namespacedName client.ObjectKey, logger *logr.Logger) (bool, error) {
-	return true, nil
 }

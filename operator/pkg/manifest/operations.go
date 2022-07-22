@@ -46,9 +46,9 @@ type DeployInfo struct {
 	ReadyCheck bool
 }
 
-type RequestErrChan chan *RequestError
+type ResponseChan chan *ChartResponse
 
-type RequestError struct {
+type ChartResponse struct {
 	Ready             bool
 	ChartName         string
 	ClientConfig      map[string]interface{}
@@ -57,7 +57,7 @@ type RequestError struct {
 	Err               error
 }
 
-func (r *RequestError) Error() string {
+func (r *ChartResponse) Error() string {
 	return r.Err.Error()
 }
 

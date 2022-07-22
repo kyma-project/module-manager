@@ -68,31 +68,28 @@ spec:
                 type: object
               crds:
                 description: CRDs specifies the custom resource definitions' ImageSpec
-                items:
-                  description: ImageSpec defines OCI Image specifications
-                  properties:
-                    name:
-                      description: Name defines the Image name
-                      type: string
-                    ref:
-                      description: Ref is either a sha value, tag or version
-                      type: string
-                    repo:
-                      description: Repo defines the Image repo
-                      type: string
-                    type:
-                      description: Type defines the chart as "oci-ref"
-                      enum:
-                      - helm-chart
-                      - oci-ref
-                      type: string
-                  required:
-                  - name
-                  - ref
-                  - repo
-                  - type
-                  type: object
-                type: array
+                properties:
+                  name:
+                    description: Name defines the Image name
+                    type: string
+                  ref:
+                    description: Ref is either a sha value, tag or version
+                    type: string
+                  repo:
+                    description: Repo defines the Image repo
+                    type: string
+                  type:
+                    description: Type defines the chart as "oci-ref"
+                    enum:
+                    - helm-chart
+                    - oci-ref
+                    type: string
+                required:
+                - name
+                - ref
+                - repo
+                - type
+                type: object
               customStates:
                 description: CustomStates specifies a list of resources with their
                   desires states for Manifest
