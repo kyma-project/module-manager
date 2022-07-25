@@ -1,0 +1,230 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.9.2
+  creationTimestamp: null
+  name: manifests.component.kyma-project.io
+spec:
+  group: component.kyma-project.io
+  names:
+    kind: Manifest
+    listKind: ManifestList
+    plural: manifests
+    singular: manifest
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.state
+      name: State
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Manifest is the Schema for the manifests API
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec specifies the content and configuration for Manifest
+            properties:
+              config:
+                description: Config specifies OCI image configuration for Manifest
+                properties:
+                  name:
+                    description: Name defines the Image name
+                    type: string
+                  ref:
+                    description: Ref is either a sha value, tag or version
+                    type: string
+                  repo:
+                    description: Repo defines the Image repo
+                    type: string
+                  type:
+                    description: Type defines the chart as "oci-ref"
+                    enum:
+                    - helm-chart
+                    - oci-ref
+                    type: string
+                required:
+                - name
+                - ref
+                - repo
+                - type
+                type: object
+              crds:
+                description: CRDs specifies the custom resource definitions' ImageSpec
+                properties:
+                  name:
+                    description: Name defines the Image name
+                    type: string
+                  ref:
+                    description: Ref is either a sha value, tag or version
+                    type: string
+                  repo:
+                    description: Repo defines the Image repo
+                    type: string
+                  type:
+                    description: Type defines the chart as "oci-ref"
+                    enum:
+                    - helm-chart
+                    - oci-ref
+                    type: string
+                required:
+                - name
+                - ref
+                - repo
+                - type
+                type: object
+              customStates:
+                description: CustomStates specifies a list of resources with their
+                  desires states for Manifest
+                items:
+                  properties:
+                    apiVersion:
+                      description: APIVersion defines api version of the custom resource
+                      type: string
+                    kind:
+                      description: Kind defines the kind of the custom resource
+                      type: string
+                    name:
+                      description: Name defines the name of the custom resource
+                      type: string
+                    namespace:
+                      description: Namespace defines the namespace of the custom resource
+                      type: string
+                    state:
+                      description: Namespace defines the desired state of the custom
+                        resource
+                      type: string
+                  required:
+                  - apiVersion
+                  - kind
+                  - name
+                  - namespace
+                  - state
+                  type: object
+                type: array
+              installs:
+                description: Installs specifies a list of installations for Manifest
+                items:
+                  description: InstallInfo defines installation information
+                  properties:
+                    name:
+                      description: Name specifies a unique install name for Manifest
+                      type: string
+                    source:
+                      description: Source can either be described as ImageSpec or
+                        HelmChartSpec
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                  required:
+                  - name
+                  - source
+                  type: object
+                type: array
+              resource:
+                description: Resource specifies a resource to be watched for state
+                  updates
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
+            required:
+            - installs
+            - resource
+            type: object
+          status:
+            description: Status signifies the current status of the Manifest
+            properties:
+              conditions:
+                description: Conditions is a list of status conditions to indicate
+                  the status of Manifest
+                items:
+                  description: ManifestCondition describes condition information for
+                    Manifest.
+                  properties:
+                    installInfo:
+                      description: InstallInfo contains a list of installations for
+                        Manifest
+                      properties:
+                        chartName:
+                          description: ChartName defines the name for InstallItem
+                          type: string
+                        clientConfig:
+                          description: ClientConfig defines the client config for
+                            InstallItem
+                          type: string
+                        overrides:
+                          description: Overrides defines the overrides for InstallItem
+                          type: string
+                      type: object
+                    lastTransitionTime:
+                      description: Timestamp for when Manifest last transitioned from
+                        one status to another.
+                      format: date-time
+                      type: string
+                    message:
+                      description: Human-readable message indicating details about
+                        the last status transition.
+                      type: string
+                    reason:
+                      description: Machine-readable text indicating the reason for
+                        the condition's last transition.
+                      type: string
+                    status:
+                      description: Status of the ManifestCondition
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: Type of ManifestCondition
+                      type: string
+                  required:
+                  - status
+                  - type
+                  type: object
+                type: array
+              observedGeneration:
+                description: ObservedGeneration
+                format: int64
+                type: integer
+              state:
+                allOf:
+                - enum:
+                  - Processing
+                  - Deleting
+                  - Ready
+                  - Error
+                - enum:
+                  - Ready
+                  - Processing
+                  - Error
+                  - Deleting
+                description: State signifies current state of Manifest
+                type: string
+            required:
+            - state
+            type: object
+        required:
+        - metadata
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

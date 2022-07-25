@@ -4,20 +4,20 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"reflect"
+	"time"
+
 	manifestRest "github.com/kyma-project/manifest-operator/operator/pkg/rest"
 	"github.com/kyma-project/manifest-operator/operator/pkg/util"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/kube"
-	"helm.sh/helm/v3/pkg/strvals"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/resource"
 	"k8s.io/client-go/kubernetes"
-	"reflect"
-	"time"
 )
 
 type OperationType string
@@ -56,7 +56,7 @@ func (h *HelmClient) getGenericConfig(namespace string) (*action.Configuration, 
 	return actionConfig, nil
 }
 
-func (h *HelmClient) NewInstallActionClient(namespace, releaseName string, args map[string]string) (*action.Install, error) {
+func (h *HelmClient) NewInstallActionClient(namespace, releaseName string, args map[string]map[string]interface{}) (*action.Install, error) {
 	actionConfig, err := h.getGenericConfig(namespace)
 	if err != nil {
 		return nil, err
@@ -81,9 +81,10 @@ func (h *HelmClient) SetDefaultClientConfig(actionClient *action.Install, releas
 	actionClient.WaitForJobs = false
 	actionClient.DryRun = true
 	actionClient.Replace = true     // Skip the name check
-	actionClient.IncludeCRDs = true //include CRDs in the templated output
+	actionClient.IncludeCRDs = true // include CRDs in the templated output
 	actionClient.ClientOnly = true
 	actionClient.ReleaseName = releaseName
+	actionClient.Namespace = v1.NamespaceDefault
 
 	// default versioning if unspecified
 	if actionClient.Version == "" && actionClient.Devel {
@@ -91,15 +92,16 @@ func (h *HelmClient) SetDefaultClientConfig(actionClient *action.Install, releas
 	}
 }
 
-func (h *HelmClient) SetFlags(args map[string]string, actionClient *action.Install) error {
-	clientFlags := map[string]interface{}{}
-	if err := strvals.ParseInto(args["flags"], clientFlags); err != nil {
-		return err
-	}
+func (h *HelmClient) SetFlags(args map[string]map[string]interface{}, actionClient *action.Install) error {
 	clientValue := reflect.Indirect(reflect.ValueOf(actionClient))
 
+	mergedVals, ok := args["flags"]
+	if !ok {
+		mergedVals = map[string]interface{}{}
+	}
+
 	// TODO: as per requirements add more Kind types
-	for flagKey, flagValue := range clientFlags {
+	for flagKey, flagValue := range mergedVals {
 		value := clientValue.FieldByName(flagKey)
 		if !value.IsValid() || !value.CanSet() {
 			continue

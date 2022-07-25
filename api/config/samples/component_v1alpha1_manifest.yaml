@@ -1,6 +1,0 @@
-apiVersion: component.kyma-project.io/v1alpha1
-kind: Manifest
-metadata:
-  name: manifest-sample
-spec:
-  # TODO(user): Add fields here

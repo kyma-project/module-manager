@@ -19,15 +19,17 @@ package main
 import (
 	"flag"
 	"os"
-
 	"time"
 
-	manifestv1alpha1 "github.com/kyma-project/manifest-operator/api/api/v1alpha1"
-	opLabels "github.com/kyma-project/manifest-operator/operator/pkg/labels"
+	"github.com/kyma-project/manifest-operator/operator/pkg/types"
+
+	manifestv1alpha1 "github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	apiExtensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
+
+	opLabels "github.com/kyma-project/manifest-operator/operator/pkg/labels"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -40,6 +42,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	componentv1alpha1 "github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
 	"github.com/kyma-project/manifest-operator/operator/controllers"
 	//+kubebuilder:scaffold:imports
 )
@@ -54,12 +57,13 @@ func init() {
 	utilruntime.Must(manifestv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(apiExtensionsv1.AddToScheme(scheme))
 
+	utilruntime.Must(componentv1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
 func main() {
 	var metricsAddr string
-	var enableLeaderElection, verifyInstallation bool
+	var enableLeaderElection, verifyInstallation, customStateCheck bool
 	var probeAddr string
 	var listenerAddr string
 	var requeueSuccessInterval, requeueFailureInterval, requeueWaitingInterval time.Duration
@@ -87,6 +91,8 @@ func main() {
 	flag.BoolVar(&verifyInstallation, "verify-installation", false,
 		"Indicates if installed resources should be verified after installation, "+
 			"before marking the resource state to a consistent state.")
+	flag.BoolVar(&customStateCheck, "custom-state-check", false,
+		"Indicates if desired state should be checked on custom resources")
 
 	opts := zap.Options{
 		Development: true,
@@ -96,7 +102,11 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	config := ctrl.GetConfigOrDie()
+	config.QPS = 150
+	config.Burst = 150
+
+	mgr, err := ctrl.NewManager(config, ctrl.Options{
 		Scheme:                 scheme,
 		MetricsBindAddress:     metricsAddr,
 		Port:                   9443,
@@ -108,6 +118,11 @@ func main() {
 				&v1.Secret{}: {
 					Label: labels.SelectorFromSet(
 						labels.Set{opLabels.ManagedBy: opLabels.KymaOperator},
+					),
+				},
+				&v1.ConfigMap{}: {
+					Label: labels.SelectorFromSet(
+						labels.Set{opLabels.ManagedBy: opLabels.ManifestOperator},
 					),
 				},
 			},
@@ -122,12 +137,20 @@ func main() {
 	manifestWorkers := controllers.NewManifestWorkers(&workersLogger, workersConcurrentManifests)
 	context := ctrl.SetupSignalHandler()
 
+	codec, err := types.NewCodec()
+	if err != nil {
+		setupLog.Error(err, "unable to initialize codec")
+		os.Exit(1)
+	}
+
 	if err = (&controllers.ManifestReconciler{
 		Client:                  mgr.GetClient(),
 		Scheme:                  mgr.GetScheme(),
 		Workers:                 manifestWorkers,
 		MaxConcurrentReconciles: concurrentReconciles,
 		VerifyInstallation:      verifyInstallation,
+		CustomStateCheck:        customStateCheck,
+		Codec:                   codec,
 		RequeueIntervals: controllers.RequeueIntervals{
 			Success: requeueSuccessInterval,
 			Failure: requeueFailureInterval,
@@ -137,6 +160,14 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Manifest")
 		os.Exit(1)
 	}
+
+	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
+		if err = (&manifestv1alpha1.Manifest{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "Manifest")
+			os.Exit(1)
+		}
+	}
+
 	//+kubebuilder:scaffold:builder
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")

@@ -112,10 +112,12 @@ ENVTEST ?= $(LOCALBIN)/setup-envtest
 CLIENT_GEN ?= $(LOCALBIN)/client-gen
 INFORMER_GEN = $(LOCALBIN)/informer-gen
 LISTER_GEN = $(LOCALBIN)/lister-gen
+GOLANG_CI_LINT = $(LOCALBIN)/golangci-lint
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v3.8.7
-CONTROLLER_TOOLS_VERSION ?= v0.9.0
+CONTROLLER_TOOLS_VERSION ?= v0.9.2
+GOLANG_CI_LINT_VERSION ?= v1.46.2
 
 KUSTOMIZE_INSTALL_SCRIPT ?= "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"
 .PHONY: kustomize
@@ -136,3 +138,8 @@ $(ENVTEST): $(LOCALBIN)
 .PHONY: client-gen
 client-gen: ## Download client-gen
 	GOBIN=$(LOCALBIN) go install k8s.io/code-generator/cmd/client-gen@v0.23.4)
+
+.PHONY: lint
+lint: ## Run golangci-lint against code.
+	GOBIN=$(LOCALBIN) go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANG_CI_LINT_VERSION)
+	$(LOCALBIN)/golangci-lint run --max-issues-per-linter=0 --max-same-issues=0 --sort-results --fix

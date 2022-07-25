@@ -3,6 +3,7 @@ package manifest
 import (
 	"context"
 	"fmt"
+
 	"github.com/go-logr/logr"
 	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
 	manifestRest "github.com/kyma-project/manifest-operator/operator/pkg/rest"
@@ -11,7 +12,6 @@ import (
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/kube"
-	"helm.sh/helm/v3/pkg/strvals"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -25,35 +25,39 @@ const (
 	DeletionMode
 )
 
-// ChartInfo defines chart information
+// ChartInfo defines chart information.
 type ChartInfo struct {
 	ChartPath    string
 	RepoName     string
 	Url          string
 	ChartName    string
 	ReleaseName  string
-	ClientConfig string
+	ClientConfig map[string]interface{}
+	Overrides    map[string]interface{}
 }
 
 type DeployInfo struct {
 	Ctx            context.Context
 	ManifestLabels map[string]string
-	ChartInfo
+	*ChartInfo
 	client.ObjectKey
 	RestConfig *rest.Config
 	CheckFn    custom.CheckFnType
 	ReadyCheck bool
 }
 
-type RequestErrChan chan *RequestError
+type ResponseChan chan *ChartResponse
 
-type RequestError struct {
+type ChartResponse struct {
 	Ready             bool
+	ChartName         string
+	ClientConfig      map[string]interface{}
+	Overrides         map[string]interface{}
 	ResNamespacedName client.ObjectKey
 	Err               error
 }
 
-func (r *RequestError) Error() string {
+func (r *ChartResponse) Error() string {
 	return r.Err.Error()
 }
 
@@ -64,10 +68,10 @@ type Operations struct {
 	repoHandler  *RepoHandler
 	restGetter   *manifestRest.ManifestRESTClientGetter
 	actionClient *action.Install
-	args         map[string]string
+	args         map[string]map[string]interface{}
 }
 
-func NewOperations(logger *logr.Logger, restConfig *rest.Config, releaseName string, settings *cli.EnvSettings, args map[string]string) (*Operations, error) {
+func NewOperations(logger *logr.Logger, restConfig *rest.Config, releaseName string, settings *cli.EnvSettings, args map[string]map[string]interface{}) (*Operations, error) {
 	restGetter := manifestRest.NewRESTClientGetter(restConfig)
 	kubeClient := kube.New(restGetter)
 	clientSet, err := kubernetes.NewForConfig(restConfig)
@@ -92,8 +96,10 @@ func NewOperations(logger *logr.Logger, restConfig *rest.Config, releaseName str
 }
 
 func (o *Operations) getClusterResources(deployInfo DeployInfo, operation HelmOperation) (kube.ResourceList, kube.ResourceList, error) {
-	if err := o.repoHandler.Add(deployInfo.RepoName, deployInfo.Url); err != nil {
-		return nil, nil, err
+	if deployInfo.ChartPath == "" {
+		if err := o.repoHandler.Add(deployInfo.RepoName, deployInfo.Url); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	manifest, err := o.getManifestForChartPath(deployInfo.ChartPath, deployInfo.ChartName, o.actionClient, o.args)
@@ -126,7 +132,11 @@ func (o *Operations) VerifyResources(deployInfo DeployInfo) (bool, error) {
 	if len(targetResources) > len(existingResources) {
 		return false, nil
 	}
-	return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.ManifestLabels, deployInfo.ObjectKey, o.logger)
+	if deployInfo.CheckFn == nil {
+		return true, nil
+	}
+	return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.ManifestLabels, deployInfo.ObjectKey,
+		o.logger, deployInfo.RestConfig)
 }
 
 func (o *Operations) Install(deployInfo DeployInfo) (bool, error) {
@@ -166,7 +176,8 @@ func (o *Operations) Install(deployInfo DeployInfo) (bool, error) {
 
 	// check custom function, if provided
 	if deployInfo.CheckFn != nil {
-		return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.ManifestLabels, deployInfo.ObjectKey, o.logger)
+		return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.ManifestLabels, deployInfo.ObjectKey,
+			o.logger, deployInfo.RestConfig)
 	}
 
 	return true, nil
@@ -202,13 +213,14 @@ func (o *Operations) Uninstall(deployInfo DeployInfo) (bool, error) {
 
 	// check custom function, if provided
 	if deployInfo.CheckFn != nil {
-		return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.ManifestLabels, deployInfo.ObjectKey, o.logger)
+		return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.ManifestLabels, deployInfo.ObjectKey,
+			o.logger, deployInfo.RestConfig)
 	}
 
 	return true, nil
 }
 
-func (o *Operations) getManifestForChartPath(chartPath, chartName string, actionClient *action.Install, args map[string]string) (string, error) {
+func (o *Operations) getManifestForChartPath(chartPath, chartName string, actionClient *action.Install, args map[string]map[string]interface{}) (string, error) {
 	var err error
 	if chartPath == "" {
 		chartPath, err = o.helmClient.DownloadChart(actionClient, chartName)
@@ -218,23 +230,22 @@ func (o *Operations) getManifestForChartPath(chartPath, chartName string, action
 	}
 	o.logger.Info("chart located", "path", chartPath)
 
-	// "set" args
-	mergedValues := map[string]interface{}{}
-	if err = strvals.ParseInto(args["set"], mergedValues); err != nil {
-		return "", err
-	}
-
 	chartRequested, err := o.repoHandler.LoadChart(chartPath, actionClient)
 	if err != nil {
 		return "", err
 	}
 
+	mergedVals, ok := args["set"]
+	if !ok {
+		mergedVals = map[string]interface{}{}
+	}
+
 	// retrieve manifest
-	release, err := actionClient.Run(chartRequested, mergedValues)
+	release, err := actionClient.Run(chartRequested, mergedVals)
 	if err != nil {
 		return "", err
 	}
 	// TODO: Uncomment below to print manifest
-	//fmt.Println(release.Manifest)
+	// fmt.Println(release.Manifest)
 	return release.Manifest, nil
 }
