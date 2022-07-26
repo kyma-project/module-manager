@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/khlifi411/kyma-listener/listener"
+	"github.com/kyma-project/kyma-watcher/kcp/pkg/listener"
 	"github.com/kyma-project/manifest-operator/operator/internal/pkg/prepare"
 	"github.com/kyma-project/manifest-operator/operator/internal/pkg/util"
 	"github.com/kyma-project/manifest-operator/operator/pkg/ratelimit"
@@ -47,6 +47,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/ratelimiter"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
@@ -410,7 +411,60 @@ func (r *ManifestReconciler) SetupWithManager(setupLog logr.Logger, ctx context.
 			MaxConcurrentReconciles: r.MaxConcurrentReconciles,
 		})
 
-	controllerBuilder = listener.RegisterListenerComponent(setupLog, mgr, controllerBuilder, listenerAddr, &handler.EnqueueRequestForObject{}, componentName)
+	// register listener component
+	runnableListener, eventChannel := listener.RegisterListenerComponent(listenerAddr, componentName)
+	// watch event channel
+	controllerBuilder.Watches(eventChannel, handler.EnqueueRequestsFromMapFunc(r.skrEventsMapFunc(ctx)))
+	// start listener as a manager runnable
+	if err := mgr.Add(runnableListener); err != nil {
+		return err
+	}
 
 	return controllerBuilder.Complete(r)
+}
+
+func (r *ManifestReconciler) skrEventsMapFunc(ctx context.Context) handler.MapFunc {
+
+	logger := log.FromContext(ctx).WithName("skr-watcher-events-processing")
+	return func(o client.Object) []reconcile.Request {
+
+		requests := make([]reconcile.Request, 0, 1)
+		namespacedName := client.ObjectKeyFromObject(o)
+		kymaName := o.GetLabels()[labels.ComponentOwner]
+		manifestCRsForKymaName := &v1alpha1.ManifestList{}
+		err := r.List(ctx, manifestCRsForKymaName, client.MatchingLabels{
+			labels.ComponentOwner: kymaName,
+		})
+		if err != nil {
+			logger.WithValues(
+				"component", namespacedName.Name,
+				"namespace", namespacedName.Namespace,
+			).Error(err, "failed to list manifest CRs")
+			return nil
+		}
+
+		manifestCRForComponent, err := findManifestForComponent(namespacedName, manifestCRsForKymaName.Items)
+		if err != nil {
+			logger.WithValues(
+				"component", namespacedName.Name,
+				"namespace", namespacedName.Namespace,
+			).Error(err, "failed to find manifest CR")
+			return nil
+		}
+		requests = append(requests, reconcile.Request{
+			NamespacedName: client.ObjectKeyFromObject(manifestCRForComponent),
+		})
+		return requests
+	}
+}
+
+func findManifestForComponent(namespacedName client.ObjectKey, manifests []v1alpha1.Manifest) (*v1alpha1.Manifest, error) {
+	for _, manifestCR := range manifests {
+		equalObjectKeyPredicate := manifestCR.Spec.Resource.GetName() == namespacedName.Name &&
+			manifestCR.Spec.Resource.GetNamespace() == namespacedName.Namespace
+		if equalObjectKeyPredicate {
+			return &manifestCR, nil
+		}
+	}
+	return nil, fmt.Errorf("corresponding manifest for requested component not found")
 }
