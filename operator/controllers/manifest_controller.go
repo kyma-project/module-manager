@@ -396,7 +396,7 @@ func prepareArgs(deployInfo *manifest.DeployInfo) map[string]map[string]interfac
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *ManifestReconciler) SetupWithManager(setupLog logr.Logger, ctx context.Context, mgr ctrl.Manager, listenerAddr string) error {
+func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager, listenerAddr string) error {
 	r.DeployChan = make(chan ManifestDeploy)
 	r.Workers.StartWorkers(ctx, r.DeployChan, r.HandleCharts)
 

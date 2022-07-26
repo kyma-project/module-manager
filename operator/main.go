@@ -156,7 +156,7 @@ func main() {
 			Failure: requeueFailureInterval,
 			Waiting: requeueWaitingInterval,
 		},
-	}).SetupWithManager(setupLog, context, mgr, listenerAddr); err != nil {
+	}).SetupWithManager(context, mgr, listenerAddr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Manifest")
 		os.Exit(1)
 	}
