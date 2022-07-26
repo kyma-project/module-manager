@@ -144,7 +144,6 @@ spec:
                 x-kubernetes-preserve-unknown-fields: true
             required:
             - installs
-            - resource
             type: object
           status:
             description: Status signifies the current status of the Manifest

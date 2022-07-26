@@ -136,7 +136,7 @@ func (o *Operations) VerifyResources(deployInfo DeployInfo) (bool, error) {
 		return true, nil
 	}
 	return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.ManifestLabels, deployInfo.ObjectKey,
-		o.logger, deployInfo.RestConfig)
+		o.logger)
 }
 
 func (o *Operations) Install(deployInfo DeployInfo) (bool, error) {
@@ -177,7 +177,7 @@ func (o *Operations) Install(deployInfo DeployInfo) (bool, error) {
 	// check custom function, if provided
 	if deployInfo.CheckFn != nil {
 		return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.ManifestLabels, deployInfo.ObjectKey,
-			o.logger, deployInfo.RestConfig)
+			o.logger)
 	}
 
 	return true, nil
@@ -214,7 +214,7 @@ func (o *Operations) Uninstall(deployInfo DeployInfo) (bool, error) {
 	// check custom function, if provided
 	if deployInfo.CheckFn != nil {
 		return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.ManifestLabels, deployInfo.ObjectKey,
-			o.logger, deployInfo.RestConfig)
+			o.logger)
 	}
 
 	return true, nil

@@ -9,7 +9,7 @@ metadata:
   namespace: default
 spec:
   crds:
-    ref: sha256:58d0d837393f2e4db3b6febf26fa721479f03ccd36d5969998025a15c4a25a0d
+    ref: sha256:743134e30217d798d3dd36e76965800f90faddf9204d547a13363248b4ab473c
     name: kyma-project.io/module/example
     repo: k3d-registry.localhost:52445/signed/component-descriptors
     type: oci-ref

@@ -26,7 +26,7 @@ func (cc *ClusterClient) GetNewClient(restConfig *rest.Config, options client.Op
 }
 
 func (cc *ClusterClient) GetRestConfig(ctx context.Context, kymaOwner string, namespace string,
-	defaultRestConfig *rest.Config) (*rest.Config, error) {
+) (*rest.Config, error) {
 	kubeConfigSecretList := &v1.SecretList{}
 	gr := v1.SchemeGroupVersion.WithResource(string(v1.ResourceSecrets)).GroupResource()
 	if err := cc.DefaultClient.List(ctx, kubeConfigSecretList, &client.ListOptions{
@@ -35,8 +35,7 @@ func (cc *ClusterClient) GetRestConfig(ctx context.Context, kymaOwner string, na
 	}); err != nil {
 		return nil, err
 	} else if len(kubeConfigSecretList.Items) < 1 {
-		// return default rest config - components to be installed in-cluster
-		return defaultRestConfig, nil
+		return nil, errors.NewNotFound(gr, "remote cluster kubeconfig")
 	} else if len(kubeConfigSecretList.Items) > 1 {
 		return nil, errors.NewConflict(gr, kymaOwner, fmt.Errorf("more than one instance found"))
 	}
