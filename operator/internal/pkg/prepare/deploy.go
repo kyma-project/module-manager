@@ -13,7 +13,6 @@ import (
 	"github.com/kyma-project/manifest-operator/operator/pkg/types"
 	"helm.sh/helm/v3/pkg/strvals"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/client-go/rest"
 	"path/filepath"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -24,7 +23,7 @@ const (
 )
 
 func GetDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClient client.Client,
-	verifyInstallation bool, customStateCheck bool, codec *types.Codec, defaultRestConfig *rest.Config,
+	verifyInstallation bool, customStateCheck bool, codec *types.Codec,
 ) ([]manifest.DeployInfo, error) {
 	deployInfos := make([]manifest.DeployInfo, 0)
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
@@ -52,11 +51,11 @@ func GetDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, default
 	}
 
 	// evaluate rest config
-	customResCheck := &manifestCustom.CustomResourceCheck{DefaultClient: defaultClient}
+	customResCheck := &manifestCustom.Resource{DefaultClient: defaultClient}
 
 	// evaluate rest config
 	clusterClient := &custom.ClusterClient{DefaultClient: defaultClient}
-	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, manifestObj.Namespace, defaultRestConfig)
+	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, manifestObj.Namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -67,12 +66,12 @@ func GetDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, default
 	}
 
 	// check crds - if present do not update
-	if err = installCrds(ctx, destinationClient, manifestObj.Spec.CRDs); err != nil {
+	if err = installCrds(ctx, destinationClient, &manifestObj.Spec.CRDs); err != nil {
 		return nil, err
 	}
 
 	// check cr - if present do to not update
-	if err = installCr(ctx, destinationClient, manifestObj.Spec.Resource); err != nil {
+	if err = installCr(ctx, destinationClient, &manifestObj.Spec.Resource); err != nil {
 		return nil, err
 	}
 
@@ -99,7 +98,7 @@ func GetDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, default
 			ChartInfo:      chartInfo,
 			ObjectKey:      namespacedName,
 			RestConfig:     restConfig,
-			CheckFn:        customResCheck.CheckProcessingFn,
+			CheckFn:        customResCheck.CheckFn,
 			ReadyCheck:     verifyInstallation,
 		}
 		if !customStateCheck {
@@ -111,7 +110,11 @@ func GetDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, default
 	return deployInfos, nil
 }
 
-func installCrds(ctx context.Context, destinationClient client.Client, crdImage types.ImageSpec) error {
+func installCrds(ctx context.Context, destinationClient client.Client, crdImage *types.ImageSpec) error {
+	if crdImage == nil {
+		return nil
+	}
+
 	// extract helm chart from layer digest
 	crdsPath, err := descriptor.GetPathFromExtractedTarGz(crdImage.Repo, crdImage.Name, crdImage.Ref,
 		fmt.Sprintf("%s-%s", crdImage.Name, crdImage.Ref))
@@ -124,15 +127,15 @@ func installCrds(ctx context.Context, destinationClient client.Client, crdImage 
 		return err
 	}
 
-	if err = crd.CreateCRDs(ctx, crds, destinationClient); err != nil {
-		return err
-	}
-
-	return nil
+	return crd.CreateCRDs(ctx, crds, destinationClient)
 }
 
-func installCr(ctx context.Context, destinationClient client.Client, resource unstructured.Unstructured) error {
-	// check cr
+func installCr(ctx context.Context, destinationClient client.Client, resource *unstructured.Unstructured) error {
+	// check resource
+	if resource == nil {
+		return nil
+	}
+
 	existingCustomResource := unstructured.Unstructured{}
 	existingCustomResource.SetGroupVersionKind(resource.GroupVersionKind())
 	customResourceKey := client.ObjectKey{
@@ -144,9 +147,7 @@ func installCr(ctx context.Context, destinationClient client.Client, resource un
 		return err
 	}
 	if err != nil {
-		if err = destinationClient.Create(ctx, &resource); err != nil {
-			return err
-		}
+		return destinationClient.Create(ctx, resource)
 	}
 
 	return nil

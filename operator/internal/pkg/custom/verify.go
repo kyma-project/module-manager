@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"k8s.io/client-go/rest"
-
 	"github.com/go-logr/logr"
 	"github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
 	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
@@ -13,13 +11,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type CustomResourceCheck struct {
+type Resource struct {
 	DefaultClient client.Client
 	custom.Check
 }
 
-func (c *CustomResourceCheck) CheckProcessingFn(ctx context.Context, manifestLabels map[string]string,
-	namespacedName client.ObjectKey, logger *logr.Logger, defaultRestConfig *rest.Config) (bool, error) {
+func (r *Resource) CheckFn(ctx context.Context, manifestLabels map[string]string,
+	namespacedName client.ObjectKey, logger *logr.Logger) (bool, error) {
 	kymaOwnerLabel, ok := manifestLabels[labels.ComponentOwner]
 	if !ok {
 		err := fmt.Errorf("label %s not set for manifest resource %s", labels.ComponentOwner, namespacedName)
@@ -28,16 +26,18 @@ func (c *CustomResourceCheck) CheckProcessingFn(ctx context.Context, manifestLab
 	}
 
 	// evaluate rest config
-	clusterClient := &custom.ClusterClient{DefaultClient: c.DefaultClient}
-	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, namespacedName.Namespace, defaultRestConfig)
+	clusterClient := &custom.ClusterClient{DefaultClient: r.DefaultClient}
+	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, namespacedName.Namespace)
 	if err != nil {
-		logger.Error(err, fmt.Sprintf("error while evaluating rest config for manifest resource %s", namespacedName))
+		logger.Error(err, fmt.Sprintf("error while evaluating rest config for manifest resource %s",
+			namespacedName))
 		return false, err
 	}
 
 	customClient, err := clusterClient.GetNewClient(restConfig, client.Options{})
 	if err != nil {
-		logger.Error(err, fmt.Sprintf("error while evaluating target client for manifest resource %s", namespacedName))
+		logger.Error(err, fmt.Sprintf("error while evaluating target client for manifest resource %s",
+			namespacedName))
 		return false, err
 	}
 
@@ -47,13 +47,16 @@ func (c *CustomResourceCheck) CheckProcessingFn(ctx context.Context, manifestLab
 	}
 
 	manifestObj := v1alpha1.Manifest{}
-	if err = c.DefaultClient.Get(ctx, namespacedName, &manifestObj); err != nil {
+	if err = r.DefaultClient.Get(ctx, namespacedName, &manifestObj); err != nil {
 		return false, err
 	}
 
-	ready, err := customStatus.WaitForCustomResources(ctx, manifestObj.Spec.CustomStates)
+	ready, err := customStatus.WaitForCustomResources(ctx, manifestObj.Spec.CustomStates,
+		&manifestObj.Spec.Resource)
 	if err != nil {
-		logger.Error(err, fmt.Sprintf("error while tracking status of custom resources for manifest resource %s", namespacedName))
+		logger.Error(err,
+			fmt.Sprintf("error while tracking status of custom resources for manifest %s",
+				namespacedName))
 		return false, err
 	}
 

@@ -54,7 +54,7 @@ type ManifestSpec struct {
 	CustomStates []types.CustomState `json:"customStates"`
 
 	//+kubebuilder:pruning:PreserveUnknownFields
-	//+kubebuilder:object:generate=false
+	// +kubebuilder:validation:Optional
 	// Resource specifies a resource to be watched for state updates
 	Resource unstructured.Unstructured `json:"resource"`
 

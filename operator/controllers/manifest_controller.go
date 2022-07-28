@@ -169,7 +169,7 @@ func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logg
 
 	// send deploy requests
 	deployInfos, err := prepare.GetDeployInfos(ctx, manifestObj, r.Client, r.VerifyInstallation,
-		r.CustomStateCheck, r.Codec, r.RestConfig)
+		r.CustomStateCheck, r.Codec)
 	if err != nil {
 		return err
 	}
@@ -202,7 +202,7 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 
 	// send deploy requests
 	deployInfos, err := prepare.GetDeployInfos(ctx, manifestObj, r.Client, r.VerifyInstallation, r.CustomStateCheck,
-		r.Codec, r.RestConfig)
+		r.Codec)
 	if err != nil {
 		return err
 	}
