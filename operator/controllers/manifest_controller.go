@@ -424,10 +424,8 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 }
 
 func (r *ManifestReconciler) skrEventsMapFunc(ctx context.Context) handler.MapFunc {
-
 	logger := log.FromContext(ctx).WithName("skr-watcher-events-processing")
 	return func(o client.Object) []reconcile.Request {
-
 		requests := make([]reconcile.Request, 0, 1)
 		namespacedName := client.ObjectKeyFromObject(o)
 		kymaName := o.GetLabels()[labels.ComponentOwner]
@@ -458,7 +456,10 @@ func (r *ManifestReconciler) skrEventsMapFunc(ctx context.Context) handler.MapFu
 	}
 }
 
-func findManifestForComponent(namespacedName client.ObjectKey, manifests []v1alpha1.Manifest) (*v1alpha1.Manifest, error) {
+func findManifestForComponent(
+	namespacedName client.ObjectKey,
+	manifests []v1alpha1.Manifest,
+) (*v1alpha1.Manifest, error) {
 	for _, manifestCR := range manifests {
 		equalObjectKeyPredicate := manifestCR.Spec.Resource.GetName() == namespacedName.Name &&
 			manifestCR.Spec.Resource.GetNamespace() == namespacedName.Namespace
