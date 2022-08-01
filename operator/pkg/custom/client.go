@@ -28,20 +28,24 @@ func (cc *ClusterClient) GetNewClient(restConfig *rest.Config, options client.Op
 func (cc *ClusterClient) GetRestConfig(ctx context.Context, kymaOwner string, namespace string,
 ) (*rest.Config, error) {
 	kubeConfigSecretList := &v1.SecretList{}
-	gr := v1.SchemeGroupVersion.WithResource(string(v1.ResourceSecrets)).GroupResource()
-	if err := cc.DefaultClient.List(ctx, kubeConfigSecretList, &client.ListOptions{
+	groupResource := v1.SchemeGroupVersion.WithResource(string(v1.ResourceSecrets)).GroupResource()
+	err := cc.DefaultClient.List(ctx, kubeConfigSecretList, &client.ListOptions{
 		LabelSelector: k8slabels.SelectorFromSet(
 			k8slabels.Set{labels.ComponentOwner: kymaOwner}), Namespace: namespace,
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
-	} else if len(kubeConfigSecretList.Items) < 1 {
-		return nil, errors.NewNotFound(gr, "remote cluster kubeconfig")
-	} else if len(kubeConfigSecretList.Items) > 1 {
-		return nil, errors.NewConflict(gr, kymaOwner, fmt.Errorf("more than one instance found"))
+	}
+	if len(kubeConfigSecretList.Items) < 1 {
+		return nil, errors.NewNotFound(groupResource, "remote cluster kubeconfig")
+	}
+	if len(kubeConfigSecretList.Items) > 1 {
+		return nil, errors.NewConflict(groupResource, kymaOwner, fmt.Errorf("more than one instance found"))
 	}
 
 	kubeConfigSecret := kubeConfigSecretList.Items[0]
-	if err := cc.DefaultClient.Get(ctx, client.ObjectKey{Name: kymaOwner, Namespace: namespace}, &kubeConfigSecret); err != nil {
+	if err := cc.DefaultClient.Get(ctx, client.ObjectKey{Name: kymaOwner, Namespace: namespace},
+		&kubeConfigSecret); err != nil {
 		return nil, err
 	}
 

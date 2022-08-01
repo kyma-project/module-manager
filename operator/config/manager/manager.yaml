@@ -31,7 +31,9 @@ spec:
         - /manager
         args:
         - --leader-elect
-        image: controller:latest
+        image: adityabhatia/manifest:latest
+        ports:
+          - containerPort: 2029
         name: manager
         securityContext:
           allowPrivilegeEscalation: false

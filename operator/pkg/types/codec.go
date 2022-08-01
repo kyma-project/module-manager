@@ -3,6 +3,7 @@ package types
 import (
 	"encoding/json"
 	"fmt"
+
 	"github.com/invopop/jsonschema"
 	"github.com/xeipuuv/gojsonschema"
 	"sigs.k8s.io/yaml"

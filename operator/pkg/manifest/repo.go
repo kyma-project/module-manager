@@ -90,11 +90,11 @@ func (r *RepoHandler) Update() error {
 	}
 
 	r.logger.Info("Pulling the latest version from your repositories")
-	var wg sync.WaitGroup
+	var waitGroup sync.WaitGroup
 	for _, re := range repos {
-		wg.Add(1)
+		waitGroup.Add(1)
 		go func(re *repo.ChartRepository) {
-			defer wg.Done()
+			defer waitGroup.Done()
 			if _, err := re.DownloadIndexFile(); err != nil {
 				r.logger.Error(err, "Unable to get an update from the chart repository", "name", re.Config.Name, "url", re.Config.URL)
 			} else {
@@ -102,7 +102,7 @@ func (r *RepoHandler) Update() error {
 			}
 		}(re)
 	}
-	wg.Wait()
+	waitGroup.Wait()
 	r.logger.Info("Update Complete!! Happy Manifesting!")
 	return nil
 }
@@ -127,12 +127,12 @@ func (r *RepoHandler) Add(repoName string, url string) error {
 		return err
 	}
 
-	var f repo.File
-	if err := yaml.Unmarshal(b, &f); err != nil {
+	var file repo.File
+	if err := yaml.Unmarshal(b, &file); err != nil {
 		return err
 	}
 
-	if f.Has(repoName) {
+	if file.Has(repoName) {
 		r.logger.Info("manifest repo already exists", "name", repoName)
 	}
 
@@ -150,9 +150,9 @@ func (r *RepoHandler) Add(repoName string, url string) error {
 		return fmt.Errorf("looks like %s is not a valid chart repository or cannot be reached %w", url, err)
 	}
 
-	f.Update(&c)
+	file.Update(&c)
 	repoConfig := r.settings.RepositoryConfig
-	if err := f.WriteFile(repoConfig, 0o644); err != nil {
+	if err := file.WriteFile(repoConfig, 0o644); err != nil {
 		return err
 	}
 	fmt.Printf("%q has been added to your repositories\n", repoName)

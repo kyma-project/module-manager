@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"reflect"
 	"time"
 
@@ -49,7 +50,8 @@ func NewHelmClient(kubeClient *kube.Client, restGetter *manifestRest.ManifestRES
 func (h *HelmClient) getGenericConfig(namespace string) (*action.Configuration, error) {
 	actionConfig := new(action.Configuration)
 	if err := actionConfig.Init(h.restGetter, namespace, "secrets", func(format string, v ...interface{}) {
-		fmt.Printf(format, v)
+		format = fmt.Sprintf("[debug] %s\n", format)
+		log.Output(2, fmt.Sprintf(format, v...))
 	}); err != nil {
 		return nil, err
 	}

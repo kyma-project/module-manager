@@ -7,7 +7,7 @@ const (
 	OciRefType    RefTypeMetadata = "oci-ref"
 )
 
-// ImageSpec defines OCI Image specifications
+// ImageSpec defines OCI Image specifications.
 type ImageSpec struct {
 	// Repo defines the Image repo
 	Repo string `json:"repo"`
@@ -23,7 +23,7 @@ type ImageSpec struct {
 	Type RefTypeMetadata `json:"type"`
 }
 
-// HelmChartSpec defines the specification for a helm chart
+// HelmChartSpec defines the specification for a helm chart.
 type HelmChartSpec struct {
 	// Url defines the helm repo URL
 	// +kubebuilder:validation:Optional

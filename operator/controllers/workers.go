@@ -31,15 +31,16 @@ func NewManifestWorkers(logger *logr.Logger, workersConcurrentManifests int) *Ma
 }
 
 func (mw *ManifestWorkerPool) StartWorkers(ctx context.Context, jobChan <-chan ManifestDeploy,
-	handlerFn func(info manifest.DeployInfo, mode manifest.Mode, logger *logr.Logger) *manifest.ChartResponse) {
+	handlerFn func(info manifest.DeployInfo, mode manifest.Mode, logger *logr.Logger) *manifest.ChartResponse,
+) {
 	for worker := 1; worker <= mw.GetWorkerPoolSize(); worker++ {
-		go func(ctx context.Context, id int, deployJob <-chan ManifestDeploy) {
-			mw.logger.Info(fmt.Sprintf("Starting manifest-operator worker with id %d", id))
+		go func(ctx context.Context, workerId int, deployJob <-chan ManifestDeploy) {
+			mw.logger.Info(fmt.Sprintf("Starting manifest-operator worker with id %d", workerId))
 			for {
 				select {
 				case deployChart := <-deployJob:
 					mw.logger.Info(fmt.Sprintf("Processing chart with name %s by worker with id %d",
-						deployChart.Info.ChartName, id))
+						deployChart.Info.ChartName, workerId))
 					deployChart.ResponseChan <- handlerFn(deployChart.Info, deployChart.Mode, mw.logger)
 				case <-ctx.Done():
 					return

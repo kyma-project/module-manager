@@ -15,10 +15,6 @@ import (
 	yaml2 "sigs.k8s.io/yaml"
 )
 
-type ManifestConfig struct {
-	name string
-}
-
 func GetPathFromExtractedTarGz(repo string, module string, digest string, pathPattern string) (string, error) {
 	reference := fmt.Sprintf("%s/%s@%s", repo, module, digest)
 	layer, err := crane.PullLayer(reference)
@@ -35,12 +31,10 @@ func GetPathFromExtractedTarGz(repo string, module string, digest string, pathPa
 	if dir != nil {
 		return installPath, nil
 	}
-
 	blobReadCloser, err := layer.Compressed()
 	if err != nil {
 		return "", fmt.Errorf("fetching blob resulted in an error %s: %w", layer, err)
 	}
-
 	uncompressedStream, err := gzip.NewReader(blobReadCloser)
 	if err != nil {
 		return "", fmt.Errorf("failure in NewReader() while extracting TarGz %s: %w", layer, err)
@@ -55,11 +49,9 @@ func GetPathFromExtractedTarGz(repo string, module string, digest string, pathPa
 	tarReader := tar.NewReader(uncompressedStream)
 	for true {
 		header, err := tarReader.Next()
-
 		if err == io.EOF {
 			break
 		}
-
 		if err != nil {
 			return "", fmt.Errorf("failed Next() while extracting TarGz %s: %w", layer, err)
 		}
@@ -78,13 +70,11 @@ func GetPathFromExtractedTarGz(repo string, module string, digest string, pathPa
 				return "", fmt.Errorf("file copy storage failed while extracting TarGz %s: %w", layer, err)
 			}
 			outFile.Close()
-
 		default:
 			return "", fmt.Errorf("unknown type encountered while extracting TarGz %v in %s: %w",
 				header.Typeflag, filepath.Join(installPath, header.Name), err)
 		}
 	}
-
 	return installPath, nil
 }
 

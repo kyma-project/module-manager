@@ -18,13 +18,19 @@ package controllers
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
+
+	"github.com/kyma-project/kyma-watcher/kcp/pkg/listener"
+
+	"sigs.k8s.io/controller-runtime/pkg/ratelimiter"
+
 	"github.com/kyma-project/manifest-operator/operator/internal/pkg/prepare"
 	"github.com/kyma-project/manifest-operator/operator/internal/pkg/util"
 	"github.com/kyma-project/manifest-operator/operator/pkg/ratelimit"
 	"github.com/kyma-project/manifest-operator/operator/pkg/types"
-	"time"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	"github.com/go-logr/logr"
 	"github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
@@ -34,7 +40,6 @@ import (
 	"helm.sh/helm/v3/pkg/cli"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/util/workqueue"
@@ -44,7 +49,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/ratelimiter"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
@@ -122,7 +126,8 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	case "":
 		return ctrl.Result{}, r.HandleInitialState(ctx, &logger, &manifestObj)
 	case v1alpha1.ManifestStateProcessing:
-		return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Failure)}, r.HandleProcessingState(ctx, &logger, &manifestObj)
+		return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Failure)},
+			r.HandleProcessingState(ctx, &logger, &manifestObj)
 	case v1alpha1.ManifestStateDeleting:
 		return ctrl.Result{}, r.HandleDeletingState(ctx, &logger, &manifestObj)
 	case v1alpha1.ManifestStateError:
@@ -142,18 +147,21 @@ func (r *ManifestReconciler) HandleInitialState(ctx context.Context, _ *logr.Log
 	return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing, "initial state")
 }
 
-func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest,
+func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, logger *logr.Logger,
+	manifestObj *v1alpha1.Manifest,
 ) error {
 	return r.jobAllocator(ctx, logger, manifestObj, manifest.CreateMode)
 }
 
-func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest,
+func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, logger *logr.Logger,
+	manifestObj *v1alpha1.Manifest,
 ) error {
 	return r.jobAllocator(ctx, logger, manifestObj, manifest.DeletionMode)
 }
 
 func (r *ManifestReconciler) jobAllocator(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest,
-	mode manifest.Mode) error {
+	mode manifest.Mode,
+) error {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 	responseChan := make(manifest.ResponseChan)
 
@@ -203,7 +211,7 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 	}
 
 	for _, deployInfo := range deployInfos {
-		args := prepareArgs(&deployInfo)
+		args := prepareArgs(deployInfo)
 		manifestOperations, err := manifest.NewOperations(logger, deployInfo.RestConfig, deployInfo.ReleaseName,
 			cli.New(), args)
 		if err != nil {
@@ -226,7 +234,8 @@ func (r *ManifestReconciler) updateManifest(ctx context.Context, manifestObj *v1
 	return r.Update(ctx, manifestObj)
 }
 
-func (r *ManifestReconciler) updateManifestStatus(ctx context.Context, manifestObj *v1alpha1.Manifest, state v1alpha1.ManifestState, message string,
+func (r *ManifestReconciler) updateManifestStatus(ctx context.Context, manifestObj *v1alpha1.Manifest,
+	state v1alpha1.ManifestState, message string,
 ) error {
 	manifestObj.Status.State = state
 	switch state {
@@ -236,7 +245,9 @@ func (r *ManifestReconciler) updateManifestStatus(ctx context.Context, manifestO
 	case "":
 		util.AddReadyConditionForObjects(manifestObj, []v1alpha1.InstallItem{{ChartName: v1alpha1.ManifestKind}},
 			v1alpha1.ConditionStatusUnknown, message)
-	default:
+	case v1alpha1.ManifestStateError,
+		v1alpha1.ManifestStateDeleting,
+		v1alpha1.ManifestStateProcessing:
 		util.AddReadyConditionForObjects(manifestObj, []v1alpha1.InstallItem{{ChartName: v1alpha1.ManifestKind}},
 			v1alpha1.ConditionStatusFalse, message)
 	}
@@ -245,7 +256,7 @@ func (r *ManifestReconciler) updateManifestStatus(ctx context.Context, manifestO
 
 func (r *ManifestReconciler) HandleCharts(deployInfo manifest.DeployInfo, mode manifest.Mode, logger *logr.Logger,
 ) *manifest.ChartResponse {
-	args := prepareArgs(&deployInfo)
+	args := prepareArgs(deployInfo)
 
 	// evaluate create or delete chart
 	create := mode == manifest.CreateMode
@@ -273,6 +284,8 @@ func (r *ManifestReconciler) HandleCharts(deployInfo manifest.DeployInfo, mode m
 	}
 }
 
+// TODO: refactor me
+//nolint:funlen,cyclop
 func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *logr.Logger, chartCount int,
 	responseChan manifest.ResponseChan, namespacedName client.ObjectKey,
 ) {
@@ -307,36 +320,8 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 		return
 	}
 
-	for _, response := range responses {
-		status := v1alpha1.ConditionStatusTrue
-		message := "installation successful"
-
-		if response.Err != nil {
-			status = v1alpha1.ConditionStatusFalse
-			message = "installation error"
-		} else if !response.Ready {
-			status = v1alpha1.ConditionStatusUnknown
-			message = "installation processing"
-		}
-
-		configBytes, err := json.Marshal(response.ClientConfig)
-		if err != nil {
-			logger.Error(err, "error marshalling chart config for",
-				"resource", namespacedName)
-		}
-
-		overrideBytes, err := json.Marshal(response.Overrides)
-		if err != nil {
-			logger.Error(err, "error marshalling chart values for",
-				"resource", namespacedName)
-		}
-
-		util.AddReadyConditionForObjects(latestManifestObj, []v1alpha1.InstallItem{{
-			ClientConfig: string(configBytes),
-			Overrides:    string(overrideBytes),
-			ChartName:    response.ChartName,
-		}}, status, message)
-	}
+	// add condition for each installation processed
+	util.AddReadyConditionForResponses(responses, logger, latestManifestObj)
 
 	// handle deletion if no previous error occurred
 	if !errorState && !latestManifestObj.DeletionTimestamp.IsZero() && !processing {
@@ -372,16 +357,17 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 		fmt.Sprintf("%s in %s state", v1alpha1.ManifestKind, endState)); err != nil {
 		logger.Error(err, "error updating status", "resource", namespacedName)
 	}
-	return
 }
 
-func ManifestRateLimiter() ratelimiter.RateLimiter {
+func ManifestRateLimiter(failureBaseDelay time.Duration, failureMaxDelay time.Duration,
+	frequency int, burst int,
+) ratelimiter.RateLimiter {
 	return workqueue.NewMaxOfRateLimiter(
-		workqueue.NewItemExponentialFailureRateLimiter(1*time.Second, 1000*time.Second),
-		&workqueue.BucketRateLimiter{Limiter: rate.NewLimiter(rate.Limit(30), 200)})
+		workqueue.NewItemExponentialFailureRateLimiter(failureBaseDelay, failureMaxDelay),
+		&workqueue.BucketRateLimiter{Limiter: rate.NewLimiter(rate.Limit(frequency), burst)})
 }
 
-func prepareArgs(deployInfo *manifest.DeployInfo) map[string]map[string]interface{} {
+func prepareArgs(deployInfo manifest.DeployInfo) map[string]map[string]interface{} {
 	return map[string]map[string]interface{}{
 		// check --set flags parameter from manifest
 		"set": deployInfo.Overrides,
@@ -391,18 +377,38 @@ func prepareArgs(deployInfo *manifest.DeployInfo) map[string]map[string]interfac
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager,
+	failureBaseDelay time.Duration, failureMaxDelay time.Duration, frequency int, burst int, listenerAddr string,
+) error {
 	r.DeployChan = make(chan ManifestDeploy)
 	r.Workers.StartWorkers(ctx, r.DeployChan, r.HandleCharts)
 
 	// default config from kubebuilder
 	r.RestConfig = mgr.GetConfig()
 
+	// register listener component
+	runnableListener, eventChannel := listener.RegisterListenerComponent(
+		listenerAddr, strings.ToLower(v1alpha1.ManifestKind))
+
+	// start listener as a manager runnable
+	if err := mgr.Add(runnableListener); err != nil {
+		return err
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Manifest{}).
 		Watches(&source.Kind{Type: &v1.Secret{}}, handler.Funcs{}).
+		Watches(eventChannel, &handler.Funcs{
+			GenericFunc: func(e event.GenericEvent, q workqueue.RateLimitingInterface) {
+				logger := log.FromContext(ctx)
+				logger.WithName("listener").Info("event coming from SKR adding to queue")
+				q.Add(ctrl.Request{
+					NamespacedName: client.ObjectKeyFromObject(e.Object),
+				})
+			},
+		}).
 		WithOptions(controller.Options{
-			RateLimiter:             ManifestRateLimiter(),
+			RateLimiter:             ManifestRateLimiter(failureBaseDelay, failureMaxDelay, frequency, burst),
 			MaxConcurrentReconciles: r.MaxConcurrentReconciles,
 		}).
 		Complete(r)
