@@ -86,6 +86,7 @@ func handleExtractedHeaderFile(header *tar.Header, reader io.Reader, destination
 			return fmt.Errorf("failure in Mkdir() storage while extracting TarGz %s: %w", layerReference, err)
 		}
 	case tar.TypeReg:
+		//nolint:nosnakecase
 		outFile, err := os.OpenFile(destinationPath, os.O_CREATE|os.O_RDWR, os.FileMode(header.Mode))
 		if err != nil {
 			return fmt.Errorf("file create failed while extracting TarGz %s: %w", layerReference, err)
