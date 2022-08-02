@@ -24,6 +24,11 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+const (
+	lockTimeout             = 30 * time.Second
+	ownerWriteUniversalRead = 0o644
+)
+
 type RepoHandler struct {
 	settings *cli.EnvSettings
 	logger   *logr.Logger
@@ -46,6 +51,7 @@ func (r *RepoHandler) LoadChart(chartPath string, actionClient *action.Install) 
 		return nil, fmt.Errorf("%s charts are not installable", chartRequested.Metadata.Type)
 	}
 
+	//nolint:nestif
 	if req := chartRequested.Metadata.Dependencies; req != nil {
 		// If CheckDependencies returns an error, we have unfulfilled dependencies.
 		// As of Helm 2.4.0, this is treated as a stopping condition:
@@ -74,14 +80,14 @@ func (r *RepoHandler) LoadChart(chartPath string, actionClient *action.Install) 
 }
 
 func (r *RepoHandler) Update() error {
+	repos := make([]*repo.ChartRepository, 0)
 	repoFile := r.settings.RepositoryConfig
 
-	f, err := repo.LoadFile(repoFile)
-	if os.IsNotExist(errors.Cause(err)) || len(f.Repositories) == 0 {
+	file, err := repo.LoadFile(repoFile)
+	if os.IsNotExist(errors.Cause(err)) || len(file.Repositories) == 0 {
 		return fmt.Errorf("no repositories found. You must add one before updating")
 	}
-	var repos []*repo.ChartRepository
-	for _, cfg := range f.Repositories {
+	for _, cfg := range file.Repositories {
 		chartRepo, err := repo.NewChartRepository(cfg, getter.All(r.settings))
 		if err != nil {
 			return err
@@ -90,24 +96,30 @@ func (r *RepoHandler) Update() error {
 	}
 
 	r.logger.Info("Pulling the latest version from your repositories")
-	var waitGroup sync.WaitGroup
-	for _, re := range repos {
-		waitGroup.Add(1)
-		go func(re *repo.ChartRepository) {
-			defer waitGroup.Done()
-			if _, err := re.DownloadIndexFile(); err != nil {
-				r.logger.Error(err, "Unable to get an update from the chart repository", "name", re.Config.Name, "url", re.Config.URL)
-			} else {
-				r.logger.Info("Successfully received an update for the chart repository", "name", re.Config.Name)
-			}
-		}(re)
-	}
-	waitGroup.Wait()
+	r.updateRepos(repos)
 	r.logger.Info("Update Complete!! Happy Manifesting!")
 	return nil
 }
 
-func (r *RepoHandler) Add(repoName string, url string) error {
+func (r *RepoHandler) updateRepos(repos []*repo.ChartRepository) {
+	var waitGroup sync.WaitGroup
+	for _, repository := range repos {
+		waitGroup.Add(1)
+		go func(repository *repo.ChartRepository) {
+			defer waitGroup.Done()
+			if _, err := repository.DownloadIndexFile(); err != nil {
+				r.logger.Error(err, "Unable to get an update from the chart repository", "name",
+					repository.Config.Name, "url", repository.Config.URL)
+			} else {
+				r.logger.Info("Successfully received an update for the chart repository", "name",
+					repository.Config.Name)
+			}
+		}(repository)
+	}
+	waitGroup.Wait()
+}
+
+func (r *RepoHandler) Add(repoName string, url string, logger *logr.Logger) error {
 	repoFile := r.settings.RepositoryConfig
 
 	// File locking mechanism
@@ -115,20 +127,21 @@ func (r *RepoHandler) Add(repoName string, url string) error {
 		return err
 	}
 	fileLock := flock.New(strings.Replace(repoFile, filepath.Ext(repoFile), ".lock", 1))
-	lockCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	lockCtx, cancel := context.WithTimeout(context.Background(), lockTimeout)
 	defer cancel()
 	locked, err := fileLock.TryLockContext(lockCtx, time.Second)
 	if err == nil && locked {
+		//nolint:errcheck
 		defer fileLock.Unlock()
 	}
 
-	b, err := ioutil.ReadFile(repoFile)
+	fileBytes, err := ioutil.ReadFile(repoFile)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 
 	var file repo.File
-	if err := yaml.Unmarshal(b, &file); err != nil {
+	if err := yaml.Unmarshal(fileBytes, &file); err != nil {
 		return err
 	}
 
@@ -136,12 +149,12 @@ func (r *RepoHandler) Add(repoName string, url string) error {
 		r.logger.Info("manifest repo already exists", "name", repoName)
 	}
 
-	c := repo.Entry{
+	repoEntry := repo.Entry{
 		Name: repoName,
 		URL:  url,
 	}
 
-	chartRepo, err := repo.NewChartRepository(&c, getter.All(r.settings))
+	chartRepo, err := repo.NewChartRepository(&repoEntry, getter.All(r.settings))
 	if err != nil {
 		return fmt.Errorf("repository name (%s) already exists\n %w", repoName, err)
 	}
@@ -150,11 +163,11 @@ func (r *RepoHandler) Add(repoName string, url string) error {
 		return fmt.Errorf("looks like %s is not a valid chart repository or cannot be reached %w", url, err)
 	}
 
-	file.Update(&c)
+	file.Update(&repoEntry)
 	repoConfig := r.settings.RepositoryConfig
-	if err := file.WriteFile(repoConfig, 0o644); err != nil {
+	if err := file.WriteFile(repoConfig, ownerWriteUniversalRead); err != nil {
 		return err
 	}
-	fmt.Printf("%q has been added to your repositories\n", repoName)
+	logger.Info(fmt.Sprintf("%s has been added to your repositories\n", repoName))
 	return nil
 }

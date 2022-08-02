@@ -284,15 +284,12 @@ func (r *ManifestReconciler) HandleCharts(deployInfo manifest.DeployInfo, mode m
 	}
 }
 
-// TODO: refactor me
-//nolint:funlen,cyclop
 func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *logr.Logger, chartCount int,
 	responseChan manifest.ResponseChan, namespacedName client.ObjectKey,
 ) {
 	// errorState takes precedence over processing
 	errorState := false
 	processing := false
-	responses := make([]*manifest.ChartResponse, 0)
 
 	for a := 1; a <= chartCount; a++ {
 		select {
@@ -301,7 +298,6 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 				namespacedName.String()))
 			return
 		case response := <-responseChan:
-			responses = append(responses, response)
 			if response.Err != nil {
 				logger.Error(fmt.Errorf("chart installation failure for %s!!! : %w",
 					response.ResNamespacedName.String(), response.Err), "")
@@ -320,30 +316,33 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 		return
 	}
 
-	// add condition for each installation processed
-	util.AddReadyConditionForResponses(responses, logger, latestManifestObj)
-
 	// handle deletion if no previous error occurred
 	if !errorState && !latestManifestObj.DeletionTimestamp.IsZero() && !processing {
-		if !errorState {
-			// remove finalizer
-			controllerutil.RemoveFinalizer(latestManifestObj, labels.ManifestFinalizer)
-			if err := r.updateManifest(ctx, latestManifestObj); err != nil {
-				// finalizer removal failure
-				logger.Error(err, "unexpected error while removing finalizer from",
-					"resource", namespacedName)
-				errorState = true
-			} else {
-				// finalizer successfully removed
-				return
-			}
+		// remove finalizer
+		controllerutil.RemoveFinalizer(latestManifestObj, labels.ManifestFinalizer)
+		err := r.updateManifest(ctx, latestManifestObj)
+		if err == nil {
+			// finalizer successfully removed
+			return
 		}
+
+		// finalizer removal failure - set error state
+		logger.Error(err, "unexpected error while removing finalizer from",
+			"resource", namespacedName)
+		errorState = true
 	}
 
+	r.setProcessedState(ctx, errorState, processing, latestManifestObj, logger)
+}
+
+func (r *ManifestReconciler) setProcessedState(ctx context.Context, errorState bool, processing bool,
+	manifestObj *v1alpha1.Manifest, logger *logr.Logger,
+) {
+	namespacedName := client.ObjectKeyFromObject(manifestObj)
 	endState := v1alpha1.ManifestStateDeleting
 	if errorState {
 		endState = v1alpha1.ManifestStateError
-	} else if latestManifestObj.DeletionTimestamp.IsZero() {
+	} else if manifestObj.DeletionTimestamp.IsZero() {
 		// only update to processing, ready if deletion has not been triggered
 		if processing {
 			endState = v1alpha1.ManifestStateProcessing
@@ -353,13 +352,12 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 	}
 
 	// update status for non-deletion scenarios
-	if err := r.updateManifestStatus(ctx, latestManifestObj, endState,
+	if err := r.updateManifestStatus(ctx, manifestObj, endState,
 		fmt.Sprintf("%s in %s state", v1alpha1.ManifestKind, endState)); err != nil {
 		logger.Error(err, "error updating status", "resource", namespacedName)
 	}
 }
 
-//nolint:ireturn
 func ManifestRateLimiter(failureBaseDelay time.Duration, failureMaxDelay time.Duration,
 	frequency int, burst int,
 ) ratelimiter.RateLimiter {

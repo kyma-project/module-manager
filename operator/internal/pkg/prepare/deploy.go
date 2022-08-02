@@ -24,8 +24,6 @@ const (
 	configFileName  = "installConfig.yaml"
 )
 
-// TODO: refactor me
-//nolint:funlen
 func GetDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClient client.Client,
 	verifyInstallation bool, customStateCheck bool, codec *types.Codec,
 ) ([]manifest.DeployInfo, error) {
@@ -189,7 +187,7 @@ func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *types.Codec,
 		return &manifest.ChartInfo{
 			ChartName: fmt.Sprintf("%s/%s", install.Name, helmChartSpec.ChartName),
 			RepoName:  install.Name,
-			Url:       helmChartSpec.Url,
+			URL:       helmChartSpec.URL,
 		}, nil
 
 	case types.OciRefType:

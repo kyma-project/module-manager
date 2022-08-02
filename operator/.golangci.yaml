@@ -25,12 +25,18 @@ linters:
     - unparam
     - wastedassign
     - exhaustruct
+    - ireturn
 linters-settings:
   gci:
     sections:
       - standard # Captures all standard packages if they do not match another section.
       - default # Contains all imports that could not be matched to another section type.
       - prefix(github.com/kyma-project)
+  funlen:
+    lines: 100
+    statements: 50
+  cyclop:
+    max-complexity: 15
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0

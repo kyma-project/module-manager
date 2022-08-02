@@ -147,6 +147,9 @@ func checkExistingYamlFile(filePath string, layerReference string) (interface{},
 func writeYamlContent(blob io.ReadCloser, layerReference string, filePath string) (interface{}, error) {
 	var decodedConfig interface{}
 	err := yaml.NewYAMLOrJSONDecoder(blob, yamlDecodeBufferSize).Decode(&decodedConfig)
+	if err != nil {
+		return nil, fmt.Errorf("yaml blob decoding resulted in an error %s: %w", layerReference, err)
+	}
 
 	bytes, err := yaml2.Marshal(decodedConfig)
 	if err != nil {

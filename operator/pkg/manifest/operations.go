@@ -29,7 +29,7 @@ const (
 type ChartInfo struct {
 	ChartPath    string
 	RepoName     string
-	Url          string
+	URL          string
 	ChartName    string
 	ReleaseName  string
 	ClientConfig map[string]interface{}
@@ -37,7 +37,7 @@ type ChartInfo struct {
 }
 
 type DeployInfo struct {
-	Ctx            context.Context
+	Ctx            context.Context //nolint:containedctx
 	ManifestLabels map[string]string
 	*ChartInfo
 	client.ObjectKey
@@ -48,6 +48,7 @@ type DeployInfo struct {
 
 type ResponseChan chan *ChartResponse
 
+// nolint:errname
 type ChartResponse struct {
 	Ready             bool
 	ChartName         string
@@ -71,7 +72,9 @@ type Operations struct {
 	args         map[string]map[string]interface{}
 }
 
-func NewOperations(logger *logr.Logger, restConfig *rest.Config, releaseName string, settings *cli.EnvSettings, args map[string]map[string]interface{}) (*Operations, error) {
+func NewOperations(logger *logr.Logger, restConfig *rest.Config, releaseName string, settings *cli.EnvSettings,
+	args map[string]map[string]interface{},
+) (*Operations, error) {
 	restGetter := manifestRest.NewRESTClientGetter(restConfig)
 	kubeClient := kube.New(restGetter)
 	clientSet, err := kubernetes.NewForConfig(restConfig)
@@ -95,9 +98,11 @@ func NewOperations(logger *logr.Logger, restConfig *rest.Config, releaseName str
 	return operations, nil
 }
 
-func (o *Operations) getClusterResources(deployInfo DeployInfo, operation HelmOperation) (kube.ResourceList, kube.ResourceList, error) {
+func (o *Operations) getClusterResources(deployInfo DeployInfo, operation HelmOperation) (kube.ResourceList,
+	kube.ResourceList, error,
+) {
 	if deployInfo.ChartPath == "" {
-		if err := o.repoHandler.Add(deployInfo.RepoName, deployInfo.Url); err != nil {
+		if err := o.repoHandler.Add(deployInfo.RepoName, deployInfo.URL, o.logger); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -164,7 +169,8 @@ func (o *Operations) Install(deployInfo DeployInfo) (bool, error) {
 		}
 	}
 
-	o.logger.Info("Install Complete!! Happy Manifesting!", "release", deployInfo.ReleaseName, "chart", deployInfo.ChartName)
+	o.logger.Info("Install Complete!! Happy Manifesting!", "release", deployInfo.ReleaseName,
+		"chart", deployInfo.ChartName)
 
 	// update manifest chart in a separate go-routine
 	if err = o.repoHandler.Update(); err != nil {
@@ -207,7 +213,9 @@ func (o *Operations) Uninstall(deployInfo DeployInfo) (bool, error) {
 	return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.ManifestLabels, deployInfo.ObjectKey, o.logger)
 }
 
-func (o *Operations) getManifestForChartPath(chartPath, chartName string, actionClient *action.Install, args map[string]map[string]interface{}) (string, error) {
+func (o *Operations) getManifestForChartPath(chartPath, chartName string, actionClient *action.Install,
+	args map[string]map[string]interface{},
+) (string, error) {
 	var err error
 	if chartPath == "" {
 		chartPath, err = o.helmClient.DownloadChart(actionClient, chartName)

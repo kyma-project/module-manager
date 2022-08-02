@@ -25,9 +25,9 @@ type ImageSpec struct {
 
 // HelmChartSpec defines the specification for a helm chart.
 type HelmChartSpec struct {
-	// Url defines the helm repo URL
+	// URL defines the helm repo URL
 	// +kubebuilder:validation:Optional
-	Url string `json:"url"`
+	URL string `json:"url"`
 
 	// ChartName defines the helm chart name
 	// +kubebuilder:validation:Optional

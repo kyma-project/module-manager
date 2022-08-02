@@ -16,8 +16,8 @@ type Codec struct {
 }
 
 func NewCodec() (*Codec, error) {
-	imageSpecJsonBytes := jsonschema.Reflect(ImageSpec{})
-	bytes, err := imageSpecJsonBytes.MarshalJSON()
+	imageSpecJSONBytes := jsonschema.Reflect(ImageSpec{})
+	bytes, err := imageSpecJSONBytes.MarshalJSON()
 	if err != nil {
 		return nil, err
 	}
@@ -27,8 +27,8 @@ func NewCodec() (*Codec, error) {
 		return nil, err
 	}
 
-	helmChartSpecJsonBytes := jsonschema.Reflect(HelmChartSpec{})
-	bytes, err = helmChartSpecJsonBytes.MarshalJSON()
+	helmChartSpecJSONBytes := jsonschema.Reflect(HelmChartSpec{})
+	bytes, err = helmChartSpecJSONBytes.MarshalJSON()
 	if err != nil {
 		return nil, err
 	}
