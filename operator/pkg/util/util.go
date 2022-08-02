@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
+	"strings"
 
 	"github.com/pkg/errors"
 	"helm.sh/helm/v3/pkg/kube"
@@ -105,4 +107,37 @@ func GetConfig(kubeConfig string, explicitPath string) (*rest.Config, error) {
 
 	fmt.Printf("Found config file in: %s", clientConfig.ConfigAccess().GetDefaultFilename())
 	return config, nil
+}
+
+func CleanFilePathJoin(root, dest string) (string, error) {
+	// On Windows, this is a drive separator. On UNIX-like, this is the path list separator.
+	// In neither case do we want to trust a TAR that contains these.
+	if strings.Contains(dest, ":") {
+		return "", errors.New("path contains ':', which is illegal")
+	}
+
+	// The Go tar library does not convert separators for us.
+	// We assume here, as we do elsewhere, that `\\` means a Windows path.
+	dest = strings.ReplaceAll(dest, "\\", "/")
+
+	// We want to alert the user that something bad was attempted. Cleaning it
+	// is not a good practice.
+	for _, part := range strings.Split(dest, "/") {
+		if part == ".." {
+			return "", errors.New("path contains '..', which is illegal")
+		}
+	}
+
+	// If a path is absolute, the creator of the TAR is doing something shady.
+	if path.IsAbs(dest) {
+		return "", errors.New("path is absolute, which is illegal")
+	}
+
+	// SecureJoin will do some cleaning, as well as some rudimentary checking of symlinks.
+	// newpath, err := securejoin.SecureJoin(root, dest)
+	// if err != nil {
+	//	return "", err
+	//}
+
+	return filepath.ToSlash("newpath"), nil
 }

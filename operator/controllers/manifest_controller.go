@@ -359,6 +359,7 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 	}
 }
 
+//nolint:ireturn
 func ManifestRateLimiter(failureBaseDelay time.Duration, failureMaxDelay time.Duration,
 	frequency int, burst int,
 ) ratelimiter.RateLimiter {

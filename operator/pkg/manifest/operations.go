@@ -132,9 +132,6 @@ func (o *Operations) VerifyResources(deployInfo DeployInfo) (bool, error) {
 	if len(targetResources) > len(existingResources) {
 		return false, nil
 	}
-	if deployInfo.CheckFn == nil {
-		return true, nil
-	}
 	return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.ManifestLabels, deployInfo.ObjectKey,
 		o.logger)
 }
@@ -174,13 +171,8 @@ func (o *Operations) Install(deployInfo DeployInfo) (bool, error) {
 		return false, err
 	}
 
-	// check custom function, if provided
-	if deployInfo.CheckFn != nil {
-		return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.ManifestLabels, deployInfo.ObjectKey,
-			o.logger)
-	}
-
-	return true, nil
+	// custom states check
+	return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.ManifestLabels, deployInfo.ObjectKey, o.logger)
 }
 
 func (o *Operations) Uninstall(deployInfo DeployInfo) (bool, error) {
@@ -211,13 +203,8 @@ func (o *Operations) Uninstall(deployInfo DeployInfo) (bool, error) {
 		return false, err
 	}
 
-	// check custom function, if provided
-	if deployInfo.CheckFn != nil {
-		return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.ManifestLabels, deployInfo.ObjectKey,
-			o.logger)
-	}
-
-	return true, nil
+	// custom states check
+	return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.ManifestLabels, deployInfo.ObjectKey, o.logger)
 }
 
 func (o *Operations) getManifestForChartPath(chartPath, chartName string, actionClient *action.Install, args map[string]map[string]interface{}) (string, error) {

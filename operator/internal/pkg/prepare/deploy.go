@@ -84,11 +84,11 @@ func GetDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, default
 		ManifestLabels: manifestObj.Labels,
 		ObjectKey:      namespacedName,
 		RestConfig:     restConfig,
-		CheckFn:        customResCheck.CheckFn,
+		CheckFn:        customResCheck.DefaultFn,
 		ReadyCheck:     verifyInstallation,
 	}
-	if !customStateCheck {
-		baseDeployInfo.CheckFn = nil
+	if customStateCheck {
+		baseDeployInfo.CheckFn = customResCheck.CheckFn
 	}
 
 	return parseInstallations(manifestObj, codec, configs, baseDeployInfo)

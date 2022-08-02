@@ -16,6 +16,10 @@ type Resource struct {
 	custom.Check
 }
 
+func (r *Resource) DefaultFn(context.Context, map[string]string, client.ObjectKey, *logr.Logger) (bool, error) {
+	return true, nil
+}
+
 func (r *Resource) CheckFn(ctx context.Context, manifestLabels map[string]string,
 	namespacedName client.ObjectKey, logger *logr.Logger,
 ) (bool, error) {

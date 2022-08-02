@@ -11,6 +11,6 @@ type CheckFnType func(ctx context.Context, manifestLabels map[string]string, nam
 	logger *logr.Logger) (bool, error)
 
 type Check interface {
-	CheckFn(ctx context.Context, manifestLabels map[string]string, namespacedName client.ObjectKey,
-		logger *logr.Logger) (bool, error)
+	CheckFn(context.Context, map[string]string, client.ObjectKey, *logr.Logger) (bool, error)
+	DefaultFn(context.Context, map[string]string, client.ObjectKey, *logr.Logger) (bool, error)
 }
