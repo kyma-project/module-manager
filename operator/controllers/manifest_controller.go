@@ -219,11 +219,28 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 			return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error())
 		}
 
-		if ready, err := manifestOperations.VerifyResources(deployInfo); !ready {
+		// evaluate chart install
+		var ready bool
+		ready, err = manifestOperations.VerifyResources(deployInfo)
+
+		// prepare chart response object
+		chartResponse := &manifest.ChartResponse{
+			Ready:             ready,
+			ResNamespacedName: deployInfo.ObjectKey,
+			Err:               err,
+			ChartName:         deployInfo.ChartName,
+			ClientConfig:      deployInfo.ClientConfig,
+			Overrides:         deployInfo.Overrides,
+		}
+
+		// update only if resources not ready OR an error occurred during chart verification
+		if !ready {
+			util.AddReadyConditionForResponses([]*manifest.ChartResponse{chartResponse}, logger, manifestObj)
 			return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing,
 				"resources not ready")
 		} else if err != nil {
 			logger.Error(err, fmt.Sprintf("error while performing consistency check on manifest %s", namespacedName))
+			util.AddReadyConditionForResponses([]*manifest.ChartResponse{chartResponse}, logger, manifestObj)
 			return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error())
 		}
 	}
@@ -290,6 +307,7 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 	// errorState takes precedence over processing
 	errorState := false
 	processing := false
+	responses := make([]*manifest.ChartResponse, 0)
 
 	for a := 1; a <= chartCount; a++ {
 		select {
@@ -298,6 +316,7 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 				namespacedName.String()))
 			return
 		case response := <-responseChan:
+			responses = append(responses, response)
 			if response.Err != nil {
 				logger.Error(fmt.Errorf("chart installation failure for %s!!! : %w",
 					response.ResNamespacedName.String(), response.Err), "")
@@ -315,6 +334,8 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 		logger.Error(err, "error while locating", "resource", namespacedName)
 		return
 	}
+
+	util.AddReadyConditionForResponses(responses, logger, latestManifestObj)
 
 	// handle deletion if no previous error occurred
 	if !errorState && !latestManifestObj.DeletionTimestamp.IsZero() && !processing {
