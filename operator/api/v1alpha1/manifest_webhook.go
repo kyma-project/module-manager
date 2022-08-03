@@ -28,7 +28,7 @@ import (
 )
 
 // log is for logging in this package.
-var manifestlog = logf.Log.WithName("manifest-resource")
+var manifestlog = logf.Log.WithName("manifest-resource") //nolint:gochecknoglobals
 
 func (m *Manifest) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
@@ -36,13 +36,15 @@ func (m *Manifest) SetupWebhookWithManager(mgr ctrl.Manager) error {
 		Complete()
 }
 
+//nolint:lll
 //+kubebuilder:webhook:path=/mutate-component-kyma-project-io-v1alpha1-manifest,mutating=true,failurePolicy=fail,sideEffects=None,groups=component.kyma-project.io,resources=manifests,verbs=create;update,versions=v1alpha1,name=mmanifest.kb.io,admissionReviewVersions=v1
 
 var _ webhook.Defaulter = &Manifest{}
 
-// Default implements webhook.Defaulter so a webhook will be registered for the type
+// Default implements webhook.Defaulter so a webhook will be registered for the type.
 func (m *Manifest) Default() {
-	if &m.Spec.Config == nil {
+	var emptyImageSpec types.ImageSpec
+	if m.Spec.Config == emptyImageSpec {
 		m.Spec.Config = types.ImageSpec{}
 	}
 
@@ -51,25 +53,26 @@ func (m *Manifest) Default() {
 	}
 }
 
+//nolint:lll
 //+kubebuilder:webhook:path=/validate-component-kyma-project-io-v1alpha1-manifest, mutating=false,failurePolicy=fail,sideEffects=None,groups=component.kyma-project.io,resources=manifests,verbs=create;update,versions=v1alpha1,name=vmanifest.kb.io,admissionReviewVersions=v1
 
 var _ webhook.Validator = &Manifest{}
 
-// ValidateCreate implements webhook.Validator so a webhook will be registered for the type
+// ValidateCreate implements webhook.Validator so a webhook will be registered for the type.
 func (m *Manifest) ValidateCreate() error {
 	manifestlog.Info("validate create", "name", m.Name)
 
 	return m.validateInstalls()
 }
 
-// ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
+// ValidateUpdate implements webhook.Validator so a webhook will be registered for the type.
 func (m *Manifest) ValidateUpdate(old runtime.Object) error {
 	manifestlog.Info("validate update", "name", m.Name)
 
 	return m.validateInstalls()
 }
 
-// ValidateDelete implements webhook.Validator so a webhook will be registered for the type
+// ValidateDelete implements webhook.Validator so a webhook will be registered for the type.
 func (m *Manifest) ValidateDelete() error {
 	manifestlog.Info("validate delete", "name", m.Name)
 	return nil

@@ -3,6 +3,7 @@ package custom
 import (
 	"context"
 	"fmt"
+
 	"github.com/go-logr/logr"
 	"github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
 	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
@@ -15,8 +16,13 @@ type Resource struct {
 	custom.Check
 }
 
+func (r *Resource) DefaultFn(context.Context, map[string]string, client.ObjectKey, *logr.Logger) (bool, error) {
+	return true, nil
+}
+
 func (r *Resource) CheckFn(ctx context.Context, manifestLabels map[string]string,
-	namespacedName client.ObjectKey, logger *logr.Logger) (bool, error) {
+	namespacedName client.ObjectKey, logger *logr.Logger,
+) (bool, error) {
 	kymaOwnerLabel, ok := manifestLabels[labels.ComponentOwner]
 	if !ok {
 		err := fmt.Errorf("label %s not set for manifest resource %s", labels.ComponentOwner, namespacedName)

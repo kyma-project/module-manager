@@ -33,4 +33,8 @@ spec:
         - "--metrics-bind-address=127.0.0.1:8080"
         - "--leader-elect"
         - "--concurrent-reconciles=20"
+        env:
+        - name: ENABLE_WEBHOOKS
+          value: "false"
+
 

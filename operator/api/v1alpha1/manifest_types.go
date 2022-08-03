@@ -30,7 +30,7 @@ func (m *Manifest) SetObservedGeneration() *Manifest {
 	return m
 }
 
-// InstallInfo defines installation information
+// InstallInfo defines installation information.
 type InstallInfo struct {
 	// Source can either be described as ImageSpec or HelmChartSpec
 	//+kubebuilder:pruning:PreserveUnknownFields
@@ -40,7 +40,7 @@ type InstallInfo struct {
 	Name string `json:"name"`
 }
 
-// ManifestSpec defines the specification of Manifest
+// ManifestSpec defines the specification of Manifest.
 type ManifestSpec struct {
 	// Config specifies OCI image configuration for Manifest
 	// +kubebuilder:validation:Optional
@@ -66,22 +66,22 @@ type ManifestSpec struct {
 // +kubebuilder:validation:Enum=Processing;Deleting;Ready;Error
 type ManifestState string
 
-// Valid Helm States
+// Valid Helm States.
 const (
-	// ManifestStateReady signifies Manifest is ready
+	// ManifestStateReady signifies Manifest is ready.
 	ManifestStateReady ManifestState = "Ready"
 
-	// ManifestStateProcessing signifies Manifest is reconciling
+	// ManifestStateProcessing signifies Manifest is reconciling.
 	ManifestStateProcessing ManifestState = "Processing"
 
-	// ManifestStateError signifies an error for Manifest
+	// ManifestStateError signifies an error for Manifest.
 	ManifestStateError ManifestState = "Error"
 
-	// ManifestStateDeleting signifies Manifest is being deleted
+	// ManifestStateDeleting signifies Manifest is being deleted.
 	ManifestStateDeleting ManifestState = "Deleting"
 )
 
-// ManifestStatus defines the observed state of Manifest
+// ManifestStatus defines the observed state of Manifest.
 type ManifestStatus struct {
 	// State signifies current state of Manifest
 	// +kubebuilder:validation:Enum=Ready;Processing;Error;Deleting;
@@ -96,7 +96,7 @@ type ManifestStatus struct {
 	ObservedGeneration int64 `json:"observedGeneration"`
 }
 
-// InstallItem describes install information for ManifestCondition
+// InstallItem describes install information for ManifestCondition.
 type InstallItem struct {
 	// ChartName defines the name for InstallItem
 	// +kubebuilder:validation:Optional
@@ -140,21 +140,21 @@ type ManifestCondition struct {
 type ManifestConditionType string
 
 const (
-	// ConditionTypeReady represents ManifestConditionType Ready
+	// ConditionTypeReady represents ManifestConditionType Ready.
 	ConditionTypeReady ManifestConditionType = "Ready"
 )
 
 type ManifestConditionStatus string
 
-// Valid ManifestCondition Status
+// Valid ManifestCondition Status.
 const (
-	// ConditionStatusTrue signifies ManifestConditionStatus true
+	// ConditionStatusTrue signifies ManifestConditionStatus true.
 	ConditionStatusTrue ManifestConditionStatus = "True"
 
-	// ConditionStatusFalse signifies ManifestConditionStatus false
+	// ConditionStatusFalse signifies ManifestConditionStatus false.
 	ConditionStatusFalse ManifestConditionStatus = "False"
 
-	// ConditionStatusUnknown signifies ManifestConditionStatus unknown
+	// ConditionStatusUnknown signifies ManifestConditionStatus unknown.
 	ConditionStatusUnknown ManifestConditionStatus = "Unknown"
 )
 
@@ -163,7 +163,7 @@ const (
 //+kubebuilder:printcolumn:name="State",type=string,JSONPath=".status.state"
 //+kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
-// Manifest is the Schema for the manifests API
+// Manifest is the Schema for the manifests API.
 type Manifest struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata"`
@@ -178,13 +178,14 @@ type Manifest struct {
 
 //+kubebuilder:object:root=true
 
-// ManifestList contains a list of Manifest
+// ManifestList contains a list of Manifest.
 type ManifestList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata"`
 	Items           []Manifest `json:"items"`
 }
 
+//nolint:gochecknoinits
 func init() {
 	SchemeBuilder.Register(&Manifest{}, &ManifestList{})
 }

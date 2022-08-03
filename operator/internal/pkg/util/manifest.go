@@ -1,7 +1,12 @@
 package util
 
 import (
+	"encoding/json"
 	"time"
+
+	"github.com/go-logr/logr"
+	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -46,5 +51,41 @@ func AddReadyConditionForObjects(manifest *v1alpha1.Manifest, installItems []v1a
 				break
 			}
 		}
+	}
+}
+
+func AddReadyConditionForResponses(responses []*manifest.ChartResponse, logger *logr.Logger,
+	manifest *v1alpha1.Manifest,
+) {
+	namespacedName := client.ObjectKeyFromObject(manifest)
+	for _, response := range responses {
+		status := v1alpha1.ConditionStatusTrue
+		message := "installation successful"
+
+		if response.Err != nil {
+			status = v1alpha1.ConditionStatusFalse
+			message = "installation error"
+		} else if !response.Ready {
+			status = v1alpha1.ConditionStatusUnknown
+			message = "installation processing"
+		}
+
+		configBytes, err := json.Marshal(response.ClientConfig)
+		if err != nil {
+			logger.Error(err, "error marshalling chart config for",
+				"resource", namespacedName)
+		}
+
+		overrideBytes, err := json.Marshal(response.Overrides)
+		if err != nil {
+			logger.Error(err, "error marshalling chart values for",
+				"resource", namespacedName)
+		}
+
+		AddReadyConditionForObjects(manifest, []v1alpha1.InstallItem{{
+			ClientConfig: string(configBytes),
+			Overrides:    string(overrideBytes),
+			ChartName:    response.ChartName,
+		}}, status, message)
 	}
 }

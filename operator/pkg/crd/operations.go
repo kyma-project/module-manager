@@ -3,12 +3,15 @@ package crd
 import (
 	"bufio"
 	"context"
+	standardErrors "errors"
 	"fmt"
 	"io"
 	"io/fs"
-	"k8s.io/apimachinery/pkg/api/errors"
 	"os"
 	"path/filepath"
+
+	"k8s.io/apimachinery/pkg/api/errors"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -20,6 +23,10 @@ import (
 func GetCRDsFromPath(ctx context.Context, filePath string) ([]*apiextensionsv1.CustomResourceDefinition, error) {
 	dirEntries := make([]fs.DirEntry, 0)
 	if err := filepath.WalkDir(filePath, func(path string, info fs.DirEntry, err error) error {
+		// initial error
+		if err != nil {
+			return err
+		}
 		if !info.IsDir() {
 			return nil
 		}
@@ -37,7 +44,8 @@ func GetCRDsFromPath(ctx context.Context, filePath string) ([]*apiextensionsv1.C
 	return crdsList, nil
 }
 
-func readCRDs(ctx context.Context, basePath string, files []os.DirEntry) ([]*apiextensionsv1.CustomResourceDefinition, error) {
+func readCRDs(ctx context.Context, basePath string, files []os.DirEntry,
+) ([]*apiextensionsv1.CustomResourceDefinition, error) {
 	var crds []*apiextensionsv1.CustomResourceDefinition
 	logger := log.FromContext(ctx).WithName("CRDs")
 
@@ -91,10 +99,9 @@ func readFile(fileName string) ([][]byte, error) {
 
 	for {
 		structByte, err := yamlReader.Read()
-		if err != nil {
+		if standardErrors.Is(err, io.EOF) {
 			break
-		}
-		if err != nil && err != io.EOF {
+		} else if err != nil {
 			return nil, err
 		}
 
@@ -105,22 +112,20 @@ func readFile(fileName string) ([][]byte, error) {
 }
 
 func CreateCRDs(ctx context.Context, crds []*apiextensionsv1.CustomResourceDefinition,
-	destinationClient client.Client) error {
+	destinationClient client.Client,
+) error {
 	for _, crd := range crds {
-
 		existingCrd := apiextensionsv1.CustomResourceDefinition{}
 		err := destinationClient.Get(ctx, client.ObjectKeyFromObject(crd), &existingCrd)
-
-		if client.IgnoreNotFound(err) != nil {
-			return err
-		}
-
-		if errors.IsNotFound(err) {
-			if err = destinationClient.Create(ctx, crd); err != nil {
+		if err != nil {
+			if errors.IsNotFound(err) {
+				if err = destinationClient.Create(ctx, crd); err != nil {
+					return err
+				}
+			} else {
 				return err
 			}
 		}
-
 	}
 	return nil
 }

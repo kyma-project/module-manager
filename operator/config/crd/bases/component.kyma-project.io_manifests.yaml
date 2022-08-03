@@ -25,7 +25,7 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Manifest is the Schema for the manifests API
+        description: Manifest is the Schema for the manifests API.
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -122,7 +122,7 @@ spec:
               installs:
                 description: Installs specifies a list of installations for Manifest
                 items:
-                  description: InstallInfo defines installation information
+                  description: InstallInfo defines installation information.
                   properties:
                     name:
                       description: Name specifies a unique install name for Manifest

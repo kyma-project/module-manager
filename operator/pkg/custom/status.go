@@ -2,6 +2,7 @@ package custom
 
 import (
 	"context"
+
 	"github.com/kyma-project/manifest-operator/operator/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
@@ -13,12 +14,12 @@ type Status struct {
 	client.Reader
 }
 
-//TODO: Define centrally
+// TODO: Define centrally.
 const readyState = "Ready"
 
 func (c *Status) WaitForCustomResources(ctx context.Context, customWaitResource []types.CustomState,
-	stateResource *unstructured.Unstructured) (bool, error) {
-
+	stateResource *unstructured.Unstructured,
+) (bool, error) {
 	// custom states
 	for _, res := range customWaitResource {
 		obj := &unstructured.Unstructured{}
@@ -70,14 +71,14 @@ func (c *Status) WaitForCustomResources(ctx context.Context, customWaitResource 
 
 func getStateFieldFromUnstructured(resource *unstructured.Unstructured) (string, error) {
 	path := field.NewPath("status")
-	status, ok := resource.Object["status"]
-	if !ok {
+	status, statusExists := resource.Object["status"]
+	if !statusExists {
 		return "", field.NotFound(path, resource.Object)
 	}
 
 	path = path.Child("state")
-	state, ok := status.(map[string]interface{})["state"]
-	if !ok {
+	state, stateExists := status.(map[string]interface{})["state"]
+	if !stateExists {
 		return "", field.NotFound(path, resource.Object)
 	}
 	return state.(string), nil

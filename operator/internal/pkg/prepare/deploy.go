@@ -3,6 +3,8 @@ package prepare
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+
 	"github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
 	manifestCustom "github.com/kyma-project/manifest-operator/operator/internal/pkg/custom"
 	"github.com/kyma-project/manifest-operator/operator/pkg/crd"
@@ -13,7 +15,7 @@ import (
 	"github.com/kyma-project/manifest-operator/operator/pkg/types"
 	"helm.sh/helm/v3/pkg/strvals"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"path/filepath"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -25,10 +27,9 @@ const (
 func GetDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClient client.Client,
 	verifyInstallation bool, customStateCheck bool, codec *types.Codec,
 ) ([]manifest.DeployInfo, error) {
-	deployInfos := make([]manifest.DeployInfo, 0)
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
-	kymaOwnerLabel, ok := manifestObj.Labels[labels.ComponentOwner]
-	if !ok {
+	kymaOwnerLabel, labelExists := manifestObj.Labels[labels.ComponentOwner]
+	if !labelExists {
 		return nil, fmt.Errorf("label %s not set for manifest resource %s",
 			labels.ComponentOwner, namespacedName)
 	}
@@ -37,7 +38,7 @@ func GetDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, default
 	config := manifestObj.Spec.Config
 
 	decodedConfig, err := descriptor.DecodeYamlFromDigest(config.Repo, config.Name, config.Ref,
-		filepath.Join(fmt.Sprintf("%s", config.Ref), configFileName))
+		filepath.Join(config.Ref, configFileName))
 	if err != nil {
 		return nil, err
 	}
@@ -75,13 +76,38 @@ func GetDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, default
 		return nil, err
 	}
 
-	// installs
+	// parse installs
+	baseDeployInfo := manifest.DeployInfo{
+		Ctx:            ctx,
+		ManifestLabels: manifestObj.Labels,
+		ObjectKey:      namespacedName,
+		RestConfig:     restConfig,
+		CheckFn:        customResCheck.DefaultFn,
+		ReadyCheck:     verifyInstallation,
+	}
+	if customStateCheck {
+		baseDeployInfo.CheckFn = customResCheck.CheckFn
+	}
+
+	return parseInstallations(manifestObj, codec, configs, baseDeployInfo)
+}
+
+func parseInstallations(manifestObj *v1alpha1.Manifest, codec *types.Codec,
+	configs []interface{}, baseDeployInfo manifest.DeployInfo,
+) ([]manifest.DeployInfo, error) {
+	namespacedName := client.ObjectKeyFromObject(manifestObj)
+	deployInfos := make([]manifest.DeployInfo, 0)
+
 	for _, install := range manifestObj.Spec.Installs {
+		deployInfo := baseDeployInfo
+
+		// retrieve chart info
 		chartInfo, err := getChartInfoForInstall(install, codec, manifestObj)
 		if err != nil {
 			return nil, err
 		}
 
+		// filter config for install
 		chartConfig, chartValues, err := parseChartConfigAndValues(install, configs, namespacedName.String())
 		if err != nil {
 			return nil, err
@@ -92,18 +118,7 @@ func GetDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, default
 		chartInfo.Overrides = chartValues
 		chartInfo.ClientConfig = chartConfig
 
-		deployInfo := manifest.DeployInfo{
-			Ctx:            ctx,
-			ManifestLabels: manifestObj.Labels,
-			ChartInfo:      chartInfo,
-			ObjectKey:      namespacedName,
-			RestConfig:     restConfig,
-			CheckFn:        customResCheck.CheckFn,
-			ReadyCheck:     verifyInstallation,
-		}
-		if !customStateCheck {
-			deployInfo.CheckFn = nil
-		}
+		deployInfo.ChartInfo = chartInfo
 		deployInfos = append(deployInfos, deployInfo)
 	}
 
@@ -154,7 +169,8 @@ func installCr(ctx context.Context, destinationClient client.Client, resource *u
 }
 
 func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *types.Codec,
-	manifestObj *v1alpha1.Manifest) (*manifest.ChartInfo, error) {
+	manifestObj *v1alpha1.Manifest,
+) (*manifest.ChartInfo, error) {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 	specType, err := types.GetSpecType(install.Source.Raw)
 	if err != nil {
@@ -171,7 +187,7 @@ func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *types.Codec,
 		return &manifest.ChartInfo{
 			ChartName: fmt.Sprintf("%s/%s", install.Name, helmChartSpec.ChartName),
 			RepoName:  install.Name,
-			Url:       helmChartSpec.Url,
+			URL:       helmChartSpec.URL,
 		}, nil
 
 	case types.OciRefType:
@@ -197,22 +213,23 @@ func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *types.Codec,
 }
 
 func getConfigAndValuesForInstall(installName string, configs []interface{}, namespacedName string) (
-	string, string, error) {
+	string, string, error,
+) {
 	var defaultOverrides string
 	var clientConfig string
 
 	for _, config := range configs {
-		mappedConfig, ok := config.(map[string]interface{})
-		if !ok {
+		mappedConfig, configExists := config.(map[string]interface{})
+		if !configExists {
 			return "", "", fmt.Errorf(configReadError, "config object", namespacedName)
 		}
 		if mappedConfig["name"] == installName {
-			defaultOverrides, ok = mappedConfig["overrides"].(string)
-			if !ok {
+			defaultOverrides, configExists = mappedConfig["overrides"].(string)
+			if !configExists {
 				return "", "", fmt.Errorf(configReadError, "config object overrides", namespacedName)
 			}
-			clientConfig, ok = mappedConfig["clientConfig"].(string)
-			if !ok {
+			clientConfig, configExists = mappedConfig["clientConfig"].(string)
+			if !configExists {
 				return "", "", fmt.Errorf(configReadError, "chart config", namespacedName)
 			}
 			break
@@ -223,8 +240,8 @@ func getConfigAndValuesForInstall(installName string, configs []interface{}, nam
 
 func parseChartConfigAndValues(install v1alpha1.InstallInfo, configs []interface{},
 	namespacedName string) (
-	map[string]interface{}, map[string]interface{}, error) {
-
+	map[string]interface{}, map[string]interface{}, error,
+) {
 	configString, valuesString, err := getConfigAndValuesForInstall(install.Name, configs, namespacedName)
 	if err != nil {
 		return nil, nil, err

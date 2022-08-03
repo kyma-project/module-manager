@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
+	"strings"
 
 	"github.com/pkg/errors"
 	"helm.sh/helm/v3/pkg/kube"
@@ -15,11 +17,12 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	ctrl "sigs.k8s.io/controller-runtime"
 	yaml2 "sigs.k8s.io/yaml"
 )
 
 func GetNamespaceObjBytes(clientNs string) ([]byte, error) {
-	ns := v1.Namespace{
+	namespace := v1.Namespace{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "v1",
 			Kind:       "Namespace",
@@ -31,7 +34,7 @@ func GetNamespaceObjBytes(clientNs string) ([]byte, error) {
 			},
 		},
 	}
-	return yaml2.Marshal(ns)
+	return yaml2.Marshal(namespace)
 }
 
 func FilterExistingResources(resources kube.ResourceList) (kube.ResourceList, error) {
@@ -61,31 +64,32 @@ func FilterExistingResources(resources kube.ResourceList) (kube.ResourceList, er
 }
 
 func GetConfig(kubeConfig string, explicitPath string) (*rest.Config, error) {
+	logger := ctrl.Log.WithName("getRestConfig")
 	if kubeConfig != "" {
 		// parameter string
-		return clientcmd.BuildConfigFromKubeconfigGetter("", func() (config *clientcmdapi.Config, e error) {
-			fmt.Println("Found config from passed kubeconfig")
+		return clientcmd.BuildConfigFromKubeconfigGetter("", func() (*clientcmdapi.Config, error) {
+			logger.Info("Found config from passed kubeconfig")
 			return clientcmd.Load([]byte(kubeConfig))
 		})
 	}
 	// in-cluster config
 	config, err := rest.InClusterConfig()
 	if err == nil {
-		fmt.Println("Found config in-cluster")
+		logger.Info("Found config in-cluster")
 		return config, err
 	}
 
 	// kubeconfig flag
 	if flag.Lookup("kubeconfig") != nil {
 		if kubeconfig := flag.Lookup("kubeconfig").Value.String(); kubeconfig != "" {
-			fmt.Println("Found config from flags")
+			logger.Info("Found config from flags")
 			return clientcmd.BuildConfigFromFlags("", kubeconfig)
 		}
 	}
 
 	// env variable
 	if len(os.Getenv("KUBECONFIG")) > 0 {
-		fmt.Println("Found config from env")
+		logger.Info("Found config from env")
 		return clientcmd.BuildConfigFromFlags("masterURL", os.Getenv("KUBECONFIG"))
 	}
 
@@ -103,6 +107,39 @@ func GetConfig(kubeConfig string, explicitPath string) (*rest.Config, error) {
 		return nil, err
 	}
 
-	fmt.Printf("Found config file in: %s", clientConfig.ConfigAccess().GetDefaultFilename())
+	logger.Info(fmt.Sprintf("Found config file in: %s", clientConfig.ConfigAccess().GetDefaultFilename()))
 	return config, nil
+}
+
+func CleanFilePathJoin(root, dest string) (string, error) {
+	// On Windows, this is a drive separator. On UNIX-like, this is the path list separator.
+	// In neither case do we want to trust a TAR that contains these.
+	if strings.Contains(dest, ":") {
+		return "", errors.New("path contains ':', which is illegal")
+	}
+
+	// The Go tar library does not convert separators for us.
+	// We assume here, as we do elsewhere, that `\\` means a Windows path.
+	dest = strings.ReplaceAll(dest, "\\", "/")
+
+	// We want to alert the user that something bad was attempted. Cleaning it
+	// is not a good practice.
+	for _, part := range strings.Split(dest, "/") {
+		if part == ".." {
+			return "", errors.New("path contains '..', which is illegal")
+		}
+	}
+
+	// If a path is absolute, the creator of the TAR is doing something shady.
+	if path.IsAbs(dest) {
+		return "", errors.New("path is absolute, which is illegal")
+	}
+
+	// SecureJoin will do some cleaning, as well as some rudimentary checking of symlinks.
+	// newpath, err := securejoin.SecureJoin(root, dest)
+	// if err != nil {
+	//	return "", err
+	//}
+
+	return filepath.ToSlash("newpath"), nil
 }

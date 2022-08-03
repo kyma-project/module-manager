@@ -18,17 +18,21 @@ package main
 
 import (
 	"flag"
-	"github.com/kyma-project/manifest-operator/operator/pkg/types"
 	"os"
 	"time"
 
-	manifestv1alpha1 "github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
-	v1 "k8s.io/api/core/v1"
-	apiExtensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	"sigs.k8s.io/controller-runtime/pkg/cache"
-
+	"github.com/kyma-project/manifest-operator/operator/controllers"
 	opLabels "github.com/kyma-project/manifest-operator/operator/pkg/labels"
+	"github.com/kyma-project/manifest-operator/operator/pkg/types"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/rest"
+
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/healthz"
+
+	manifestv1alpha1 "github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
+	apiExtensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -38,59 +42,53 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-
-	componentv1alpha1 "github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
-	"github.com/kyma-project/manifest-operator/operator/controllers"
 	//+kubebuilder:scaffold:imports
 )
 
 var (
-	scheme   = runtime.NewScheme()
-	setupLog = ctrl.Log.WithName("setup")
+	scheme   = runtime.NewScheme()        //nolint:gochecknoglobals
+	setupLog = ctrl.Log.WithName("setup") //nolint:gochecknoglobals
 )
 
+const (
+	requeueSuccessIntervalDefault = 20 * time.Second
+	requeueFailureIntervalDefault = 10 * time.Second
+	requeueWaitingIntervalDefault = 2 * time.Second
+	workersCountDefault           = 4
+	rateLimiterBurstDefault       = 200
+	rateLimiterFrequencyDefault   = 30
+	failureBaseDelayDefault       = 1 * time.Second
+	failureMaxDelayDefault        = 1000 * time.Second
+	port                          = 9443
+	clientQPSDefault              = 150
+	clientBurstDefault            = 150
+)
+
+//nolint:gochecknoinits
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(manifestv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(apiExtensionsv1.AddToScheme(scheme))
 
-	utilruntime.Must(componentv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(manifestv1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
-func main() {
-	var metricsAddr string
-	var enableLeaderElection, verifyInstallation, customStateCheck bool
-	var probeAddr string
-	var requeueSuccessInterval, requeueFailureInterval, requeueWaitingInterval time.Duration
-	var concurrentReconciles, workersConcurrentManifests int
-	flag.StringVar(&metricsAddr, "metrics-bind-address", ":2020", "The address the metric endpoint binds to.")
-	flag.StringVar(&probeAddr, "health-probe-bind-address", ":2021", "The address the probe endpoint binds to.")
-	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
-		"Enable leader election for controller manager. "+
-			"Enabling this will ensure there is only one active controller manager.")
-	flag.DurationVar(&requeueSuccessInterval, "requeue-success-interval", 20*time.Second,
-		"Determines the duration after which an already successfully reconciled Kyma is enqueued for checking, "+
-			"if it's still in a consistent state.")
-	flag.DurationVar(&requeueFailureInterval, "requeue-failure-interval", 10*time.Second,
-		"Determines the duration after which a failing reconciliation is retried and "+
-			"enqueued for a next try at recovering (e.g. because an Remote Synchronization Interaction failed).")
-	flag.DurationVar(&requeueWaitingInterval, "requeue-waiting-interval", 3*time.Second,
-		"Determines the duration after which a pending reconciliation is requeued, "+
-			"if the operator decides that it needs to wait for a certain state to update before it can proceed "+
-			"(e.g. because of pending finalizers in the deletion process).")
-	flag.IntVar(&concurrentReconciles, "concurrent-reconciles", 1,
-		"Determines the number of concurrent reconciliations by the operator.")
-	flag.IntVar(&workersConcurrentManifests, "workers-concurrent-manifest", 4,
-		"Determines the number of concurrent manifest operations for a single resource by the operator.")
-	flag.BoolVar(&verifyInstallation, "verify-installation", false,
-		"Indicates if installed resources should be verified after installation, "+
-			"before marking the resource state to a consistent state.")
-	flag.BoolVar(&customStateCheck, "custom-state-check", false,
-		"Indicates if desired state should be checked on custom resources")
+type FlagVar struct {
+	metricsAddr                                                                              string
+	enableLeaderElection, verifyInstallation, customStateCheck                               bool
+	probeAddr                                                                                string
+	requeueSuccessInterval, requeueFailureInterval, requeueWaitingInterval                   time.Duration
+	failureBaseDelay, failureMaxDelay                                                        time.Duration
+	concurrentReconciles, workersConcurrentManifests, rateLimiterBurst, rateLimiterFrequency int
+	clientQPS                                                                                float64
+	clientBurst                                                                              int
+	listenerAddr                                                                             string
+}
 
+func main() {
+	flagVar := defineFlagVar()
 	opts := zap.Options{
 		Development: true,
 	}
@@ -99,65 +97,63 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
-	config := ctrl.GetConfigOrDie()
-	config.QPS = 150
-	config.Burst = 150
+	newCache := cache.BuilderWithOptions(cache.Options{
+		SelectorsByObject: cache.SelectorsByObject{
+			&v1.Secret{}: {
+				Label: labels.SelectorFromSet(
+					labels.Set{opLabels.ManagedBy: opLabels.KymaOperator},
+				),
+			},
+		},
+	})
 
+	config := ctrl.GetConfigOrDie()
+	config.QPS = float32(flagVar.clientQPS)
+	config.Burst = flagVar.clientBurst
+
+	setupWithManager(flagVar, newCache, scheme, config)
+}
+
+func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme *runtime.Scheme, config *rest.Config) {
 	mgr, err := ctrl.NewManager(config, ctrl.Options{
 		Scheme:                 scheme,
-		MetricsBindAddress:     metricsAddr,
-		Port:                   9443,
-		HealthProbeBindAddress: probeAddr,
-		LeaderElection:         enableLeaderElection,
+		MetricsBindAddress:     flagVar.metricsAddr,
+		Port:                   port,
+		HealthProbeBindAddress: flagVar.probeAddr,
+		LeaderElection:         flagVar.enableLeaderElection,
 		LeaderElectionID:       "7f5e28d0.kyma-project.io",
-		NewCache: cache.BuilderWithOptions(cache.Options{
-			SelectorsByObject: cache.SelectorsByObject{
-				&v1.Secret{}: {
-					Label: labels.SelectorFromSet(
-						labels.Set{opLabels.ManagedBy: opLabels.KymaOperator},
-					),
-				},
-				&v1.ConfigMap{}: {
-					Label: labels.SelectorFromSet(
-						labels.Set{opLabels.ManagedBy: opLabels.ManifestOperator},
-					),
-				},
-			},
-		}),
+		NewCache:               newCacheFunc,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
-
-	workersLogger := ctrl.Log.WithName("workers")
-	manifestWorkers := controllers.NewManifestWorkers(&workersLogger, workersConcurrentManifests)
 	context := ctrl.SetupSignalHandler()
-
+	workersLogger := ctrl.Log.WithName("workers")
+	manifestWorkers := controllers.NewManifestWorkers(&workersLogger, flagVar.workersConcurrentManifests)
 	codec, err := types.NewCodec()
 	if err != nil {
 		setupLog.Error(err, "unable to initialize codec")
 		os.Exit(1)
 	}
-
 	if err = (&controllers.ManifestReconciler{
 		Client:                  mgr.GetClient(),
 		Scheme:                  mgr.GetScheme(),
 		Workers:                 manifestWorkers,
-		MaxConcurrentReconciles: concurrentReconciles,
-		VerifyInstallation:      verifyInstallation,
-		CustomStateCheck:        customStateCheck,
+		MaxConcurrentReconciles: flagVar.concurrentReconciles,
+		VerifyInstallation:      flagVar.verifyInstallation,
+		CustomStateCheck:        flagVar.customStateCheck,
 		Codec:                   codec,
 		RequeueIntervals: controllers.RequeueIntervals{
-			Success: requeueSuccessInterval,
-			Failure: requeueFailureInterval,
-			Waiting: requeueWaitingInterval,
+			Success: flagVar.requeueSuccessInterval,
+			Failure: flagVar.requeueFailureInterval,
+			Waiting: flagVar.requeueWaitingInterval,
 		},
-	}).SetupWithManager(context, mgr); err != nil {
+	}).SetupWithManager(context, mgr, flagVar.failureBaseDelay, flagVar.failureMaxDelay,
+		flagVar.rateLimiterFrequency, flagVar.rateLimiterBurst, flagVar.listenerAddr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Manifest")
 		os.Exit(1)
 	}
-
 	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
 		if err = (&manifestv1alpha1.Manifest{}).SetupWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "Manifest")
@@ -174,10 +170,52 @@ func main() {
 		setupLog.Error(err, "unable to set up ready check")
 		os.Exit(1)
 	}
-
 	setupLog.Info("starting manager")
 	if err := mgr.Start(context); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+func defineFlagVar() *FlagVar {
+	flagVar := new(FlagVar)
+	flag.StringVar(&flagVar.metricsAddr, "metrics-bind-address", ":2020",
+		"The address the metric endpoint binds to.")
+	flag.StringVar(&flagVar.probeAddr, "health-probe-bind-address", ":2021",
+		"The address the probe endpoint binds to.")
+	flag.StringVar(&flagVar.listenerAddr, "listener-address", ":2022",
+		"The address the probe endpoint binds to.")
+	flag.BoolVar(&flagVar.enableLeaderElection, "leader-elect", false,
+		"Enable leader election for controller manager. "+
+			"Enabling this will ensure there is only one active controller manager.")
+	flag.DurationVar(&flagVar.requeueSuccessInterval, "requeue-success-interval", requeueSuccessIntervalDefault,
+		"Determines the duration after which an already successfully reconciled Kyma is "+
+			"enqueued for checking, if it's still in a consistent state.")
+	flag.DurationVar(&flagVar.requeueFailureInterval, "requeue-failure-interval", requeueFailureIntervalDefault,
+		"Determines the duration after which a failing reconciliation is retried and "+
+			"enqueued for a next try at recovering (e.g. because an Remote Synchronization Interaction failed).")
+	flag.DurationVar(&flagVar.requeueWaitingInterval, "requeue-waiting-interval", requeueWaitingIntervalDefault,
+		"Determines the duration after which a pending reconciliation is requeued, "+
+			"if the operator decides that it needs to wait for a certain state to update before it can proceed "+
+			"(e.g. because of pending finalizers in the deletion process).")
+	flag.IntVar(&flagVar.concurrentReconciles, "concurrent-reconciles", 1,
+		"Determines the number of concurrent reconciliations by the operator.")
+	flag.IntVar(&flagVar.workersConcurrentManifests, "workers-concurrent-manifest", workersCountDefault,
+		"Determines the number of concurrent manifest operations for a single resource by the operator.")
+	flag.BoolVar(&flagVar.verifyInstallation, "verify-installation", false,
+		"Indicates if installed resources should be verified after installation, "+
+			"before marking the resource state to a consistent state.")
+	flag.BoolVar(&flagVar.customStateCheck, "custom-state-check", false,
+		"Indicates if desired state should be checked on custom resources")
+	flag.IntVar(&flagVar.rateLimiterBurst, "rate-limiter-burst", rateLimiterBurstDefault,
+		"Indicates the burst value for the bucket rate limiter.")
+	flag.IntVar(&flagVar.rateLimiterFrequency, "rate-limiter-frequency", rateLimiterFrequencyDefault,
+		"Indicates the bucket rate limiter frequency, signifying no. of events per second.")
+	flag.DurationVar(&flagVar.failureBaseDelay, "failure-base-delay", failureBaseDelayDefault,
+		"Indicates the failure base delay in seconds for rate limiter.")
+	flag.DurationVar(&flagVar.failureMaxDelay, "failure-max-delay", failureMaxDelayDefault,
+		"Indicates the failure max delay in seconds")
+	flag.Float64Var(&flagVar.clientQPS, "k8s-client-qps", clientQPSDefault, "kubernetes client QPS")
+	flag.IntVar(&flagVar.clientBurst, "k8s-client-burst", clientBurstDefault, "kubernetes client Burst")
+	return flagVar
 }
