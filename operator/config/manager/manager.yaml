@@ -31,7 +31,7 @@ spec:
         - /manager
         args:
         - --leader-elect
-        image: adityabhatia/manifest:latest
+        image: controller:latest
         ports:
           - containerPort: 2029
         name: manager

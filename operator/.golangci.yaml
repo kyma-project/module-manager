@@ -24,7 +24,6 @@ linters:
     - tparallel
     - unparam
     - wastedassign
-    - exhaustruct
     - ireturn
 linters-settings:
   gci:

@@ -36,6 +36,7 @@ type ChartInfo struct {
 	Overrides    map[string]interface{}
 }
 
+// TODO: move Ctx out of struct.
 type DeployInfo struct {
 	Ctx            context.Context //nolint:containedctx
 	ManifestLabels map[string]string
