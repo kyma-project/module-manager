@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	securejoin "github.com/cyphar/filepath-securejoin"
+
 	"github.com/pkg/errors"
 	"helm.sh/helm/v3/pkg/kube"
 	v1 "k8s.io/api/core/v1"
@@ -136,10 +138,10 @@ func CleanFilePathJoin(root, dest string) (string, error) {
 	}
 
 	// SecureJoin will do some cleaning, as well as some rudimentary checking of symlinks.
-	// newpath, err := securejoin.SecureJoin(root, dest)
-	// if err != nil {
-	//	return "", err
-	//}
+	newpath, err := securejoin.SecureJoin(root, dest)
+	if err != nil {
+		return "", err
+	}
 
-	return filepath.ToSlash("newpath"), nil
+	return filepath.ToSlash(newpath), nil
 }
