@@ -90,35 +90,6 @@ spec:
                 - repo
                 - type
                 type: object
-              customStates:
-                description: CustomStates specifies a list of resources with their
-                  desires states for Manifest
-                items:
-                  properties:
-                    apiVersion:
-                      description: APIVersion defines api version of the custom resource
-                      type: string
-                    kind:
-                      description: Kind defines the kind of the custom resource
-                      type: string
-                    name:
-                      description: Name defines the name of the custom resource
-                      type: string
-                    namespace:
-                      description: Namespace defines the namespace of the custom resource
-                      type: string
-                    state:
-                      description: Namespace defines the desired state of the custom
-                        resource
-                      type: string
-                  required:
-                  - apiVersion
-                  - kind
-                  - name
-                  - namespace
-                  - state
-                  type: object
-                type: array
               installs:
                 description: Installs specifies a list of installations for Manifest
                 items:

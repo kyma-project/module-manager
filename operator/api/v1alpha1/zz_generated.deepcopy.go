@@ -22,7 +22,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"github.com/kyma-project/manifest-operator/operator/pkg/types"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -146,11 +145,6 @@ func (in *ManifestSpec) DeepCopyInto(out *ManifestSpec) {
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
-	}
-	if in.CustomStates != nil {
-		in, out := &in.CustomStates, &out.CustomStates
-		*out = make([]types.CustomState, len(*in))
-		copy(*out, *in)
 	}
 	in.Resource.DeepCopyInto(&out.Resource)
 	out.CRDs = in.CRDs

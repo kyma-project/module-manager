@@ -49,10 +49,6 @@ type ManifestSpec struct {
 	// Installs specifies a list of installations for Manifest
 	Installs []InstallInfo `json:"installs"`
 
-	// CustomStates specifies a list of resources with their desires states for Manifest
-	// +kubebuilder:validation:Optional
-	CustomStates []types.CustomState `json:"customStates"`
-
 	//+kubebuilder:pruning:PreserveUnknownFields
 	// +kubebuilder:validation:Optional
 	// Resource specifies a resource to be watched for state updates
