@@ -20,10 +20,10 @@ type SKREventsHandler struct {
 
 func (h *SKREventsHandler) HandleSKREvents(ctx context.Context) *handler.Funcs {
 	return &handler.Funcs{
-		GenericFunc: func(e event.GenericEvent, q workqueue.RateLimitingInterface) {
+		GenericFunc: func(evt event.GenericEvent, queue workqueue.RateLimitingInterface) {
 			logger := log.FromContext(ctx)
 			logger.WithName("listener").Info("Dispatching SKR event to the queue")
-			evtObject := e.Object
+			evtObject := evt.Object
 			namespacedName := client.ObjectKeyFromObject(evtObject)
 			kymaName, ok := evtObject.GetLabels()[labels.ComponentOwner]
 			if !ok {
@@ -54,14 +54,15 @@ func (h *SKREventsHandler) HandleSKREvents(ctx context.Context) *handler.Funcs {
 				return
 			}
 
-			q.Add(ctrl.Request{
+			queue.Add(ctrl.Request{
 				NamespacedName: client.ObjectKeyFromObject(manifestCRForComponent),
 			})
 		},
 	}
 }
 
-func findManifestForResource(namespacedName client.ObjectKey, manifests []v1alpha1.Manifest) (*v1alpha1.Manifest, error) {
+func findManifestForResource(namespacedName client.ObjectKey,
+	manifests []v1alpha1.Manifest) (*v1alpha1.Manifest, error) {
 	for _, manifestCR := range manifests {
 		equalObjectKeyPredicate := manifestCR.Spec.Resource.GetName() == namespacedName.Name &&
 			manifestCR.Spec.Resource.GetNamespace() == namespacedName.Namespace
