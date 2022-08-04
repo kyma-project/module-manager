@@ -4,6 +4,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/kyma-project/manifest-operator/operator/pkg/resource"
+	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
 	"github.com/go-logr/logr"
 	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
 	manifestRest "github.com/kyma-project/manifest-operator/operator/pkg/rest"
@@ -37,20 +41,25 @@ type ChartInfo struct {
 }
 
 // TODO: move Ctx out of struct.
-type DeployInfo struct {
-	Ctx            context.Context //nolint:containedctx
-	ManifestLabels map[string]string
+type InstallInfo struct {
 	*ChartInfo
-	client.ObjectKey
-	RestConfig *rest.Config
-	CheckFn    custom.CheckFnType
-	ReadyCheck bool
+	ResourceInfo
+	custom.RemoteInfo
+	Ctx              context.Context //nolint:containedctx
+	CheckFn          custom.CheckFnType
+	CheckReadyStates bool
 }
 
-type ResponseChan chan *ChartResponse
+type ResourceInfo struct {
+	BaseResource    *unstructured.Unstructured
+	CustomResources []*unstructured.Unstructured
+	Crds            []*apiextensions.CustomResourceDefinition
+}
+
+type ResponseChan chan *InstallResponse
 
 // nolint:errname
-type ChartResponse struct {
+type InstallResponse struct {
 	Ready             bool
 	ChartName         string
 	ClientConfig      map[string]interface{}
@@ -59,7 +68,7 @@ type ChartResponse struct {
 	Err               error
 }
 
-func (r *ChartResponse) Error() string {
+func (r *InstallResponse) Error() string {
 	return r.Err.Error()
 }
 
@@ -99,7 +108,7 @@ func NewOperations(logger *logr.Logger, restConfig *rest.Config, releaseName str
 	return operations, nil
 }
 
-func (o *Operations) getClusterResources(deployInfo DeployInfo, operation HelmOperation) (kube.ResourceList,
+func (o *Operations) getClusterResources(deployInfo InstallInfo, operation HelmOperation) (kube.ResourceList,
 	kube.ResourceList, error,
 ) {
 	if deployInfo.ChartPath == "" {
@@ -130,7 +139,7 @@ func (o *Operations) getClusterResources(deployInfo DeployInfo, operation HelmOp
 	return targetResources, existingResources, nil
 }
 
-func (o *Operations) VerifyResources(deployInfo DeployInfo) (bool, error) {
+func (o *Operations) VerifyResources(deployInfo InstallInfo) (bool, error) {
 	targetResources, existingResources, err := o.getClusterResources(deployInfo, "")
 	if err != nil {
 		return false, errors.Wrap(err, "could not render current resources from manifest")
@@ -138,11 +147,20 @@ func (o *Operations) VerifyResources(deployInfo DeployInfo) (bool, error) {
 	if len(targetResources) > len(existingResources) {
 		return false, nil
 	}
-	return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.ManifestLabels, deployInfo.ObjectKey,
-		o.logger)
+	return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.BaseResource, o.logger, deployInfo.RemoteInfo)
 }
 
-func (o *Operations) Install(deployInfo DeployInfo) (bool, error) {
+func (o *Operations) Install(deployInfo InstallInfo) (bool, error) {
+	// install crds first - if present do not update!
+	if err := resource.CreateCRDs(deployInfo.Ctx, deployInfo.Crds, *deployInfo.RemoteClient); err != nil {
+		return false, err
+	}
+
+	// install crs - if present do not update!
+	if err := resource.CreateCRs(deployInfo.Ctx, deployInfo.CustomResources, *deployInfo.RemoteClient); err != nil {
+		return false, err
+	}
+
 	targetResources, existingResources, err := o.getClusterResources(deployInfo, OperationCreate)
 	if err != nil {
 		return false, err
@@ -163,7 +181,7 @@ func (o *Operations) Install(deployInfo DeployInfo) (bool, error) {
 		return false, err
 	}
 
-	if deployInfo.ReadyCheck {
+	if deployInfo.CheckReadyStates {
 		// check target resources are ready without waiting
 		if ready, err := o.helmClient.CheckReadyState(deployInfo.Ctx, targetResources); !ready || err != nil {
 			return ready, err
@@ -179,10 +197,10 @@ func (o *Operations) Install(deployInfo DeployInfo) (bool, error) {
 	}
 
 	// custom states check
-	return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.ManifestLabels, deployInfo.ObjectKey, o.logger)
+	return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.BaseResource, o.logger, deployInfo.RemoteInfo)
 }
 
-func (o *Operations) Uninstall(deployInfo DeployInfo) (bool, error) {
+func (o *Operations) Uninstall(deployInfo InstallInfo) (bool, error) {
 	targetResources, existingResources, err := o.getClusterResources(deployInfo, OperationDelete)
 	if err != nil {
 		return false, err
@@ -210,8 +228,18 @@ func (o *Operations) Uninstall(deployInfo DeployInfo) (bool, error) {
 		return false, err
 	}
 
+	// delete crs first - if not present ignore!
+	if err := resource.RemoveCRs(deployInfo.Ctx, deployInfo.CustomResources, *deployInfo.RemoteClient); err != nil {
+		return false, err
+	}
+
+	// delete crds first - if not present ignore!
+	if err := resource.RemoveCRDs(deployInfo.Ctx, deployInfo.Crds, *deployInfo.RemoteClient); err != nil {
+		return false, err
+	}
+
 	// custom states check
-	return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.ManifestLabels, deployInfo.ObjectKey, o.logger)
+	return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.BaseResource, o.logger, deployInfo.RemoteInfo)
 }
 
 func (o *Operations) getManifestForChartPath(chartPath, chartName string, actionClient *action.Install,

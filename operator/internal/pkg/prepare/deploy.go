@@ -7,14 +7,16 @@ import (
 
 	"github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
 	manifestCustom "github.com/kyma-project/manifest-operator/operator/internal/pkg/custom"
-	"github.com/kyma-project/manifest-operator/operator/pkg/crd"
 	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
 	"github.com/kyma-project/manifest-operator/operator/pkg/descriptor"
 	"github.com/kyma-project/manifest-operator/operator/pkg/labels"
 	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
+	"github.com/kyma-project/manifest-operator/operator/pkg/resource"
 	"github.com/kyma-project/manifest-operator/operator/pkg/types"
 	"helm.sh/helm/v3/pkg/strvals"
+	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -24,9 +26,9 @@ const (
 	configFileName  = "installConfig.yaml"
 )
 
-func GetDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClient client.Client,
-	verifyInstallation bool, customStateCheck bool, codec *types.Codec,
-) ([]manifest.DeployInfo, error) {
+func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClient client.Client,
+	checkReadyStates bool, customStateCheck bool, codec *types.Codec,
+) ([]manifest.InstallInfo, error) {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 	kymaOwnerLabel, labelExists := manifestObj.Labels[labels.ComponentOwner]
 	if !labelExists {
@@ -67,24 +69,33 @@ func GetDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, default
 	}
 
 	// check crds - if present do not update
-	if err = installCrds(ctx, destinationClient, &manifestObj.Spec.CRDs); err != nil {
+	crds, err := parseCrds(ctx, destinationClient, &manifestObj.Spec.CRDs)
+	if err != nil {
 		return nil, err
 	}
 
-	// check cr - if present do to not update
-	if err = installCr(ctx, destinationClient, &manifestObj.Spec.Resource); err != nil {
+	manifestObjMetadata, err := runtime.DefaultUnstructuredConverter.ToUnstructured(manifestObj)
+	if err != nil {
 		return nil, err
 	}
 
 	// parse installs
-	baseDeployInfo := manifest.DeployInfo{
-		Ctx:            ctx,
-		ManifestLabels: manifestObj.Labels,
-		ObjectKey:      namespacedName,
-		RestConfig:     restConfig,
-		CheckFn:        customResCheck.DefaultFn,
-		ReadyCheck:     verifyInstallation,
+	baseDeployInfo := manifest.InstallInfo{
+		RemoteInfo: custom.RemoteInfo{
+			RemoteConfig: restConfig,
+			RemoteClient: &destinationClient,
+		},
+		ResourceInfo: manifest.ResourceInfo{
+			Crds:            crds,
+			BaseResource:    &unstructured.Unstructured{Object: manifestObjMetadata},
+			CustomResources: []*unstructured.Unstructured{&manifestObj.Spec.Resource},
+		},
+		Ctx:              ctx,
+		CheckFn:          customResCheck.DefaultFn,
+		CheckReadyStates: checkReadyStates,
 	}
+
+	// replace with check function that checks for readiness of custom resources
 	if customStateCheck {
 		baseDeployInfo.CheckFn = customResCheck.CheckFn
 	}
@@ -93,10 +104,10 @@ func GetDeployInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, default
 }
 
 func parseInstallations(manifestObj *v1alpha1.Manifest, codec *types.Codec,
-	configs []interface{}, baseDeployInfo manifest.DeployInfo,
-) ([]manifest.DeployInfo, error) {
+	configs []interface{}, baseDeployInfo manifest.InstallInfo,
+) ([]manifest.InstallInfo, error) {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
-	deployInfos := make([]manifest.DeployInfo, 0)
+	deployInfos := make([]manifest.InstallInfo, 0)
 
 	for _, install := range manifestObj.Spec.Installs {
 		deployInfo := baseDeployInfo
@@ -125,47 +136,21 @@ func parseInstallations(manifestObj *v1alpha1.Manifest, codec *types.Codec,
 	return deployInfos, nil
 }
 
-func installCrds(ctx context.Context, destinationClient client.Client, crdImage *types.ImageSpec) error {
+func parseCrds(ctx context.Context, destinationClient client.Client, crdImage *types.ImageSpec,
+) ([]*v1.CustomResourceDefinition, error) {
+	// if crds do not exist - do nothing
 	if crdImage == nil {
-		return nil
+		return nil, nil
 	}
 
 	// extract helm chart from layer digest
 	crdsPath, err := descriptor.GetPathFromExtractedTarGz(crdImage.Repo, crdImage.Name, crdImage.Ref,
 		fmt.Sprintf("%s-%s", crdImage.Name, crdImage.Ref))
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	crds, err := crd.GetCRDsFromPath(ctx, crdsPath)
-	if err != nil {
-		return err
-	}
-
-	return crd.CreateCRDs(ctx, crds, destinationClient)
-}
-
-func installCr(ctx context.Context, destinationClient client.Client, resource *unstructured.Unstructured) error {
-	// check resource
-	if resource == nil {
-		return nil
-	}
-
-	existingCustomResource := unstructured.Unstructured{}
-	existingCustomResource.SetGroupVersionKind(resource.GroupVersionKind())
-	customResourceKey := client.ObjectKey{
-		Name:      resource.GetName(),
-		Namespace: resource.GetNamespace(),
-	}
-	err := destinationClient.Get(ctx, customResourceKey, &existingCustomResource)
-	if client.IgnoreNotFound(err) != nil {
-		return err
-	}
-	if err != nil {
-		return destinationClient.Create(ctx, resource)
-	}
-
-	return nil
+	return resource.GetCRDsFromPath(ctx, crdsPath)
 }
 
 func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *types.Codec,
