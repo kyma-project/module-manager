@@ -30,7 +30,7 @@ import (
 	"github.com/kyma-project/manifest-operator/operator/internal/pkg/util"
 	"github.com/kyma-project/manifest-operator/operator/pkg/ratelimit"
 	"github.com/kyma-project/manifest-operator/operator/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/event"
+	"github.com/kyma-project/manifest-operator/operator/pkg/watch"
 
 	"github.com/go-logr/logr"
 	"github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
@@ -418,18 +418,16 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Manifest{}).
 		Watches(&source.Kind{Type: &v1.Secret{}}, handler.Funcs{}).
-		Watches(eventChannel, &handler.Funcs{
-			GenericFunc: func(e event.GenericEvent, q workqueue.RateLimitingInterface) {
-				logger := log.FromContext(ctx)
-				logger.WithName("listener").Info("event coming from SKR adding to queue")
-				q.Add(ctrl.Request{
-					NamespacedName: client.ObjectKeyFromObject(e.Object),
-				})
-			},
-		}).
+		Watches(eventChannel, r.skrEventsHandler().HandleSKREvents(ctx)).
 		WithOptions(controller.Options{
 			RateLimiter:             ManifestRateLimiter(failureBaseDelay, failureMaxDelay, frequency, burst),
 			MaxConcurrentReconciles: r.MaxConcurrentReconciles,
 		}).
 		Complete(r)
+}
+
+func (r *ManifestReconciler) skrEventsHandler() *watch.SKREventsHandler {
+	return &watch.SKREventsHandler{
+		Reader: r.Client,
+	}
 }
