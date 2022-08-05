@@ -120,10 +120,10 @@ func CreateCRDs(ctx context.Context, crds []*apiextensionsv1.CustomResourceDefin
 			if client.IgnoreNotFound(err) != nil {
 				return err
 			}
-			continue
-		}
-		if err := destinationClient.Create(ctx, crd); err != nil {
-			return err
+
+			if err = destinationClient.Create(ctx, crd); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -143,10 +143,10 @@ func CreateCRs(ctx context.Context, crs []*unstructured.Unstructured,
 			if client.IgnoreNotFound(err) != nil {
 				return err
 			}
-			continue
-		}
-		if err := destinationClient.Create(ctx, resource); err != nil {
-			return err
+
+			if err = destinationClient.Create(ctx, resource); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -188,7 +188,7 @@ func RemoveCRs(ctx context.Context, crs []*unstructured.Unstructured,
 			continue
 		}
 
-		if err := destinationClient.Create(ctx, resource); err != nil {
+		if err := destinationClient.Delete(ctx, resource); err != nil {
 			return err
 		}
 	}
