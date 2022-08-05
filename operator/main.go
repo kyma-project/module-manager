@@ -77,7 +77,7 @@ func init() {
 
 type FlagVar struct {
 	metricsAddr                                                                              string
-	enableLeaderElection, verifyInstallation, customStateCheck                               bool
+	enableLeaderElection, checkReadyStates, customStateCheck                                 bool
 	probeAddr                                                                                string
 	requeueSuccessInterval, requeueFailureInterval, requeueWaitingInterval                   time.Duration
 	failureBaseDelay, failureMaxDelay                                                        time.Duration
@@ -141,7 +141,7 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 		Scheme:                  mgr.GetScheme(),
 		Workers:                 manifestWorkers,
 		MaxConcurrentReconciles: flagVar.concurrentReconciles,
-		VerifyInstallation:      flagVar.verifyInstallation,
+		CheckReadyStates:        flagVar.checkReadyStates,
 		CustomStateCheck:        flagVar.customStateCheck,
 		Codec:                   codec,
 		RequeueIntervals: controllers.RequeueIntervals{
@@ -202,11 +202,11 @@ func defineFlagVar() *FlagVar {
 		"Determines the number of concurrent reconciliations by the operator.")
 	flag.IntVar(&flagVar.workersConcurrentManifests, "workers-concurrent-manifest", workersCountDefault,
 		"Determines the number of concurrent manifest operations for a single resource by the operator.")
-	flag.BoolVar(&flagVar.verifyInstallation, "verify-installation", false,
+	flag.BoolVar(&flagVar.checkReadyStates, "check-ready-states", false,
 		"Indicates if installed resources should be verified after installation, "+
 			"before marking the resource state to a consistent state.")
 	flag.BoolVar(&flagVar.customStateCheck, "custom-state-check", false,
-		"Indicates if desired state should be checked on custom resources")
+		"Indicates if desired state should be checked on custom resource(s)")
 	flag.IntVar(&flagVar.rateLimiterBurst, "rate-limiter-burst", rateLimiterBurstDefault,
 		"Indicates the burst value for the bucket rate limiter.")
 	flag.IntVar(&flagVar.rateLimiterFrequency, "rate-limiter-frequency", rateLimiterFrequencyDefault,

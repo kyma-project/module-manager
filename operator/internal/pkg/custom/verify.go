@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
 	"github.com/go-logr/logr"
-	"github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
 	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
-	"github.com/kyma-project/manifest-operator/operator/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -16,48 +16,24 @@ type Resource struct {
 	custom.Check
 }
 
-func (r *Resource) DefaultFn(context.Context, map[string]string, client.ObjectKey, *logr.Logger) (bool, error) {
+func (r *Resource) DefaultFn(context.Context, *unstructured.Unstructured, *logr.Logger,
+	custom.RemoteInfo,
+) (bool, error) {
 	return true, nil
 }
 
-func (r *Resource) CheckFn(ctx context.Context, manifestLabels map[string]string,
-	namespacedName client.ObjectKey, logger *logr.Logger,
+func (r *Resource) CheckFn(ctx context.Context, manifestObj *unstructured.Unstructured, logger *logr.Logger,
+	remoteInfo custom.RemoteInfo,
 ) (bool, error) {
-	kymaOwnerLabel, ok := manifestLabels[labels.ComponentOwner]
-	if !ok {
-		err := fmt.Errorf("label %s not set for manifest resource %s", labels.ComponentOwner, namespacedName)
-		logger.Error(err, "")
-		return false, err
-	}
-
-	// evaluate rest config
-	clusterClient := &custom.ClusterClient{DefaultClient: r.DefaultClient}
-	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, namespacedName.Namespace)
-	if err != nil {
-		logger.Error(err, fmt.Sprintf("error while evaluating rest config for manifest resource %s",
-			namespacedName))
-		return false, err
-	}
-
-	customClient, err := clusterClient.GetNewClient(restConfig, client.Options{})
-	if err != nil {
-		logger.Error(err, fmt.Sprintf("error while evaluating target client for manifest resource %s",
-			namespacedName))
-		return false, err
-	}
+	resource := manifestObj.Object["spec"].(map[string]interface{})["resource"].(*unstructured.Unstructured)
+	namespacedName := client.ObjectKeyFromObject(manifestObj)
 
 	// check custom resource for states
 	customStatus := &custom.Status{
-		Reader: customClient,
+		Reader: *remoteInfo.RemoteClient,
 	}
 
-	manifestObj := v1alpha1.Manifest{}
-	if err = r.DefaultClient.Get(ctx, namespacedName, &manifestObj); err != nil {
-		return false, err
-	}
-
-	ready, err := customStatus.WaitForCustomResources(ctx, manifestObj.Spec.CustomStates,
-		&manifestObj.Spec.Resource)
+	ready, err := customStatus.WaitForCustomResources(ctx, resource)
 	if err != nil {
 		logger.Error(err,
 			fmt.Sprintf("error while tracking status of custom resources for manifest %s",

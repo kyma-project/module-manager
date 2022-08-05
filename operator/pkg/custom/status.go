@@ -3,7 +3,6 @@ package custom
 import (
 	"context"
 
-	"github.com/kyma-project/manifest-operator/operator/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -17,32 +16,9 @@ type Status struct {
 // TODO: Define centrally.
 const readyState = "Ready"
 
-func (c *Status) WaitForCustomResources(ctx context.Context, customWaitResource []types.CustomState,
-	stateResource *unstructured.Unstructured,
+func (c *Status) WaitForCustomResources(ctx context.Context, stateResource *unstructured.Unstructured,
 ) (bool, error) {
-	// custom states
-	for _, res := range customWaitResource {
-		obj := &unstructured.Unstructured{}
-		obj.SetAPIVersion(res.APIVersion)
-		obj.SetKind(res.Kind)
-		namespacedName := client.ObjectKey{Name: res.Name, Namespace: res.Namespace}
-
-		// if not found or any misc error occurred - return!
-		if err := c.Get(ctx, namespacedName, obj); err != nil {
-			return false, err
-		}
-
-		state, err := getStateFieldFromUnstructured(obj)
-		if err != nil {
-			return false, err
-		}
-
-		if state != res.State {
-			return false, nil
-		}
-	}
-
-	// resource
+	// unstructured resource containing .status.state
 	if stateResource != nil {
 		existingStateResource := &unstructured.Unstructured{}
 		existingStateResource.SetGroupVersionKind(stateResource.GroupVersionKind())

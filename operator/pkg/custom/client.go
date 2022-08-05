@@ -13,6 +13,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+type RemoteInfo struct {
+	RemoteConfig *rest.Config
+	RemoteClient *client.Client
+}
+
 type ClusterClient struct {
 	DefaultClient client.Client
 }

@@ -1,4 +1,4 @@
-package crd
+package resource
 
 import (
 	"bufio"
@@ -10,7 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -116,15 +116,80 @@ func CreateCRDs(ctx context.Context, crds []*apiextensionsv1.CustomResourceDefin
 ) error {
 	for _, crd := range crds {
 		existingCrd := apiextensionsv1.CustomResourceDefinition{}
-		err := destinationClient.Get(ctx, client.ObjectKeyFromObject(crd), &existingCrd)
-		if err != nil {
-			if errors.IsNotFound(err) {
-				if err = destinationClient.Create(ctx, crd); err != nil {
-					return err
-				}
-			} else {
+		if err := destinationClient.Get(ctx, client.ObjectKeyFromObject(crd), &existingCrd); err != nil {
+			if client.IgnoreNotFound(err) != nil {
 				return err
 			}
+
+			if err = destinationClient.Create(ctx, crd); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func CreateCRs(ctx context.Context, crs []*unstructured.Unstructured,
+	destinationClient client.Client,
+) error {
+	for _, resource := range crs {
+		existingCustomResource := unstructured.Unstructured{}
+		existingCustomResource.SetGroupVersionKind(resource.GroupVersionKind())
+		customResourceKey := client.ObjectKey{
+			Name:      resource.GetName(),
+			Namespace: resource.GetNamespace(),
+		}
+		if err := destinationClient.Get(ctx, customResourceKey, &existingCustomResource); err != nil {
+			if client.IgnoreNotFound(err) != nil {
+				return err
+			}
+
+			if err = destinationClient.Create(ctx, resource); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func RemoveCRDs(ctx context.Context, crds []*apiextensionsv1.CustomResourceDefinition,
+	destinationClient client.Client,
+) error {
+	for _, crd := range crds {
+		existingCrd := apiextensionsv1.CustomResourceDefinition{}
+		if err := destinationClient.Get(ctx, client.ObjectKeyFromObject(crd), &existingCrd); err != nil {
+			if client.IgnoreNotFound(err) != nil {
+				return err
+			}
+			continue
+		}
+
+		if err := destinationClient.Delete(ctx, &existingCrd); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func RemoveCRs(ctx context.Context, crs []*unstructured.Unstructured,
+	destinationClient client.Client,
+) error {
+	for _, resource := range crs {
+		existingCustomResource := unstructured.Unstructured{}
+		existingCustomResource.SetGroupVersionKind(resource.GroupVersionKind())
+		customResourceKey := client.ObjectKey{
+			Name:      resource.GetName(),
+			Namespace: resource.GetNamespace(),
+		}
+		if err := destinationClient.Get(ctx, customResourceKey, &existingCustomResource); err != nil {
+			if client.IgnoreNotFound(err) != nil {
+				return err
+			}
+			continue
+		}
+
+		if err := destinationClient.Delete(ctx, resource); err != nil {
+			return err
 		}
 	}
 	return nil
