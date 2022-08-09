@@ -205,7 +205,7 @@ func defineFlagVar() *FlagVar {
 	flag.BoolVar(&flagVar.checkReadyStates, "check-ready-states", false,
 		"Indicates if installed resources should be verified after installation, "+
 			"before marking the resource state to a consistent state.")
-	flag.BoolVar(&flagVar.customStateCheck, "custom-state-check", false,
+	flag.BoolVar(&flagVar.customStateCheck, "custom-state-check", true,
 		"Indicates if desired state should be checked on custom resource(s)")
 	flag.IntVar(&flagVar.rateLimiterBurst, "rate-limiter-burst", rateLimiterBurstDefault,
 		"Indicates the burst value for the bucket rate limiter.")
