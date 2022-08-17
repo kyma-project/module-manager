@@ -5,6 +5,8 @@ import (
 	"compress/gzip"
 	"errors"
 	"fmt"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/kyma-project/manifest-operator/operator/pkg/types"
 	"io"
 	"os"
 	"path/filepath"
@@ -22,15 +24,22 @@ const (
 	yamlDecodeBufferSize            = 2048
 )
 
-func GetPathFromExtractedTarGz(repo string, module string, digest string, pathPattern string) (string, error) {
-	reference := fmt.Sprintf("%s/%s@%s", repo, module, digest)
-	layer, err := crane.PullLayer(reference)
+func GetPathFromExtractedTarGz(imageSpec *types.ImageSpec, insecureRegistry bool) (string, error) {
+	reference := fmt.Sprintf("%s/%s@%s", imageSpec.Repo, imageSpec.Name, imageSpec.Ref)
+	var layer v1.Layer
+	var err error
+	if insecureRegistry {
+		layer, err = crane.PullLayer(reference, crane.Insecure)
+	} else {
+		layer, err = crane.PullLayer(reference)
+	}
+
 	if err != nil {
 		return "", err
 	}
 
 	// check existing dir
-	installPath := filepath.Join(os.TempDir(), pathPattern)
+	installPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s-%s", imageSpec.Name, imageSpec.Ref))
 	dir, err := os.Open(installPath)
 	if err != nil && !os.IsNotExist(err) {
 		return "", fmt.Errorf("opening dir for installs caused an error %s: %w", reference, err)
@@ -149,7 +158,10 @@ func writeYamlContent(blob io.ReadCloser, layerReference string, filePath string
 	var decodedConfig interface{}
 	err := yaml.NewYAMLOrJSONDecoder(blob, yamlDecodeBufferSize).Decode(&decodedConfig)
 	if err != nil {
-		return nil, fmt.Errorf("yaml blob decoding resulted in an error %s: %w", layerReference, err)
+		if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+			return nil, fmt.Errorf("yaml blob decoding resulted in an error %s: %w", layerReference, err)
+		}
+		return nil, nil
 	}
 
 	bytes, err := yaml2.Marshal(decodedConfig)

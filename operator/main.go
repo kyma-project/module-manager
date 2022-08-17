@@ -77,7 +77,7 @@ func init() {
 
 type FlagVar struct {
 	metricsAddr                                                                              string
-	enableLeaderElection, checkReadyStates, customStateCheck                                 bool
+	enableLeaderElection, checkReadyStates, customStateCheck, insecureRegistry               bool
 	probeAddr                                                                                string
 	requeueSuccessInterval, requeueFailureInterval, requeueWaitingInterval                   time.Duration
 	failureBaseDelay, failureMaxDelay                                                        time.Duration
@@ -144,6 +144,7 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 		CheckReadyStates:        flagVar.checkReadyStates,
 		CustomStateCheck:        flagVar.customStateCheck,
 		Codec:                   codec,
+		InsecureRegistry:        flagVar.insecureRegistry,
 		RequeueIntervals: controllers.RequeueIntervals{
 			Success: flagVar.requeueSuccessInterval,
 			Failure: flagVar.requeueFailureInterval,
@@ -154,7 +155,7 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 		setupLog.Error(err, "unable to create controller", "controller", "Manifest")
 		os.Exit(1)
 	}
-	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
+	if os.Getenv("ENABLE_WEBHOOKS") == "true" {
 		if err = (&manifestv1alpha1.Manifest{}).SetupWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "Manifest")
 			os.Exit(1)
@@ -217,5 +218,7 @@ func defineFlagVar() *FlagVar {
 		"Indicates the failure max delay in seconds")
 	flag.Float64Var(&flagVar.clientQPS, "k8s-client-qps", clientQPSDefault, "kubernetes client QPS")
 	flag.IntVar(&flagVar.clientBurst, "k8s-client-burst", clientBurstDefault, "kubernetes client Burst")
+	flag.BoolVar(&flagVar.insecureRegistry, "insecure-registry", false,
+		"indicates if insecure (http) response is expected from image registry")
 	return flagVar
 }

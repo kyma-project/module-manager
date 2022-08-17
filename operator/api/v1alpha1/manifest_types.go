@@ -56,7 +56,7 @@ type ManifestSpec struct {
 
 	// CRDs specifies the custom resource definitions' ImageSpec
 	// +kubebuilder:validation:Optional
-	CRDs types.ImageSpec `json:"crds"`
+	CRDs *types.ImageSpec `json:"crds"`
 }
 
 // +kubebuilder:validation:Enum=Processing;Deleting;Ready;Error
