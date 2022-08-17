@@ -5,11 +5,12 @@ import (
 	"compress/gzip"
 	"errors"
 	"fmt"
-	v1 "github.com/google/go-containerregistry/pkg/v1"
-	"github.com/kyma-project/manifest-operator/operator/pkg/types"
 	"io"
 	"os"
 	"path/filepath"
+
+	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/kyma-project/manifest-operator/operator/pkg/types"
 
 	"github.com/google/go-containerregistry/pkg/crane"
 	"github.com/kyma-project/manifest-operator/operator/pkg/util"
@@ -158,10 +159,7 @@ func writeYamlContent(blob io.ReadCloser, layerReference string, filePath string
 	var decodedConfig interface{}
 	err := yaml.NewYAMLOrJSONDecoder(blob, yamlDecodeBufferSize).Decode(&decodedConfig)
 	if err != nil {
-		if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
-			return nil, fmt.Errorf("yaml blob decoding resulted in an error %s: %w", layerReference, err)
-		}
-		return nil, nil
+		return nil, fmt.Errorf("yaml blob decoding resulted in an error %s: %w", layerReference, err)
 	}
 
 	bytes, err := yaml2.Marshal(decodedConfig)

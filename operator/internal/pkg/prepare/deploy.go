@@ -2,7 +2,9 @@ package prepare
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 
 	"github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
@@ -41,11 +43,13 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 
 	decodedConfig, err := descriptor.DecodeYamlFromDigest(config.Repo, config.Name, config.Ref,
 		filepath.Join(config.Ref, configFileName))
-	if err != nil {
-		return nil, err
-	}
 	var configs []interface{}
-	if decodedConfig != nil {
+	if err != nil {
+		// if EOF error proceed without config
+		if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+			return nil, err
+		}
+	} else {
 		installConfigObj, ok := decodedConfig.(map[string]interface{})
 		if !ok {
 			return nil, fmt.Errorf(configReadError, ".spec.config", namespacedName)
