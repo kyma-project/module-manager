@@ -143,10 +143,10 @@ func parseInstallations(manifestObj *v1alpha1.Manifest, codec *types.Codec,
 	return deployInfos, nil
 }
 
-func parseCrds(ctx context.Context, crdImage *types.ImageSpec, insecureRegistry bool,
+func parseCrds(ctx context.Context, crdImage types.ImageSpec, insecureRegistry bool,
 ) ([]*v1.CustomResourceDefinition, error) {
 	// if crds do not exist - do nothing
-	if crdImage == nil {
+	if crdImage.Type == types.NilRefType {
 		return nil, nil
 	}
 
@@ -188,7 +188,7 @@ func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *types.Codec,
 		}
 
 		// extract helm chart from layer digest
-		chartPath, err := descriptor.GetPathFromExtractedTarGz(&imageSpec, insecureRegistry)
+		chartPath, err := descriptor.GetPathFromExtractedTarGz(imageSpec, insecureRegistry)
 		if err != nil {
 			return nil, err
 		}

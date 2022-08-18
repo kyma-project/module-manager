@@ -25,7 +25,7 @@ const (
 	yamlDecodeBufferSize            = 2048
 )
 
-func GetPathFromExtractedTarGz(imageSpec *types.ImageSpec, insecureRegistry bool) (string, error) {
+func GetPathFromExtractedTarGz(imageSpec types.ImageSpec, insecureRegistry bool) (string, error) {
 	reference := fmt.Sprintf("%s/%s@%s", imageSpec.Repo, imageSpec.Name, imageSpec.Ref)
 	var layer v1.Layer
 	var err error
