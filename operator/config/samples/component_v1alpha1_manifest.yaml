@@ -8,11 +8,6 @@ metadata:
   name: manifestkyma-sample
   namespace: default
 spec:
-  crds:
-    ref: sha256:743134e30217d798d3dd36e76965800f90faddf9204d547a13363248b4ab473c
-    name: kyma-project.io/module/example
-    repo: k3d-registry.localhost:52445/signed/component-descriptors
-    type: oci-ref
   resource:
     kind: SampleCRD
     resource: samplecrds
@@ -23,15 +18,15 @@ spec:
     spec:
       randomkey: samplevalue
   config:
-    ref: sha256:c9f7103442b88057edc02bc90e101e93b43c79a6137aa1b2cfb3b44f1a8f3255
-    name: kyma-project.io/module/example
-    repo: k3d-registry.localhost:52445/signed/component-descriptors
+    ref: sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+    name: kyma.project.io/module/template
+    repo: kcp-registry.localhost:61370/unsigned/component-descriptors
     type: oci-ref
   installs:
     - source:
-        name: kyma-project.io/module/example
-        repo: k3d-registry.localhost:52445/signed/component-descriptors
-        ref: sha256:600989483c323dac3ddec5c636c76e23714bedac3192cb1d7ee4b99c06db708b
+        name: kyma.project.io/module/template
+        repo: kcp-registry.localhost:61370/unsigned/component-descriptors
+        ref: sha256:3dca3f7647a352a3802afa03606e82c099211bc80d69b76b5523b1205a13e6c8
         type: oci-ref
       name: nginx-ingress
     - source:

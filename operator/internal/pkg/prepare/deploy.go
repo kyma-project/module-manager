@@ -2,7 +2,9 @@ package prepare
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 
 	"github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
@@ -27,7 +29,7 @@ const (
 )
 
 func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClient client.Client,
-	checkReadyStates bool, customStateCheck bool, codec *types.Codec,
+	checkReadyStates bool, customStateCheck bool, codec *types.Codec, insecureRegistry bool,
 ) ([]manifest.InstallInfo, error) {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 	kymaOwnerLabel, labelExists := manifestObj.Labels[labels.ComponentOwner]
@@ -41,16 +43,21 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 
 	decodedConfig, err := descriptor.DecodeYamlFromDigest(config.Repo, config.Name, config.Ref,
 		filepath.Join(config.Ref, configFileName))
+	var configs []interface{}
 	if err != nil {
-		return nil, err
-	}
-	installConfigObj, ok := decodedConfig.(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf(configReadError, ".spec.config", namespacedName)
-	}
-	configs, ok := installConfigObj["configs"].([]interface{})
-	if !ok {
-		return nil, fmt.Errorf(configReadError, "chart config object of .spec.config", namespacedName)
+		// if EOF error proceed without config
+		if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+			return nil, err
+		}
+	} else {
+		installConfigObj, ok := decodedConfig.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf(configReadError, ".spec.config", namespacedName)
+		}
+		configs, ok = installConfigObj["configs"].([]interface{})
+		if !ok {
+			return nil, fmt.Errorf(configReadError, "chart config object of .spec.config", namespacedName)
+		}
 	}
 
 	// evaluate rest config
@@ -69,7 +76,7 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 	}
 
 	// check crds - if present do not update
-	crds, err := parseCrds(ctx, destinationClient, &manifestObj.Spec.CRDs)
+	crds, err := parseCrds(ctx, manifestObj.Spec.CRDs, insecureRegistry)
 	if err != nil {
 		return nil, err
 	}
@@ -100,11 +107,11 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 		baseDeployInfo.CheckFn = customResCheck.CheckFn
 	}
 
-	return parseInstallations(manifestObj, codec, configs, baseDeployInfo)
+	return parseInstallations(manifestObj, codec, configs, baseDeployInfo, insecureRegistry)
 }
 
 func parseInstallations(manifestObj *v1alpha1.Manifest, codec *types.Codec,
-	configs []interface{}, baseDeployInfo manifest.InstallInfo,
+	configs []interface{}, baseDeployInfo manifest.InstallInfo, insecureRegistry bool,
 ) ([]manifest.InstallInfo, error) {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 	deployInfos := make([]manifest.InstallInfo, 0)
@@ -113,7 +120,7 @@ func parseInstallations(manifestObj *v1alpha1.Manifest, codec *types.Codec,
 		deployInfo := baseDeployInfo
 
 		// retrieve chart info
-		chartInfo, err := getChartInfoForInstall(install, codec, manifestObj)
+		chartInfo, err := getChartInfoForInstall(install, codec, manifestObj, insecureRegistry)
 		if err != nil {
 			return nil, err
 		}
@@ -136,16 +143,15 @@ func parseInstallations(manifestObj *v1alpha1.Manifest, codec *types.Codec,
 	return deployInfos, nil
 }
 
-func parseCrds(ctx context.Context, destinationClient client.Client, crdImage *types.ImageSpec,
+func parseCrds(ctx context.Context, crdImage types.ImageSpec, insecureRegistry bool,
 ) ([]*v1.CustomResourceDefinition, error) {
 	// if crds do not exist - do nothing
-	if crdImage == nil {
+	if crdImage.Type == types.NilRefType {
 		return nil, nil
 	}
 
 	// extract helm chart from layer digest
-	crdsPath, err := descriptor.GetPathFromExtractedTarGz(crdImage.Repo, crdImage.Name, crdImage.Ref,
-		fmt.Sprintf("%s-%s", crdImage.Name, crdImage.Ref))
+	crdsPath, err := descriptor.GetPathFromExtractedTarGz(crdImage, insecureRegistry)
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +160,7 @@ func parseCrds(ctx context.Context, destinationClient client.Client, crdImage *t
 }
 
 func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *types.Codec,
-	manifestObj *v1alpha1.Manifest,
+	manifestObj *v1alpha1.Manifest, insecureRegistry bool,
 ) (*manifest.ChartInfo, error) {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 	specType, err := types.GetSpecType(install.Source.Raw)
@@ -182,8 +188,7 @@ func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *types.Codec,
 		}
 
 		// extract helm chart from layer digest
-		chartPath, err := descriptor.GetPathFromExtractedTarGz(imageSpec.Repo, imageSpec.Name, imageSpec.Ref,
-			fmt.Sprintf("%s-%s", install.Name, imageSpec.Ref))
+		chartPath, err := descriptor.GetPathFromExtractedTarGz(imageSpec, insecureRegistry)
 		if err != nil {
 			return nil, err
 		}
@@ -192,6 +197,8 @@ func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *types.Codec,
 			ChartName: install.Name,
 			ChartPath: chartPath,
 		}, nil
+	case types.NilRefType:
+		return nil, fmt.Errorf("empty image type for %s resource chart installation", namespacedName.String())
 	}
 
 	return nil, fmt.Errorf("unsupported type %s of install for Manifest %s", specType, namespacedName)

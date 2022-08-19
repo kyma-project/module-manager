@@ -3,7 +3,6 @@ package manifest
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -135,7 +134,7 @@ func (r *RepoHandler) Add(repoName string, url string, logger *logr.Logger) erro
 		defer fileLock.Unlock()
 	}
 
-	fileBytes, err := ioutil.ReadFile(repoFile)
+	fileBytes, err := os.ReadFile(repoFile)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
