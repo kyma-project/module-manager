@@ -87,8 +87,8 @@ func (c *Codec) Validate(data []byte, refType RefTypeMetadata) error {
 		if err != nil {
 			return err
 		}
-	default:
-		return fmt.Errorf("unsupported type %s passed as installation type", refType)
+	case NilRefType:
+		return fmt.Errorf("unsupported %s passed as installation type", refType)
 	}
 
 	if !result.Valid() {

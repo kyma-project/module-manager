@@ -197,6 +197,8 @@ func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *types.Codec,
 			ChartName: install.Name,
 			ChartPath: chartPath,
 		}, nil
+	case types.NilRefType:
+		return nil, fmt.Errorf("empty image type for %s resource chart installation", namespacedName.String())
 	}
 
 	return nil, fmt.Errorf("unsupported type %s of install for Manifest %s", specType, namespacedName)
