@@ -10,9 +10,9 @@ type CustomObject interface {
 	runtime.Object
 	metav1.Object
 	ComponentName() string
-	GetSpec() CustomObjectSpec
-	GetStatus() CustomObjectStatus
-	SetStatus(CustomObjectStatus)
+	GetSpec() Spec
+	GetStatus() Status
+	SetStatus(Status)
 }
 
 type BaseCustomObject interface {
@@ -25,8 +25,8 @@ type ObjectTransform = func(context.Context, BaseCustomObject, *ManifestResource
 
 // +k8s:deepcopy-gen=true
 
-// CustomObjectSpec specifies spec for CustomObject.
-type CustomObjectSpec struct {
+// Spec specifies spec for CustomObject.
+type Spec struct {
 	// ChartPath specifies path to local helm chart.
 	ChartPath string `json:"chartPath,omitempty"`
 
@@ -40,34 +40,34 @@ type CustomObjectSpec struct {
 	SetValues string `json:"setValues,omitempty"`
 }
 
-type CustomState string
+type State string
 
 // Valid CustomObject States.
 const (
-	// CustomStateReady signifies CustomObject is ready and has been installed successfully.
-	CustomStateReady CustomState = "Ready"
+	// StateReady signifies CustomObject is ready and has been installed successfully.
+	StateReady State = "Ready"
 
-	// CustomStateProcessing signifies CustomObject is reconciling and is in the process of installation.
+	// StateProcessing signifies CustomObject is reconciling and is in the process of installation.
 	// Processing can also signal that the Installation previously encountered an error and is now recovering.
-	CustomStateProcessing CustomState = "Processing"
+	StateProcessing State = "Processing"
 
-	// CustomStateError signifies an error for CustomObject. This signifies that the Installation
+	// StateError signifies an error for CustomObject. This signifies that the Installation
 	// process encountered an error.
 	// Contrary to Processing, it can be expected that this state should change on the next retry.
-	CustomStateError CustomState = "Error"
+	StateError State = "Error"
 
-	// CustomStateDeleting signifies CustomObject is being deleted. This is the state that is used
+	// StateDeleting signifies CustomObject is being deleted. This is the state that is used
 	// when a deletionTimestamp was detected and Finalizers are picked up.
-	CustomStateDeleting CustomState = "Deleting"
+	StateDeleting State = "Deleting"
 )
 
 // +k8s:deepcopy-gen=true
 
-// CustomObjectStatus defines the observed state of CustomObject
-type CustomObjectStatus struct {
+// Status defines the observed state of CustomObject
+type Status struct {
 	// State signifies current state of CustomObject.
 	// Value can be one of ("Ready", "Processing", "Error", "Deleting").
-	State CustomState `json:"state,omitempty"`
+	State State `json:"state,omitempty"`
 
 	// Conditions associated with CustomStatus.
 	Conditions []*metav1.Condition `json:"conditions,omitempty"`

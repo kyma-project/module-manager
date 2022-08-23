@@ -86,9 +86,9 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if !objectInstance.GetDeletionTimestamp().IsZero() &&
-		status.State != types.CustomStateDeleting {
+		status.State != types.StateDeleting {
 		// if the status is not yet set to deleting, also update the status
-		status.State = types.CustomStateDeleting
+		status.State = types.StateDeleting
 		if err = setStatusForObjectInstance(objectInstance, status); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -103,13 +103,13 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	switch status.State {
 	case "":
 		return ctrl.Result{}, r.HandleInitialState(ctx, objectInstance)
-	case types.CustomStateProcessing:
+	case types.StateProcessing:
 		return ctrl.Result{RequeueAfter: time.Second * 3}, r.HandleProcessingState(ctx, objectInstance)
-	case types.CustomStateDeleting:
+	case types.StateDeleting:
 		return ctrl.Result{}, r.HandleDeletingState(ctx, objectInstance)
-	case types.CustomStateError:
+	case types.StateError:
 		return ctrl.Result{RequeueAfter: time.Second * 3}, r.HandleErrorState(ctx, objectInstance)
-	case types.CustomStateReady:
+	case types.StateReady:
 		return ctrl.Result{RequeueAfter: time.Second * 3}, r.HandleReadyState(ctx, objectInstance)
 	}
 
@@ -146,7 +146,7 @@ func (r *ManifestReconciler) HandleInitialState(ctx context.Context, objectInsta
 	}
 
 	// Example: Set to Processing state
-	status.State = types.CustomStateProcessing
+	status.State = types.StateProcessing
 	if err = setStatusForObjectInstance(objectInstance, status); err != nil {
 		return err
 	}
@@ -169,7 +169,7 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, objectIn
 	manifestClient, err := r.getManifestClient(&logger, spec.ChartFlags)
 	if err != nil {
 		logger.Error(err, "error while parsing flags for resource %s", client.ObjectKeyFromObject(objectInstance))
-		status.State = types.CustomStateError
+		status.State = types.StateError
 		if err = setStatusForObjectInstance(objectInstance, status); err != nil {
 			return err
 		}
@@ -185,14 +185,14 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, objectIn
 	ready, err := manifestClient.Install(installInfo)
 	if err != nil {
 		logger.Error(err, "error while installing resource %s", client.ObjectKeyFromObject(objectInstance))
-		status.State = types.CustomStateError
+		status.State = types.StateError
 		if err = setStatusForObjectInstance(objectInstance, status); err != nil {
 			return err
 		}
 		return r.nativeClient.Status().Update(ctx, objectInstance)
 	}
 	if ready {
-		status.State = types.CustomStateReady
+		status.State = types.StateReady
 		if err = setStatusForObjectInstance(objectInstance, status); err != nil {
 			return err
 		}
@@ -217,7 +217,7 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInst
 	manifestClient, err := r.getManifestClient(&logger, spec.ChartFlags)
 	if err != nil {
 		logger.Error(err, "error while parsing flags for resource %s", client.ObjectKeyFromObject(objectInstance))
-		status.State = types.CustomStateError
+		status.State = types.StateError
 		if err = setStatusForObjectInstance(objectInstance, status); err != nil {
 			return err
 		}
@@ -233,7 +233,7 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInst
 	readyToBeDeleted, err := manifestClient.Uninstall(installInfo)
 	if err != nil {
 		logger.Error(err, "error while deleting resource %s", client.ObjectKeyFromObject(objectInstance))
-		status.State = types.CustomStateError
+		status.State = types.StateError
 		if err = setStatusForObjectInstance(objectInstance, status); err != nil {
 			return err
 		}
@@ -256,14 +256,14 @@ func (r *ManifestReconciler) HandleErrorState(ctx context.Context, objectInstanc
 		return err
 	}
 	// Example: If Error state, set state to Processing
-	status.State = types.CustomStateProcessing
+	status.State = types.StateProcessing
 	if err = setStatusForObjectInstance(objectInstance, status); err != nil {
 		return err
 	}
 	return r.nativeClient.Status().Update(ctx, objectInstance)
 }
 
-func (r *ManifestReconciler) HandleReadyState(_ context.Context, objectInstance types.BaseCustomObject) error {
+func (r *ManifestReconciler) HandleReadyState(_ context.Context, _ types.BaseCustomObject) error {
 	// TODO: ready logic here
 
 	// Example: If Ready state, check consistency of deployed module
@@ -338,7 +338,7 @@ func (r *ManifestReconciler) applyOptions(opts ...reconcilerOption) error {
 	return nil
 }
 
-func setStatusForObjectInstance(objectInstance types.BaseCustomObject, status types.CustomObjectStatus) error {
+func setStatusForObjectInstance(objectInstance types.BaseCustomObject, status types.Status) error {
 	switch typedObject := objectInstance.(type) {
 	case types.CustomObject:
 		typedObject.SetStatus(status)
@@ -364,16 +364,16 @@ func getTypeError(namespacedName string) error {
 	return fmt.Errorf("invalid custom resource object type for reconciliation %s", namespacedName)
 }
 
-func getStatusFromObjectInstance(objectInstance types.BaseCustomObject) (types.CustomObjectStatus, error) {
+func getStatusFromObjectInstance(objectInstance types.BaseCustomObject) (types.Status, error) {
 	switch typedObject := objectInstance.(type) {
 	case types.CustomObject:
 		return typedObject.GetStatus(), nil
 	case *unstructured.Unstructured:
 		unstructStatus, _, err := unstructured.NestedMap(typedObject.Object, "status")
 		if err != nil {
-			return types.CustomObjectStatus{}, fmt.Errorf("unable to get status from unstuctured: %w", err)
+			return types.Status{}, fmt.Errorf("unable to get status from unstuctured: %w", err)
 		}
-		var customStatus types.CustomObjectStatus
+		var customStatus types.Status
 		err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructStatus, &customStatus)
 		if err != nil {
 			return customStatus, err
@@ -381,20 +381,20 @@ func getStatusFromObjectInstance(objectInstance types.BaseCustomObject) (types.C
 
 		return customStatus, nil
 	default:
-		return types.CustomObjectStatus{}, getTypeError(client.ObjectKeyFromObject(objectInstance).String())
+		return types.Status{}, getTypeError(client.ObjectKeyFromObject(objectInstance).String())
 	}
 }
 
-func getSpecFromObjectInstance(objectInstance types.BaseCustomObject) (types.CustomObjectSpec, error) {
+func getSpecFromObjectInstance(objectInstance types.BaseCustomObject) (types.Spec, error) {
 	switch typedObject := objectInstance.(type) {
 	case types.CustomObject:
 		return typedObject.GetSpec(), nil
 	case *unstructured.Unstructured:
 		unstructSpec, _, err := unstructured.NestedMap(typedObject.Object, "spec")
 		if err != nil {
-			return types.CustomObjectSpec{}, fmt.Errorf("unable to get spec from unstuctured: %w", err)
+			return types.Spec{}, fmt.Errorf("unable to get spec from unstuctured: %w", err)
 		}
-		var addonSpec types.CustomObjectSpec
+		var addonSpec types.Spec
 		err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructSpec, &addonSpec)
 		if err != nil {
 			return addonSpec, err
@@ -402,7 +402,7 @@ func getSpecFromObjectInstance(objectInstance types.BaseCustomObject) (types.Cus
 
 		return addonSpec, nil
 	default:
-		return types.CustomObjectSpec{}, getTypeError(client.ObjectKeyFromObject(objectInstance).String())
+		return types.Spec{}, getTypeError(client.ObjectKeyFromObject(objectInstance).String())
 	}
 }
 
