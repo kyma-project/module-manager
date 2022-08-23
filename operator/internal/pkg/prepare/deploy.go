@@ -54,7 +54,7 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 		var err error
 		configs, err = parseInstallConfigs(decodedConfig)
 		if err != nil {
-			return nil, fmt.Errorf("Manifest %s encountered an err: %w", namespacedName, err)
+			return nil, fmt.Errorf("manifest %s encountered an err: %w", namespacedName, err)
 		}
 	}
 
@@ -110,13 +110,14 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 
 func parseInstallConfigs(decodedConfig interface{}) ([]interface{}, error) {
 	var configs []interface{}
-	installConfigObj, ok := decodedConfig.(map[string]interface{})
-	if !ok {
+	installConfigObj, decodeOk := decodedConfig.(map[string]interface{})
+	if !decodeOk {
 		return nil, fmt.Errorf(configReadError, ".spec.config")
 	}
 	if installConfigObj["configs"] != nil {
-		configs, ok = installConfigObj["configs"].([]interface{})
-		if !ok {
+		var configOk bool
+		configs, configOk = installConfigObj["configs"].([]interface{})
+		if !configOk {
 			return nil, fmt.Errorf(configReadError, "chart config object of .spec.config")
 		}
 	}
@@ -249,7 +250,7 @@ func parseChartConfigAndValues(install v1alpha1.InstallInfo, configs []interface
 ) {
 	configString, valuesString, err := getConfigAndValuesForInstall(install.Name, configs)
 	if err != nil {
-		return nil, nil, fmt.Errorf("Manifest %s encountered an error while parsing chart config: %w", namespacedName, err)
+		return nil, nil, fmt.Errorf("manifest %s encountered an error while parsing chart config: %w", namespacedName, err)
 	}
 
 	config := map[string]interface{}{}
