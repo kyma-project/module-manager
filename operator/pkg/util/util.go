@@ -16,8 +16,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	yamlUtil "k8s.io/apimachinery/pkg/util/yaml"
 
-	securejoin "github.com/cyphar/filepath-securejoin"
-
 	"github.com/pkg/errors"
 	"helm.sh/helm/v3/pkg/kube"
 	v1 "k8s.io/api/core/v1"
@@ -145,13 +143,9 @@ func CleanFilePathJoin(root, dest string) (string, error) {
 		return "", errors.New("path is absolute, which is illegal")
 	}
 
-	// SecureJoin will do some cleaning, as well as some rudimentary checking of symlinks.
-	newpath, err := securejoin.SecureJoin(root, dest)
-	if err != nil {
-		return "", err
-	}
+	newPath := filepath.Join(root, filepath.Clean(dest))
 
-	return filepath.ToSlash(newpath), nil
+	return filepath.ToSlash(newPath), nil
 }
 
 func ParseManifestStringToObjects(manifest string) (*types.ManifestResources, error) {
