@@ -1,6 +1,7 @@
 package types
 
 import (
+	"context"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -13,6 +14,14 @@ type CustomObject interface {
 	GetStatus() CustomObjectStatus
 	SetStatus(CustomObjectStatus)
 }
+
+type BaseCustomObject interface {
+	runtime.Object
+	metav1.Object
+}
+
+// ObjectTransform is an operation that transforms the manifest objects before applying it
+type ObjectTransform = func(context.Context, BaseCustomObject, *ManifestResources) error
 
 // +k8s:deepcopy-gen=true
 

@@ -9,7 +9,6 @@ import (
 	"github.com/kyma-project/manifest-operator/operator/pkg/types"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/strvals"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
@@ -21,19 +20,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"strings"
+	"time"
 )
 
 var _ reconcile.Reconciler = &ManifestReconciler{}
 
 const deletionFinalizer = "custom-deletion-finalizer"
 
-type BaseCustomObject interface {
-	runtime.Object
-	metav1.Object
-}
-
 type ManifestReconciler struct {
-	prototype    BaseCustomObject
+	prototype    types.BaseCustomObject
 	nativeClient client.Client
 	config       *rest.Config
 
@@ -45,13 +40,14 @@ type ManifestReconciler struct {
 }
 
 type manifestOptions struct {
-	force          bool
-	verify         bool
-	resourceLabels map[string]string
+	force            bool
+	verify           bool
+	resourceLabels   map[string]string
+	objectTransforms []types.ObjectTransform
 }
 type reconcilerOption func(manifestOptions) manifestOptions
 
-func (r *ManifestReconciler) Inject(mgr manager.Manager, customObject BaseCustomObject,
+func (r *ManifestReconciler) Inject(mgr manager.Manager, customObject types.BaseCustomObject,
 	opts ...reconcilerOption) error {
 	r.prototype = customObject
 	r.config = mgr.GetConfig()
@@ -61,6 +57,9 @@ func (r *ManifestReconciler) Inject(mgr manager.Manager, customObject BaseCustom
 	}
 	r.recorder = mgr.GetEventRecorderFor(controllerName)
 	r.nativeClient = mgr.GetClient()
+	if err = r.applyOptions(opts...); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -105,19 +104,19 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	case "":
 		return ctrl.Result{}, r.HandleInitialState(ctx, objectInstance)
 	case types.CustomStateProcessing:
-		return ctrl.Result{}, r.HandleProcessingState(ctx, objectInstance)
+		return ctrl.Result{RequeueAfter: time.Second * 3}, r.HandleProcessingState(ctx, objectInstance)
 	case types.CustomStateDeleting:
 		return ctrl.Result{}, r.HandleDeletingState(ctx, objectInstance)
 	case types.CustomStateError:
-		return ctrl.Result{}, r.HandleErrorState(ctx, objectInstance)
+		return ctrl.Result{RequeueAfter: time.Second * 3}, r.HandleErrorState(ctx, objectInstance)
 	case types.CustomStateReady:
-		return ctrl.Result{}, r.HandleReadyState(ctx, objectInstance)
+		return ctrl.Result{RequeueAfter: time.Second * 3}, r.HandleReadyState(ctx, objectInstance)
 	}
 
 	return ctrl.Result{}, nil
 }
 
-func (r *ManifestReconciler) HandleInitialState(ctx context.Context, objectInstance BaseCustomObject) error {
+func (r *ManifestReconciler) HandleInitialState(ctx context.Context, objectInstance types.BaseCustomObject) error {
 	// TODO: initial logic here
 
 	status, err := getStatusFromObjectInstance(objectInstance)
@@ -127,13 +126,23 @@ func (r *ManifestReconciler) HandleInitialState(ctx context.Context, objectInsta
 
 	// set resource labels
 	labels := objectInstance.GetLabels()
+	updateRequired := false
 	if len(r.options.resourceLabels) > 0 {
-		for key, value := range r.options.resourceLabels {
-			labels[key] = value
+		if labels == nil {
+			labels = r.options.resourceLabels
+			updateRequired = true
+		} else {
+			for key, value := range r.options.resourceLabels {
+				if labels[key] == "" {
+					labels[key] = value
+					updateRequired = true
+				}
+			}
 		}
-		objectInstance.SetLabels(labels)
-		r.options.resourceLabels = map[string]string{}
-		return r.nativeClient.Update(ctx, objectInstance)
+		if updateRequired {
+			objectInstance.SetLabels(labels)
+			return r.nativeClient.Update(ctx, objectInstance)
+		}
 	}
 
 	// Example: Set to Processing state
@@ -144,7 +153,7 @@ func (r *ManifestReconciler) HandleInitialState(ctx context.Context, objectInsta
 	return r.nativeClient.Status().Update(ctx, objectInstance)
 }
 
-func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, objectInstance BaseCustomObject) error {
+func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, objectInstance types.BaseCustomObject) error {
 	// TODO: processing logic here
 	logger := log.FromContext(ctx)
 	spec, err := getSpecFromObjectInstance(objectInstance)
@@ -159,6 +168,7 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, objectIn
 
 	manifestClient, err := r.getManifestClient(&logger, spec.ChartFlags)
 	if err != nil {
+		logger.Error(err, "error while parsing flags for resource %s", client.ObjectKeyFromObject(objectInstance))
 		status.State = types.CustomStateError
 		if err = setStatusForObjectInstance(objectInstance, status); err != nil {
 			return err
@@ -174,6 +184,7 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, objectIn
 
 	ready, err := manifestClient.Install(installInfo)
 	if err != nil {
+		logger.Error(err, "error while installing resource %s", client.ObjectKeyFromObject(objectInstance))
 		status.State = types.CustomStateError
 		if err = setStatusForObjectInstance(objectInstance, status); err != nil {
 			return err
@@ -190,7 +201,7 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, objectIn
 	return nil
 }
 
-func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInstance BaseCustomObject) error {
+func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInstance types.BaseCustomObject) error {
 	// TODO: deletion logic here
 	logger := log.FromContext(ctx)
 	spec, err := getSpecFromObjectInstance(objectInstance)
@@ -205,6 +216,7 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInst
 
 	manifestClient, err := r.getManifestClient(&logger, spec.ChartFlags)
 	if err != nil {
+		logger.Error(err, "error while parsing flags for resource %s", client.ObjectKeyFromObject(objectInstance))
 		status.State = types.CustomStateError
 		if err = setStatusForObjectInstance(objectInstance, status); err != nil {
 			return err
@@ -220,6 +232,7 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInst
 
 	readyToBeDeleted, err := manifestClient.Uninstall(installInfo)
 	if err != nil {
+		logger.Error(err, "error while deleting resource %s", client.ObjectKeyFromObject(objectInstance))
 		status.State = types.CustomStateError
 		if err = setStatusForObjectInstance(objectInstance, status); err != nil {
 			return err
@@ -235,7 +248,7 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInst
 	return nil
 }
 
-func (r *ManifestReconciler) HandleErrorState(ctx context.Context, objectInstance BaseCustomObject) error {
+func (r *ManifestReconciler) HandleErrorState(ctx context.Context, objectInstance types.BaseCustomObject) error {
 	// TODO: error logic here
 
 	status, err := getStatusFromObjectInstance(objectInstance)
@@ -250,17 +263,17 @@ func (r *ManifestReconciler) HandleErrorState(ctx context.Context, objectInstanc
 	return r.nativeClient.Status().Update(ctx, objectInstance)
 }
 
-func (r *ManifestReconciler) HandleReadyState(_ context.Context, objectInstance BaseCustomObject) error {
+func (r *ManifestReconciler) HandleReadyState(_ context.Context, objectInstance types.BaseCustomObject) error {
 	// TODO: ready logic here
 
 	// Example: If Ready state, check consistency of deployed module
 	return nil
 }
 
-func (r *ManifestReconciler) prepareInstallInfo(ctx context.Context, objectInstance BaseCustomObject,
+func (r *ManifestReconciler) prepareInstallInfo(ctx context.Context, objectInstance types.BaseCustomObject,
 	chartPath string, releaseName string,
 ) (manifest.InstallInfo, error) {
-	var unstructuredObj *unstructured.Unstructured
+	unstructuredObj := &unstructured.Unstructured{}
 	var err error
 	switch typedObject := objectInstance.(type) {
 	case types.CustomObject:
@@ -311,7 +324,7 @@ func (r *ManifestReconciler) getManifestClient(logger *logr.Logger, configString
 			"set": {},
 			// comma separated values of manifest command line flags
 			"flags": config,
-		})
+		}, r.options.objectTransforms)
 }
 
 func (r *ManifestReconciler) applyOptions(opts ...reconcilerOption) error {
@@ -325,7 +338,7 @@ func (r *ManifestReconciler) applyOptions(opts ...reconcilerOption) error {
 	return nil
 }
 
-func setStatusForObjectInstance(objectInstance BaseCustomObject, status types.CustomObjectStatus) error {
+func setStatusForObjectInstance(objectInstance types.BaseCustomObject, status types.CustomObjectStatus) error {
 	switch typedObject := objectInstance.(type) {
 	case types.CustomObject:
 		typedObject.SetStatus(status)
@@ -351,7 +364,7 @@ func getTypeError(namespacedName string) error {
 	return fmt.Errorf("invalid custom resource object type for reconciliation %s", namespacedName)
 }
 
-func getStatusFromObjectInstance(objectInstance BaseCustomObject) (types.CustomObjectStatus, error) {
+func getStatusFromObjectInstance(objectInstance types.BaseCustomObject) (types.CustomObjectStatus, error) {
 	switch typedObject := objectInstance.(type) {
 	case types.CustomObject:
 		return typedObject.GetStatus(), nil
@@ -372,7 +385,7 @@ func getStatusFromObjectInstance(objectInstance BaseCustomObject) (types.CustomO
 	}
 }
 
-func getSpecFromObjectInstance(objectInstance BaseCustomObject) (types.CustomObjectSpec, error) {
+func getSpecFromObjectInstance(objectInstance types.BaseCustomObject) (types.CustomObjectSpec, error) {
 	switch typedObject := objectInstance.(type) {
 	case types.CustomObject:
 		return typedObject.GetSpec(), nil
@@ -393,7 +406,7 @@ func getSpecFromObjectInstance(objectInstance BaseCustomObject) (types.CustomObj
 	}
 }
 
-func GetComponentName(objectInstance BaseCustomObject) (string, error) {
+func GetComponentName(objectInstance types.BaseCustomObject) (string, error) {
 	switch typedObject := objectInstance.(type) {
 	case types.CustomObject:
 		return typedObject.ComponentName(), nil

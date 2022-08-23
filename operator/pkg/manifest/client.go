@@ -4,6 +4,13 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/kyma-project/manifest-operator/operator/pkg/types"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/discovery"
+	memory "k8s.io/client-go/discovery/cached"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/restmapper"
 	"log"
 	"reflect"
 	"time"
@@ -36,17 +43,35 @@ type HelmClient struct {
 	restGetter  *manifestRest.ManifestRESTClientGetter
 	clientSet   *kubernetes.Clientset
 	waitTimeout time.Duration
+	restConfig  *rest.Config
+	mapper      *restmapper.DeferredDiscoveryRESTMapper
 }
 
+var accessor = meta.NewAccessor()
+
 func NewHelmClient(kubeClient *kube.Client, restGetter *manifestRest.ManifestRESTClientGetter,
-	clientSet *kubernetes.Clientset, settings *cli.EnvSettings,
-) *HelmClient {
+	restConfig *rest.Config, settings *cli.EnvSettings,
+) (*HelmClient, error) {
+	clientSet, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return &HelmClient{}, err
+	}
+
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(restConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create new discovery client %w", err)
+	}
+
+	discoveryMapper := restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(discoveryClient))
+
 	return &HelmClient{
 		kubeClient: kubeClient,
 		settings:   settings,
 		restGetter: restGetter,
 		clientSet:  clientSet,
-	}
+		restConfig: restConfig,
+		mapper:     discoveryMapper,
+	}, nil
 }
 
 func (h *HelmClient) getGenericConfig(namespace string) (*action.Configuration, error) {
@@ -182,8 +207,84 @@ func (h *HelmClient) deleteNamespace(namespace kube.ResourceList) error {
 	return nil
 }
 
-func (h *HelmClient) GetTargetResources(manifest string, targetNamespace string) (kube.ResourceList, error) {
-	resourceList, err := h.kubeClient.Build(bytes.NewBufferString(manifest), true)
+func newRestClient(restConfig rest.Config, gv schema.GroupVersion) (rest.Interface, error) {
+	restConfig.ContentConfig = resource.UnstructuredPlusDefaultContentConfig()
+	restConfig.GroupVersion = &gv
+
+	if len(gv.Group) == 0 {
+		restConfig.APIPath = "/api"
+	} else {
+		restConfig.APIPath = "/apis"
+	}
+
+	return rest.RESTClientFor(&restConfig)
+}
+
+func (h *HelmClient) assignRestMapping(gvk schema.GroupVersionKind, info *resource.Info) error {
+	restMapping, err := h.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	if err != nil {
+		h.mapper.Reset()
+		return err
+	}
+	info.Mapping = restMapping
+	return nil
+}
+
+func (h *HelmClient) convertToInfo(unstructuredObj *unstructured.Unstructured) (*resource.Info, error) {
+	info := &resource.Info{}
+	gvk := unstructuredObj.GroupVersionKind()
+	gv := gvk.GroupVersion()
+	client, err := newRestClient(*h.restConfig, gv)
+	if err != nil {
+		return nil, err
+	}
+	info.Client = client
+	if err = h.assignRestMapping(gvk, info); err != nil {
+		return nil, err
+	}
+
+	info.Namespace = unstructuredObj.GetNamespace()
+	info.Name = unstructuredObj.GetName()
+	info.Object = unstructuredObj.DeepCopyObject()
+	return info, nil
+}
+
+func (h *HelmClient) transformManifestResources(ctx context.Context, manifest string,
+	transforms []types.ObjectTransform, object types.BaseCustomObject) (kube.ResourceList, error) {
+	var resourceList kube.ResourceList
+	objects, err := util.ParseManifestStringToObjects(manifest)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, transform := range transforms {
+		if err = transform(ctx, object, objects); err != nil {
+			return nil, err
+		}
+	}
+
+	for _, unstructuredObject := range objects.Items {
+		resourceInfo, err := h.convertToInfo(unstructuredObject)
+		if err != nil {
+			return nil, err
+		}
+		resourceList = append(resourceList, resourceInfo)
+	}
+	return resourceList, err
+}
+
+func (h *HelmClient) GetTargetResources(ctx context.Context, manifest string, targetNamespace string,
+	transforms []types.ObjectTransform, object types.BaseCustomObject) (kube.ResourceList, error) {
+
+	var resourceList kube.ResourceList
+	var err error
+
+	if len(transforms) == 0 {
+		resourceList, err = h.kubeClient.Build(bytes.NewBufferString(manifest), true)
+	} else {
+		resourceList, err = h.transformManifestResources(ctx, manifest, transforms, object)
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -240,13 +341,12 @@ func (h *HelmClient) setNamespaceIfNotPresent(targetNamespace string, resourceIn
 
 		// set namespace on request
 		resourceInfo.Namespace = targetNamespace
-		metaObject, err := meta.Accessor(runtimeObject)
-		if err != nil {
+		if _, err := meta.Accessor(runtimeObject); err != nil {
 			return err
 		}
 
 		// set namespace on runtime object
-		metaObject.SetNamespace(targetNamespace)
+		return accessor.SetNamespace(runtimeObject, targetNamespace)
 	}
 	return nil
 }

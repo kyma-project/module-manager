@@ -1,5 +1,7 @@
 package types
 
+import "k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
 type RefTypeMetadata string
 
 const (
@@ -37,4 +39,10 @@ type HelmChartSpec struct {
 	// +kubebuilder:validation:Enum=helm-chart;oci-ref
 	// +kubebuilder:validation:Optional
 	Type RefTypeMetadata `json:"type"`
+}
+
+// Objects holds a collection of objects, so that we can filter / sequence them
+type ManifestResources struct {
+	Items []*unstructured.Unstructured
+	Blobs [][]byte
 }

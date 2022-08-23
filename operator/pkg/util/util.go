@@ -1,8 +1,14 @@
 package util
 
 import (
+	"bufio"
+	"bytes"
 	"flag"
 	"fmt"
+	"github.com/kyma-project/manifest-operator/operator/pkg/types"
+	"io"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/util/yaml"
 	"os"
 	"path"
 	"path/filepath"
@@ -144,4 +150,33 @@ func CleanFilePathJoin(root, dest string) (string, error) {
 	}
 
 	return filepath.ToSlash(newpath), nil
+}
+
+func ParseManifestStringToObjects(manifest string) (*types.ManifestResources, error) {
+	objects := &types.ManifestResources{}
+	reader := yaml.NewYAMLReader(bufio.NewReader(strings.NewReader(manifest)))
+	for {
+		rawBytes, err := reader.Read()
+		if err != nil {
+			if err == io.EOF {
+				return objects, nil
+			}
+
+			return nil, fmt.Errorf("invalid YAML doc: %w", err)
+		}
+
+		rawBytes = bytes.TrimSpace(rawBytes)
+		unstructuredObj := unstructured.Unstructured{}
+		if err := yaml.Unmarshal(rawBytes, &unstructuredObj); err != nil {
+			objects.Blobs = append(objects.Blobs, append(bytes.TrimPrefix(rawBytes, []byte("---\n")), '\n'))
+		}
+
+		if len(rawBytes) == 0 || bytes.Equal(rawBytes, []byte("null")) || len(unstructuredObj.Object) == 0 {
+			continue
+		}
+
+		objects.Items = append(objects.Items, &unstructuredObj)
+	}
+
+	return objects, nil
 }

@@ -3,8 +3,8 @@ package manifest
 import (
 	"context"
 	"fmt"
-
 	"github.com/kyma-project/manifest-operator/operator/pkg/resource"
+	"github.com/kyma-project/manifest-operator/operator/pkg/types"
 	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
@@ -17,7 +17,6 @@ import (
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/kube"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -73,32 +72,34 @@ func (r *InstallResponse) Error() string {
 }
 
 type Operations struct {
-	logger       *logr.Logger
-	kubeClient   *kube.Client
-	helmClient   *HelmClient
-	repoHandler  *RepoHandler
-	restGetter   *manifestRest.ManifestRESTClientGetter
-	actionClient *action.Install
-	args         map[string]map[string]interface{}
+	logger             *logr.Logger
+	kubeClient         *kube.Client
+	helmClient         *HelmClient
+	repoHandler        *RepoHandler
+	restGetter         *manifestRest.ManifestRESTClientGetter
+	actionClient       *action.Install
+	args               map[string]map[string]interface{}
+	resourceTransforms []types.ObjectTransform
 }
 
 func NewOperations(logger *logr.Logger, restConfig *rest.Config, releaseName string, settings *cli.EnvSettings,
-	args map[string]map[string]interface{},
+	args map[string]map[string]interface{}, resourceTransforms []types.ObjectTransform,
 ) (*Operations, error) {
 	restGetter := manifestRest.NewRESTClientGetter(restConfig)
 	kubeClient := kube.New(restGetter)
-	clientSet, err := kubernetes.NewForConfig(restConfig)
+	helmClient, err := NewHelmClient(kubeClient, restGetter, restConfig, settings)
 	if err != nil {
 		return &Operations{}, err
 	}
 
 	operations := &Operations{
-		logger:      logger,
-		restGetter:  restGetter,
-		repoHandler: NewRepoHandler(logger, settings),
-		kubeClient:  kubeClient,
-		helmClient:  NewHelmClient(kubeClient, restGetter, clientSet, settings),
-		args:        args,
+		logger:             logger,
+		restGetter:         restGetter,
+		repoHandler:        NewRepoHandler(logger, settings),
+		kubeClient:         kubeClient,
+		helmClient:         helmClient,
+		args:               args,
+		resourceTransforms: resourceTransforms,
 	}
 
 	operations.actionClient, err = operations.helmClient.NewInstallActionClient(v1.NamespaceDefault, releaseName, args)
@@ -126,7 +127,8 @@ func (o *Operations) getClusterResources(deployInfo InstallInfo, operation HelmO
 		return nil, nil, err
 	}
 
-	targetResources, err := o.helmClient.GetTargetResources(manifest, o.actionClient.Namespace)
+	targetResources, err := o.helmClient.GetTargetResources(deployInfo.Ctx, manifest,
+		o.actionClient.Namespace, o.resourceTransforms, deployInfo.BaseResource)
 	if err != nil {
 		return nil, nil, err
 	}
