@@ -3,6 +3,9 @@ package declarative
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/go-logr/logr"
 	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
 	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
@@ -19,13 +22,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"strings"
-	"time"
 )
 
 var _ reconcile.Reconciler = &ManifestReconciler{}
 
-const deletionFinalizer = "custom-deletion-finalizer"
+const (
+	deletionFinalizer = "custom-deletion-finalizer"
+	requeueInterval   = time.Second * 3
+)
 
 type ManifestReconciler struct {
 	prototype    types.BaseCustomObject
@@ -45,12 +49,14 @@ type manifestOptions struct {
 	resourceLabels   map[string]string
 	objectTransforms []types.ObjectTransform
 }
-type reconcilerOption func(manifestOptions) manifestOptions
+type ReconcilerOption func(manifestOptions) manifestOptions
 
 func (r *ManifestReconciler) Inject(mgr manager.Manager, customObject types.BaseCustomObject,
-	opts ...reconcilerOption) error {
+	opts ...ReconcilerOption,
+) error {
 	r.prototype = customObject
 	r.config = mgr.GetConfig()
+	r.mgr = mgr
 	controllerName, err := GetComponentName(customObject)
 	if err != nil {
 		return getTypeError(client.ObjectKeyFromObject(customObject).String())
@@ -104,13 +110,13 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	case "":
 		return ctrl.Result{}, r.HandleInitialState(ctx, objectInstance)
 	case types.StateProcessing:
-		return ctrl.Result{RequeueAfter: time.Second * 3}, r.HandleProcessingState(ctx, objectInstance)
+		return ctrl.Result{RequeueAfter: requeueInterval}, r.HandleProcessingState(ctx, objectInstance)
 	case types.StateDeleting:
 		return ctrl.Result{}, r.HandleDeletingState(ctx, objectInstance)
 	case types.StateError:
-		return ctrl.Result{RequeueAfter: time.Second * 3}, r.HandleErrorState(ctx, objectInstance)
+		return ctrl.Result{RequeueAfter: requeueInterval}, r.HandleErrorState(ctx, objectInstance)
 	case types.StateReady:
-		return ctrl.Result{RequeueAfter: time.Second * 3}, r.HandleReadyState(ctx, objectInstance)
+		return ctrl.Result{RequeueAfter: requeueInterval}, r.HandleReadyState(ctx, objectInstance)
 	}
 
 	return ctrl.Result{}, nil
@@ -125,24 +131,8 @@ func (r *ManifestReconciler) HandleInitialState(ctx context.Context, objectInsta
 	}
 
 	// set resource labels
-	labels := objectInstance.GetLabels()
-	updateRequired := false
-	if len(r.options.resourceLabels) > 0 {
-		if labels == nil {
-			labels = r.options.resourceLabels
-			updateRequired = true
-		} else {
-			for key, value := range r.options.resourceLabels {
-				if labels[key] == "" {
-					labels[key] = value
-					updateRequired = true
-				}
-			}
-		}
-		if updateRequired {
-			objectInstance.SetLabels(labels)
-			return r.nativeClient.Update(ctx, objectInstance)
-		}
+	if r.applyLabels(objectInstance) {
+		return r.nativeClient.Update(ctx, objectInstance)
 	}
 
 	// Example: Set to Processing state
@@ -151,6 +141,30 @@ func (r *ManifestReconciler) HandleInitialState(ctx context.Context, objectInsta
 		return err
 	}
 	return r.nativeClient.Status().Update(ctx, objectInstance)
+}
+
+func (r *ManifestReconciler) applyLabels(objectInstance types.BaseCustomObject) bool {
+	labels := objectInstance.GetLabels()
+	updateRequired := false
+	if len(r.options.resourceLabels) == 0 {
+		return false
+	}
+	if labels == nil {
+		labels = make(map[string]string, 0)
+		updateRequired = true
+	}
+
+	for key, value := range r.options.resourceLabels {
+		if labels[key] == "" {
+			labels[key] = value
+			updateRequired = true
+		}
+	}
+
+	if updateRequired {
+		objectInstance.SetLabels(labels)
+	}
+	return updateRequired
 }
 
 func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, objectInstance types.BaseCustomObject) error {
@@ -327,8 +341,13 @@ func (r *ManifestReconciler) getManifestClient(logger *logr.Logger, configString
 		}, r.options.objectTransforms)
 }
 
-func (r *ManifestReconciler) applyOptions(opts ...reconcilerOption) error {
-	params := manifestOptions{}
+func (r *ManifestReconciler) applyOptions(opts ...ReconcilerOption) error {
+	params := manifestOptions{
+		force:            false,
+		verify:           false,
+		resourceLabels:   make(map[string]string, 0),
+		objectTransforms: []types.ObjectTransform{},
+	}
 
 	for _, opt := range opts {
 		params = opt(params)
@@ -345,12 +364,12 @@ func setStatusForObjectInstance(objectInstance types.BaseCustomObject, status ty
 	case *unstructured.Unstructured:
 		unstructStatus, err := runtime.DefaultUnstructuredConverter.ToUnstructured(status)
 		if err != nil {
-			return fmt.Errorf("unable to convert unstructured to addonStatus: %v", err)
+			return fmt.Errorf("unable to convert unstructured to addonStatus: %w", err)
 		}
 
 		err = unstructured.SetNestedMap(typedObject.Object, unstructStatus, "status")
 		if err != nil {
-			return fmt.Errorf("unable to set status in unstructured: %v", err)
+			return fmt.Errorf("unable to set status in unstructured: %w", err)
 		}
 
 		return nil

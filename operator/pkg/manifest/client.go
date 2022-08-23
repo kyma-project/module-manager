@@ -4,6 +4,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
+	"reflect"
+	"time"
+
 	"github.com/kyma-project/manifest-operator/operator/pkg/types"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -11,9 +15,6 @@ import (
 	memory "k8s.io/client-go/discovery/cached"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
-	"log"
-	"reflect"
-	"time"
 
 	manifestRest "github.com/kyma-project/manifest-operator/operator/pkg/rest"
 	"github.com/kyma-project/manifest-operator/operator/pkg/util"
@@ -47,6 +48,7 @@ type HelmClient struct {
 	mapper      *restmapper.DeferredDiscoveryRESTMapper
 }
 
+//nolint:gochecknoglobals
 var accessor = meta.NewAccessor()
 
 func NewHelmClient(kubeClient *kube.Client, restGetter *manifestRest.ManifestRESTClientGetter,
@@ -250,7 +252,8 @@ func (h *HelmClient) convertToInfo(unstructuredObj *unstructured.Unstructured) (
 }
 
 func (h *HelmClient) transformManifestResources(ctx context.Context, manifest string,
-	transforms []types.ObjectTransform, object types.BaseCustomObject) (kube.ResourceList, error) {
+	transforms []types.ObjectTransform, object types.BaseCustomObject,
+) (kube.ResourceList, error) {
 	var resourceList kube.ResourceList
 	objects, err := util.ParseManifestStringToObjects(manifest)
 	if err != nil {
@@ -274,8 +277,8 @@ func (h *HelmClient) transformManifestResources(ctx context.Context, manifest st
 }
 
 func (h *HelmClient) GetTargetResources(ctx context.Context, manifest string, targetNamespace string,
-	transforms []types.ObjectTransform, object types.BaseCustomObject) (kube.ResourceList, error) {
-
+	transforms []types.ObjectTransform, object types.BaseCustomObject,
+) (kube.ResourceList, error) {
 	var resourceList kube.ResourceList
 	var err error
 

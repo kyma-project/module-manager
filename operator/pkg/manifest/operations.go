@@ -3,6 +3,7 @@ package manifest
 import (
 	"context"
 	"fmt"
+
 	"github.com/kyma-project/manifest-operator/operator/pkg/resource"
 	"github.com/kyma-project/manifest-operator/operator/pkg/types"
 	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -154,12 +155,13 @@ func (o *Operations) VerifyResources(deployInfo InstallInfo) (bool, error) {
 
 func (o *Operations) Install(deployInfo InstallInfo) (bool, error) {
 	// install crds first - if present do not update!
-	if err := resource.CreateCRDs(deployInfo.Ctx, deployInfo.Crds, *deployInfo.RemoteClient); err != nil {
+	if err := resource.CreateCRDs(deployInfo.Ctx, deployInfo.Crds, *deployInfo.RemoteInfo.RemoteClient); err != nil {
 		return false, err
 	}
 
 	// install crs - if present do not update!
-	if err := resource.CreateCRs(deployInfo.Ctx, deployInfo.CustomResources, *deployInfo.RemoteClient); err != nil {
+	if err := resource.CreateCRs(deployInfo.Ctx, deployInfo.CustomResources,
+		*deployInfo.RemoteInfo.RemoteClient); err != nil {
 		return false, err
 	}
 
@@ -231,12 +233,13 @@ func (o *Operations) Uninstall(deployInfo InstallInfo) (bool, error) {
 	}
 
 	// delete crs first - if not present ignore!
-	if err := resource.RemoveCRs(deployInfo.Ctx, deployInfo.CustomResources, *deployInfo.RemoteClient); err != nil {
+	if err := resource.RemoveCRs(deployInfo.Ctx, deployInfo.CustomResources,
+		*deployInfo.RemoteInfo.RemoteClient); err != nil {
 		return false, err
 	}
 
 	// delete crds first - if not present ignore!
-	if err := resource.RemoveCRDs(deployInfo.Ctx, deployInfo.Crds, *deployInfo.RemoteClient); err != nil {
+	if err := resource.RemoveCRDs(deployInfo.Ctx, deployInfo.Crds, *deployInfo.RemoteInfo.RemoteClient); err != nil {
 		return false, err
 	}
 

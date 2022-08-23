@@ -41,7 +41,7 @@ type HelmChartSpec struct {
 	Type RefTypeMetadata `json:"type"`
 }
 
-// Objects holds a collection of objects, so that we can filter / sequence them
+// Objects holds a collection of objects, so that we can filter / sequence them.
 type ManifestResources struct {
 	Items []*unstructured.Unstructured
 	Blobs [][]byte

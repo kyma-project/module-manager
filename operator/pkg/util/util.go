@@ -5,14 +5,16 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
-	"github.com/kyma-project/manifest-operator/operator/pkg/types"
 	"io"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/util/yaml"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/kyma-project/manifest-operator/operator/pkg/types"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	yamlUtil "k8s.io/apimachinery/pkg/util/yaml"
 
 	securejoin "github.com/cyphar/filepath-securejoin"
 
@@ -26,7 +28,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	ctrl "sigs.k8s.io/controller-runtime"
-	yaml2 "sigs.k8s.io/yaml"
+	"sigs.k8s.io/yaml"
 )
 
 func GetNamespaceObjBytes(clientNs string) ([]byte, error) {
@@ -42,7 +44,7 @@ func GetNamespaceObjBytes(clientNs string) ([]byte, error) {
 			},
 		},
 	}
-	return yaml2.Marshal(namespace)
+	return yaml.Marshal(namespace)
 }
 
 func FilterExistingResources(resources kube.ResourceList) (kube.ResourceList, error) {
@@ -154,11 +156,11 @@ func CleanFilePathJoin(root, dest string) (string, error) {
 
 func ParseManifestStringToObjects(manifest string) (*types.ManifestResources, error) {
 	objects := &types.ManifestResources{}
-	reader := yaml.NewYAMLReader(bufio.NewReader(strings.NewReader(manifest)))
+	reader := yamlUtil.NewYAMLReader(bufio.NewReader(strings.NewReader(manifest)))
 	for {
 		rawBytes, err := reader.Read()
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				return objects, nil
 			}
 
@@ -177,6 +179,4 @@ func ParseManifestStringToObjects(manifest string) (*types.ManifestResources, er
 
 		objects.Items = append(objects.Items, &unstructuredObj)
 	}
-
-	return objects, nil
 }

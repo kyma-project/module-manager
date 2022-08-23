@@ -2,6 +2,7 @@ package types
 
 import (
 	"context"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -20,7 +21,7 @@ type BaseCustomObject interface {
 	metav1.Object
 }
 
-// ObjectTransform is an operation that transforms the manifest objects before applying it
+// ObjectTransform is an operation that transforms the manifest objects before applying it.
 type ObjectTransform = func(context.Context, BaseCustomObject, *ManifestResources) error
 
 // +k8s:deepcopy-gen=true
@@ -33,10 +34,10 @@ type Spec struct {
 	// ReleaseName specifies release name for helm chart.
 	ReleaseName string `json:"releaseName,omitempty"`
 
-	// ChartFlags specifies comma seperated flags for chart installation.
+	// ChartFlags specifies comma separated flags for chart installation.
 	ChartFlags string `json:"chartFlags,omitempty"`
 
-	// SetFlag specifies comma seperated values for --set flag.
+	// SetFlag specifies comma separated values for --set flag.
 	SetValues string `json:"setValues,omitempty"`
 }
 
@@ -63,7 +64,7 @@ const (
 
 // +k8s:deepcopy-gen=true
 
-// Status defines the observed state of CustomObject
+// Status defines the observed state of CustomObject.
 type Status struct {
 	// State signifies current state of CustomObject.
 	// Value can be one of ("Ready", "Processing", "Error", "Deleting").
