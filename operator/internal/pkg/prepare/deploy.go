@@ -7,6 +7,11 @@ import (
 	"io"
 	"path/filepath"
 
+	"helm.sh/helm/v3/pkg/strvals"
+	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+
 	"github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
 	manifestCustom "github.com/kyma-project/manifest-operator/operator/internal/pkg/custom"
 	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
@@ -15,16 +20,12 @@ import (
 	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
 	"github.com/kyma-project/manifest-operator/operator/pkg/resource"
 	"github.com/kyma-project/manifest-operator/operator/pkg/types"
-	"helm.sh/helm/v3/pkg/strvals"
-	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
-	configReadError = "reading install %s resulted in an error for " + v1alpha1.ManifestKind + " %s"
+	configReadError = "reading install %s resulted in an error for " + v1alpha1.ManifestKind
 	configFileName  = "installConfig.yaml"
 )
 
@@ -50,13 +51,10 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 			return nil, err
 		}
 	} else {
-		installConfigObj, ok := decodedConfig.(map[string]interface{})
-		if !ok {
-			return nil, fmt.Errorf(configReadError, ".spec.config", namespacedName)
-		}
-		configs, ok = installConfigObj["configs"].([]interface{})
-		if !ok {
-			return nil, fmt.Errorf(configReadError, "chart config object of .spec.config", namespacedName)
+		var err error
+		configs, err = parseInstallConfigs(decodedConfig)
+		if err != nil {
+			return nil, fmt.Errorf("manifest %s encountered an err: %w", namespacedName, err)
 		}
 	}
 
@@ -108,6 +106,22 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 	}
 
 	return parseInstallations(manifestObj, codec, configs, baseDeployInfo, insecureRegistry)
+}
+
+func parseInstallConfigs(decodedConfig interface{}) ([]interface{}, error) {
+	var configs []interface{}
+	installConfigObj, decodeOk := decodedConfig.(map[string]interface{})
+	if !decodeOk {
+		return nil, fmt.Errorf(configReadError, ".spec.config")
+	}
+	if installConfigObj["configs"] != nil {
+		var configOk bool
+		configs, configOk = installConfigObj["configs"].([]interface{})
+		if !configOk {
+			return nil, fmt.Errorf(configReadError, "chart config object of .spec.config")
+		}
+	}
+	return configs, nil
 }
 
 func parseInstallations(manifestObj *v1alpha1.Manifest, codec *types.Codec,
@@ -204,7 +218,7 @@ func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *types.Codec,
 	return nil, fmt.Errorf("unsupported type %s of install for Manifest %s", specType, namespacedName)
 }
 
-func getConfigAndValuesForInstall(installName string, configs []interface{}, namespacedName string) (
+func getConfigAndValuesForInstall(installName string, configs []interface{}) (
 	string, string, error,
 ) {
 	var defaultOverrides string
@@ -213,16 +227,16 @@ func getConfigAndValuesForInstall(installName string, configs []interface{}, nam
 	for _, config := range configs {
 		mappedConfig, configExists := config.(map[string]interface{})
 		if !configExists {
-			return "", "", fmt.Errorf(configReadError, "config object", namespacedName)
+			return "", "", fmt.Errorf(configReadError, "config object")
 		}
 		if mappedConfig["name"] == installName {
 			defaultOverrides, configExists = mappedConfig["overrides"].(string)
 			if !configExists {
-				return "", "", fmt.Errorf(configReadError, "config object overrides", namespacedName)
+				return "", "", fmt.Errorf(configReadError, "config object overrides")
 			}
 			clientConfig, configExists = mappedConfig["clientConfig"].(string)
 			if !configExists {
-				return "", "", fmt.Errorf(configReadError, "chart config", namespacedName)
+				return "", "", fmt.Errorf(configReadError, "chart config")
 			}
 			break
 		}
@@ -234,9 +248,9 @@ func parseChartConfigAndValues(install v1alpha1.InstallInfo, configs []interface
 	namespacedName string) (
 	map[string]interface{}, map[string]interface{}, error,
 ) {
-	configString, valuesString, err := getConfigAndValuesForInstall(install.Name, configs, namespacedName)
+	configString, valuesString, err := getConfigAndValuesForInstall(install.Name, configs)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("manifest %s encountered an error while parsing chart config: %w", namespacedName, err)
 	}
 
 	config := map[string]interface{}{}
