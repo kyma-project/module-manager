@@ -20,6 +20,7 @@ import (
 	"helm.sh/helm/v3/pkg/getter"
 	"helm.sh/helm/v3/pkg/repo"
 
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/yaml"
 )
 
@@ -78,14 +79,25 @@ func (r *RepoHandler) LoadChart(chartPath string, actionClient *action.Install) 
 	return chartRequested, nil
 }
 
-func (r *RepoHandler) Update() error {
+func (r *RepoHandler) Update(ctx context.Context) error {
+	logger := log.FromContext(ctx)
 	repos := make([]*repo.ChartRepository, 0)
 	repoFile := r.settings.RepositoryConfig
 
 	file, err := repo.LoadFile(repoFile)
-	if os.IsNotExist(errors.Cause(err)) || len(file.Repositories) == 0 {
-		return fmt.Errorf("no repositories found. You must add one before updating")
+
+	// if helm was never used to deploy remote helm charts, repo file would not exist
+	if os.IsNotExist(errors.Cause(err)) {
+		logger.Info(fmt.Sprintf("repository file %s doesn't exist", repoFile))
+		return nil
 	}
+
+	// for local helm charts there will be no repositories
+	if len(file.Repositories) == 0 {
+		logger.Info(fmt.Sprintf("no repositories found in repository file %s", repoFile))
+		return nil
+	}
+
 	for _, cfg := range file.Repositories {
 		chartRepo, err := repo.NewChartRepository(cfg, getter.All(r.settings))
 		if err != nil {

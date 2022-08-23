@@ -77,6 +77,7 @@ type ManifestReconciler struct {
 	CheckReadyStates        bool
 	CustomStateCheck        bool
 	Codec                   *types.Codec
+	InsecureRegistry        bool
 }
 
 //+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests,verbs=get;list;watch;create;update;patch;delete
@@ -172,7 +173,7 @@ func (r *ManifestReconciler) sendJobToInstallChannel(ctx context.Context, logger
 
 	// send deploy requests
 	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, r.Client, r.CheckReadyStates,
-		r.CustomStateCheck, r.Codec)
+		r.CustomStateCheck, r.Codec, r.InsecureRegistry)
 	if err != nil {
 		return err
 	}
@@ -206,7 +207,7 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 
 	// send deploy requests
 	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, r.Client, r.CheckReadyStates,
-		r.CustomStateCheck, r.Codec)
+		r.CustomStateCheck, r.Codec, r.InsecureRegistry)
 	if err != nil {
 		return err
 	}

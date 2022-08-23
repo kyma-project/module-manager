@@ -196,7 +196,12 @@ func (o *Operations) Install(deployInfo InstallInfo) (bool, error) {
 		"chart", deployInfo.ChartName)
 
 	// update manifest chart in a separate go-routine
-	if err = o.repoHandler.Update(); err != nil {
+	if err = o.repoHandler.Update(deployInfo.Ctx); err != nil {
+		return false, err
+	}
+
+	// install crs - if present do not update!
+	if err := resource.CreateCRs(deployInfo.Ctx, deployInfo.CustomResources, *deployInfo.RemoteClient); err != nil {
 		return false, err
 	}
 
@@ -228,7 +233,7 @@ func (o *Operations) Uninstall(deployInfo InstallInfo) (bool, error) {
 	}
 
 	// update manifest chart in a separate go-routine
-	if err = o.repoHandler.Update(); err != nil {
+	if err = o.repoHandler.Update(deployInfo.Ctx); err != nil {
 		return false, err
 	}
 

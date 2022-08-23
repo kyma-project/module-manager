@@ -7,6 +7,7 @@ type RefTypeMetadata string
 const (
 	HelmChartType RefTypeMetadata = "helm-chart"
 	OciRefType    RefTypeMetadata = "oci-ref"
+	NilRefType    RefTypeMetadata = ""
 )
 
 // ImageSpec defines OCI Image specifications.
@@ -21,7 +22,7 @@ type ImageSpec struct {
 	Ref string `json:"ref"`
 
 	// Type defines the chart as "oci-ref"
-	// +kubebuilder:validation:Enum=helm-chart;oci-ref
+	// +kubebuilder:validation:Enum=helm-chart;oci-ref;""
 	Type RefTypeMetadata `json:"type"`
 }
 

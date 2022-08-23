@@ -59,6 +59,7 @@ spec:
                     enum:
                     - helm-chart
                     - oci-ref
+                    - ""
                     type: string
                 required:
                 - name
@@ -83,6 +84,7 @@ spec:
                     enum:
                     - helm-chart
                     - oci-ref
+                    - ""
                     type: string
                 required:
                 - name
