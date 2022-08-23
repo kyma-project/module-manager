@@ -2,6 +2,7 @@ package declarative
 
 import "github.com/kyma-project/manifest-operator/operator/pkg/types"
 
+// WithResourceLabels adds the specified labels to the list of labels for the reconciled resource
 func WithResourceLabels(labels map[string]string) reconcilerOption {
 	return func(o manifestOptions) manifestOptions {
 		if o.resourceLabels == nil {
@@ -15,7 +16,7 @@ func WithResourceLabels(labels map[string]string) reconcilerOption {
 	}
 }
 
-// WithObjectTransform adds the specified ObjectTransforms to the chain of manifest changes
+// WithObjectTransform adds the specified ObjectTransforms to the list of manifest resource changes
 func WithObjectTransform(operations ...types.ObjectTransform) reconcilerOption {
 	return func(o manifestOptions) manifestOptions {
 		if o.objectTransforms == nil {
