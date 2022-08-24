@@ -215,7 +215,7 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 	for _, deployInfo := range deployInfos {
 		args := prepareArgs(deployInfo)
 		manifestOperations, err := manifest.NewOperations(logger, deployInfo.RemoteConfig,
-			deployInfo.ReleaseName, cli.New(), args)
+			deployInfo.ReleaseName, cli.New(), args, []types.ObjectTransform{})
 		if err != nil {
 			logger.Error(err, fmt.Sprintf("error while creating library operations for manifest %s", namespacedName))
 			return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error())
@@ -283,7 +283,7 @@ func (r *ManifestReconciler) HandleCharts(deployInfo manifest.InstallInfo, mode 
 	var ready bool
 	// TODO: implement better settings handling
 	manifestOperations, err := manifest.NewOperations(logger, deployInfo.RemoteConfig,
-		deployInfo.ReleaseName, cli.New(), args)
+		deployInfo.ReleaseName, cli.New(), args, []types.ObjectTransform{})
 
 	if err == nil {
 		if create {
