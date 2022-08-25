@@ -26,16 +26,16 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/ratelimiter"
 
-	"github.com/kyma-project/manifest-operator/operator/internal/pkg/prepare"
-	"github.com/kyma-project/manifest-operator/operator/internal/pkg/util"
-	"github.com/kyma-project/manifest-operator/operator/pkg/ratelimit"
-	"github.com/kyma-project/manifest-operator/operator/pkg/types"
+	"github.com/kyma-project/module-installer/operator/internal/pkg/prepare"
+	"github.com/kyma-project/module-installer/operator/internal/pkg/util"
+	"github.com/kyma-project/module-installer/operator/pkg/ratelimit"
+	"github.com/kyma-project/module-installer/operator/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	"github.com/go-logr/logr"
-	"github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
-	"github.com/kyma-project/manifest-operator/operator/pkg/labels"
-	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
+	"github.com/kyma-project/module-installer/operator/api/v1alpha1"
+	"github.com/kyma-project/module-installer/operator/pkg/labels"
+	"github.com/kyma-project/module-installer/operator/pkg/manifest"
 	"golang.org/x/time/rate"
 	"helm.sh/helm/v3/pkg/cli"
 	v1 "k8s.io/api/core/v1"

@@ -3,7 +3,7 @@ package ratelimit_test
 import (
 	"math"
 
-	"github.com/kyma-project/manifest-operator/operator/pkg/ratelimit"
+	"github.com/kyma-project/module-installer/operator/pkg/ratelimit"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )

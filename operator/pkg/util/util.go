@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/kyma-project/manifest-operator/operator/pkg/types"
+	"github.com/kyma-project/module-installer/operator/pkg/types"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	yamlUtil "k8s.io/apimachinery/pkg/util/yaml"

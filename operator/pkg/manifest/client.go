@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/kyma-project/manifest-operator/operator/pkg/types"
+	"github.com/kyma-project/module-installer/operator/pkg/types"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
@@ -16,8 +16,8 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
 
-	manifestRest "github.com/kyma-project/manifest-operator/operator/pkg/rest"
-	"github.com/kyma-project/manifest-operator/operator/pkg/util"
+	manifestRest "github.com/kyma-project/module-installer/operator/pkg/rest"
+	"github.com/kyma-project/module-installer/operator/pkg/util"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/kube"

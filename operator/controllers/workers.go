@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
+	"github.com/kyma-project/module-installer/operator/pkg/manifest"
 )
 
 type Workers interface {
@@ -35,7 +35,7 @@ func (mw *ManifestWorkerPool) StartWorkers(ctx context.Context, jobChan <-chan O
 ) {
 	for worker := 1; worker <= mw.GetWorkerPoolSize(); worker++ {
 		go func(ctx context.Context, workerId int, deployJob <-chan OperationRequest) {
-			mw.logger.Info(fmt.Sprintf("Starting manifest-operator worker with id %d", workerId))
+			mw.logger.Info(fmt.Sprintf("Starting module-installer worker with id %d", workerId))
 			for {
 				select {
 				case deployChart := <-deployJob:
