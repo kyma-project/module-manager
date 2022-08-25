@@ -142,7 +142,7 @@ func (h *HelmClient) SetFlags(args map[string]map[string]interface{}, actionClie
 		if !value.IsValid() || !value.CanSet() {
 			continue
 		}
-		// nolint:exhaustive
+		//nolint:exhaustive
 		switch value.Kind() {
 		case reflect.Bool:
 			value.SetBool(flagValue.(bool))
