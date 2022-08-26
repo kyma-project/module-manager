@@ -25,7 +25,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kyma-project/module-installer/operator/api/v1alpha1"
+	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 

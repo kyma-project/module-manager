@@ -7,6 +7,6 @@ const (
 	ComponentOwner    = OperatorPrefix + Separator + "kyma-name"
 	ManagedBy         = OperatorPrefix + Separator + "managed-by"
 	KymaOperator      = "lifecycle-manager"
-	ModuleInstaller   = "module-installer"
+	moduleManager     = "module-manager"
 	ManifestFinalizer = "component.kyma-project.io/manifest"
 )

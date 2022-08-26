@@ -1,6 +1,6 @@
 package declarative
 
-import "github.com/kyma-project/module-installer/operator/pkg/types"
+import "github.com/kyma-project/module-manager/operator/pkg/types"
 
 // WithResourceLabels adds the specified labels to the list of labels for the reconciled resource.
 func WithResourceLabels(labels map[string]string) ReconcilerOption {

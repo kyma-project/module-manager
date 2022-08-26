@@ -10,10 +10,10 @@ import (
 	"path/filepath"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
-	"github.com/kyma-project/module-installer/operator/pkg/types"
+	"github.com/kyma-project/module-manager/operator/pkg/types"
 
 	"github.com/google/go-containerregistry/pkg/crane"
-	"github.com/kyma-project/module-installer/operator/pkg/util"
+	"github.com/kyma-project/module-manager/operator/pkg/util"
 	"k8s.io/apimachinery/pkg/util/yaml"
 
 	yaml2 "sigs.k8s.io/yaml"

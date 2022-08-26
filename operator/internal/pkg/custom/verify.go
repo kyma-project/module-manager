@@ -7,7 +7,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/go-logr/logr"
-	"github.com/kyma-project/module-installer/operator/pkg/custom"
+	"github.com/kyma-project/module-manager/operator/pkg/custom"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 

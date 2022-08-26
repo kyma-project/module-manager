@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/kyma-project/module-installer/operator/pkg/labels"
-	"github.com/kyma-project/module-installer/operator/pkg/util"
+	"github.com/kyma-project/module-manager/operator/pkg/labels"
+	"github.com/kyma-project/module-manager/operator/pkg/util"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	k8slabels "k8s.io/apimachinery/pkg/labels"

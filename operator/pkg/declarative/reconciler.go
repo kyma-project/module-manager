@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/kyma-project/module-installer/operator/pkg/custom"
-	"github.com/kyma-project/module-installer/operator/pkg/manifest"
-	"github.com/kyma-project/module-installer/operator/pkg/types"
+	"github.com/kyma-project/module-manager/operator/pkg/custom"
+	"github.com/kyma-project/module-manager/operator/pkg/manifest"
+	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/strvals"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"

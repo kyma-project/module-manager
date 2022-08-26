@@ -12,14 +12,14 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 
-	"github.com/kyma-project/module-installer/operator/api/v1alpha1"
-	manifestCustom "github.com/kyma-project/module-installer/operator/internal/pkg/custom"
-	"github.com/kyma-project/module-installer/operator/pkg/custom"
-	"github.com/kyma-project/module-installer/operator/pkg/descriptor"
-	"github.com/kyma-project/module-installer/operator/pkg/labels"
-	"github.com/kyma-project/module-installer/operator/pkg/manifest"
-	"github.com/kyma-project/module-installer/operator/pkg/resource"
-	"github.com/kyma-project/module-installer/operator/pkg/types"
+	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
+	manifestCustom "github.com/kyma-project/module-manager/operator/internal/pkg/custom"
+	"github.com/kyma-project/module-manager/operator/pkg/custom"
+	"github.com/kyma-project/module-manager/operator/pkg/descriptor"
+	"github.com/kyma-project/module-manager/operator/pkg/labels"
+	"github.com/kyma-project/module-manager/operator/pkg/manifest"
+	"github.com/kyma-project/module-manager/operator/pkg/resource"
+	"github.com/kyma-project/module-manager/operator/pkg/types"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
