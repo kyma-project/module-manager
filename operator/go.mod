@@ -1,4 +1,4 @@
-module github.com/kyma-project/manifest-operator/operator
+module github.com/kyma-project/module-manager/operator
 
 go 1.19
 

@@ -5,10 +5,10 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
+	"github.com/kyma-project/module-manager/operator/pkg/manifest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
+	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 

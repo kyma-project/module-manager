@@ -21,20 +21,18 @@ import (
 	"os"
 	"time"
 
+	"github.com/kyma-project/module-manager/operator/controllers"
+	opLabels "github.com/kyma-project/module-manager/operator/pkg/labels"
+	"github.com/kyma-project/module-manager/operator/pkg/types"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/rest"
 
-	"github.com/kyma-project/manifest-operator/operator/controllers"
-	opLabels "github.com/kyma-project/manifest-operator/operator/pkg/labels"
-	"github.com/kyma-project/manifest-operator/operator/pkg/types"
-
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
+	manifestv1alpha1 "github.com/kyma-project/module-manager/operator/api/v1alpha1"
 	apiExtensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-
-	manifestv1alpha1 "github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
