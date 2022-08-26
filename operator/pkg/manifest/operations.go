@@ -58,7 +58,7 @@ type ResourceInfo struct {
 
 type ResponseChan chan *InstallResponse
 
-// nolint:errname
+//nolint:errname
 type InstallResponse struct {
 	Ready             bool
 	ChartName         string

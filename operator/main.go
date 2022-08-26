@@ -101,7 +101,7 @@ func main() {
 		SelectorsByObject: cache.SelectorsByObject{
 			&v1.Secret{}: {
 				Label: labels.SelectorFromSet(
-					labels.Set{opLabels.ManagedBy: opLabels.KymaOperator},
+					labels.Set{opLabels.ManagedBy: opLabels.LifecycleManager},
 				),
 			},
 		},
