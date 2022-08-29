@@ -1,4 +1,4 @@
-apiVersion: component.kyma-project.io/v1alpha1
+apiVersion: operator.kyma-project.io/v1alpha1
 kind: Manifest
 metadata:
   labels:
@@ -11,7 +11,7 @@ spec:
   resource:
     kind: SampleCRD
     resource: samplecrds
-    apiVersion: component.kyma-project.io/v1alpha1
+    apiVersion: operator.kyma-project.io/v1alpha1
     metadata:
       name: sample-crd-from-manifest
       namespace: default

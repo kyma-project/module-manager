@@ -16,7 +16,7 @@ webhooks:
   name: mmanifest.kb.io
   rules:
   - apiGroups:
-    - component.kyma-project.io
+    - operator.kyma-project.io
     apiVersions:
     - v1alpha1
     operations:
@@ -43,7 +43,7 @@ webhooks:
   name: vmanifest.kb.io
   rules:
   - apiGroups:
-    - component.kyma-project.io
+    - operator.kyma-project.io
     apiVersions:
     - v1alpha1
     operations:
