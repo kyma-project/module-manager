@@ -200,7 +200,7 @@ func (o *Operations) Install(deployInfo InstallInfo) (bool, error) {
 	return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.BaseResource, o.logger, deployInfo.RemoteInfo)
 }
 
-func (o *Operations) Uninstall(deployInfo InstallInfo) (bool, error) {
+func (o *Operations) Uninstall(deployInfo InstallInfo, create bool) (bool, error) {
 	targetResources, existingResources, err := o.getClusterResources(deployInfo, OperationDelete)
 	if err != nil {
 		return false, err
@@ -234,10 +234,13 @@ func (o *Operations) Uninstall(deployInfo InstallInfo) (bool, error) {
 	}
 
 	// delete crds first - if not present ignore!
-	if err := resource.RemoveCRDs(deployInfo.Ctx, deployInfo.Crds, *deployInfo.RemoteClient); err != nil {
-		return false, err
-	}
+	//if err := resource.RemoveCRDs(deployInfo.Ctx, deployInfo.Crds, *deployInfo.RemoteClient); err != nil {
+	//	return false, err
+	//}
 
+	if !create {
+		return true, nil
+	}
 	// custom states check
 	return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.BaseResource, o.logger, deployInfo.RemoteInfo)
 }

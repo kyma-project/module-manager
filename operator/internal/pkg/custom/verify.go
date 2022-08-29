@@ -2,6 +2,7 @@ package custom
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -10,6 +11,9 @@ import (
 	"github.com/kyma-project/manifest-operator/operator/pkg/custom"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+var ErrSpecResourceCastFailed = errors.New("spec.resource case assertion failed")
+var ErrSpecCastFailed = errors.New("spec case assertion failed")
 
 type Resource struct {
 	DefaultClient client.Client
@@ -25,7 +29,17 @@ func (r *Resource) DefaultFn(context.Context, *unstructured.Unstructured, *logr.
 func (r *Resource) CheckFn(ctx context.Context, manifestObj *unstructured.Unstructured, logger *logr.Logger,
 	remoteInfo custom.RemoteInfo,
 ) (bool, error) {
-	resource := manifestObj.Object["spec"].(map[string]interface{})["resource"].(*unstructured.Unstructured)
+	spec, found := manifestObj.Object["spec"].(map[string]interface{})
+	if !found {
+		return false, ErrSpecCastFailed
+	}
+	resourceMap, found := spec["resource"].(map[string]interface{})
+	if !found {
+		return false, ErrSpecResourceCastFailed
+	}
+	resource := &unstructured.Unstructured{}
+	resource.SetUnstructuredContent(resourceMap)
+
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 
 	// check custom resource for states
@@ -34,7 +48,7 @@ func (r *Resource) CheckFn(ctx context.Context, manifestObj *unstructured.Unstru
 	}
 
 	ready, err := customStatus.WaitForCustomResources(ctx, resource)
-	if err != nil {
+	if client.IgnoreNotFound(err) != nil {
 		logger.Error(err,
 			fmt.Sprintf("error while tracking status of custom resources for manifest %s",
 				namespacedName))

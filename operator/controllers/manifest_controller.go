@@ -288,7 +288,7 @@ func (r *ManifestReconciler) HandleCharts(deployInfo manifest.InstallInfo, mode 
 		if create {
 			ready, err = manifestOperations.Install(deployInfo)
 		} else {
-			ready, err = manifestOperations.Uninstall(deployInfo)
+			ready, err = manifestOperations.Uninstall(deployInfo, create)
 		}
 	}
 
