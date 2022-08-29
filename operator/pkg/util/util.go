@@ -1,14 +1,20 @@
 package util
 
 import (
+	"bufio"
+	"bytes"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
 
-	securejoin "github.com/cyphar/filepath-securejoin"
+	"github.com/kyma-project/module-manager/operator/pkg/types"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	yamlUtil "k8s.io/apimachinery/pkg/util/yaml"
 
 	"github.com/pkg/errors"
 	"helm.sh/helm/v3/pkg/kube"
@@ -20,7 +26,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	ctrl "sigs.k8s.io/controller-runtime"
-	yaml2 "sigs.k8s.io/yaml"
+	"sigs.k8s.io/yaml"
 )
 
 func GetNamespaceObjBytes(clientNs string) ([]byte, error) {
@@ -36,7 +42,7 @@ func GetNamespaceObjBytes(clientNs string) ([]byte, error) {
 			},
 		},
 	}
-	return yaml2.Marshal(namespace)
+	return yaml.Marshal(namespace)
 }
 
 func FilterExistingResources(resources kube.ResourceList) (kube.ResourceList, error) {
@@ -137,11 +143,34 @@ func CleanFilePathJoin(root, dest string) (string, error) {
 		return "", errors.New("path is absolute, which is illegal")
 	}
 
-	// SecureJoin will do some cleaning, as well as some rudimentary checking of symlinks.
-	newpath, err := securejoin.SecureJoin(root, dest)
-	if err != nil {
-		return "", err
-	}
+	newPath := filepath.Join(root, filepath.Clean(dest))
 
-	return filepath.ToSlash(newpath), nil
+	return filepath.ToSlash(newPath), nil
+}
+
+func ParseManifestStringToObjects(manifest string) (*types.ManifestResources, error) {
+	objects := &types.ManifestResources{}
+	reader := yamlUtil.NewYAMLReader(bufio.NewReader(strings.NewReader(manifest)))
+	for {
+		rawBytes, err := reader.Read()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return objects, nil
+			}
+
+			return nil, fmt.Errorf("invalid YAML doc: %w", err)
+		}
+
+		rawBytes = bytes.TrimSpace(rawBytes)
+		unstructuredObj := unstructured.Unstructured{}
+		if err := yaml.Unmarshal(rawBytes, &unstructuredObj); err != nil {
+			objects.Blobs = append(objects.Blobs, append(bytes.TrimPrefix(rawBytes, []byte("---\n")), '\n'))
+		}
+
+		if len(rawBytes) == 0 || bytes.Equal(rawBytes, []byte("null")) || len(unstructuredObj.Object) == 0 {
+			continue
+		}
+
+		objects.Items = append(objects.Items, &unstructuredObj)
+	}
 }

@@ -19,7 +19,7 @@ metadata:
   name: kyma-events
 spec:
   gateways:
-    - manifest-operator-kyma-gateway
+    - module-manager-kyma-gateway
   hosts:
     - '*'
   http:
@@ -28,11 +28,11 @@ spec:
             regex: \/v.*\/manifest\/event
       route:
         - destination:
-            host: manifest-operator-event-service
+            host: module-manager-event-service
             port:
               number: 2022
 ---
-##### manifest operator needs a different label than kyma operator to have a sufficient selector in place
+##### module manager needs a different label than lifecycle-manager to have a sufficient selector in place
 apiVersion: v1
 kind: Service
 metadata:

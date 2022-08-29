@@ -1,4 +1,4 @@
-# manifest-operator
+# module-manager
 
 This repository offers an operator and relevant packages to perform installation, update and uninstallation of helm charts.
 The packages could be used independent of the operator.
@@ -20,8 +20,8 @@ to run the operator
 
 ## Use manifest packages in your own operator
 
-- Import package `"github.com/kyma-project/manifest-operator/operator/pkg/manifest"`
-- [Package Specifications](https://pkg.go.dev/github.com/kyma-project/manifest-operator/operator/pkg/manifest) 
+- Import package `"github.com/kyma-project/module-manager/operator/pkg/manifest"`
+- [Package Specifications](https://pkg.go.dev/github.com/kyma-project/module-manager/operator/pkg/manifest) 
 - Package usage example:
 ```
     manifestOperations := manifest.NewOperations(logger, r.RestConfig, cli.New())

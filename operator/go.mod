@@ -1,15 +1,15 @@
-module github.com/kyma-project/manifest-operator/operator
+module github.com/kyma-project/module-manager/operator
 
-go 1.18
+go 1.19
 
 require (
 	github.com/go-logr/logr v1.2.3
 	github.com/gofrs/flock v0.8.1
 	github.com/google/go-containerregistry v0.10.0
 	github.com/invopop/jsonschema v0.5.0
-	github.com/kyma-project/kyma-watcher/kcp v0.0.0-20220801122243-5ce523a796aa
+	github.com/kyma-project/kyma-watcher/kcp v0.0.0-20220823054606-7bae3de12050
 	github.com/onsi/ginkgo/v2 v2.1.4
-	github.com/onsi/gomega v1.19.0
+	github.com/onsi/gomega v1.20.0
 	github.com/pkg/errors v0.9.1
 	github.com/xeipuuv/gojsonschema v1.2.0
 	golang.org/x/time v0.0.0-20220722155302-e5dcc9cfc0b9

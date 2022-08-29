@@ -5,9 +5,9 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.9.2
   creationTimestamp: null
-  name: manifests.component.kyma-project.io
+  name: manifests.operator.kyma-project.io
 spec:
-  group: component.kyma-project.io
+  group: operator.kyma-project.io
   names:
     kind: Manifest
     listKind: ManifestList
@@ -59,6 +59,7 @@ spec:
                     enum:
                     - helm-chart
                     - oci-ref
+                    - ""
                     type: string
                 required:
                 - name
@@ -83,6 +84,7 @@ spec:
                     enum:
                     - helm-chart
                     - oci-ref
+                    - ""
                     type: string
                 required:
                 - name

@@ -26,16 +26,16 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/ratelimiter"
 
-	"github.com/kyma-project/manifest-operator/operator/internal/pkg/prepare"
-	"github.com/kyma-project/manifest-operator/operator/internal/pkg/util"
-	"github.com/kyma-project/manifest-operator/operator/pkg/ratelimit"
-	"github.com/kyma-project/manifest-operator/operator/pkg/types"
+	"github.com/kyma-project/module-manager/operator/internal/pkg/prepare"
+	"github.com/kyma-project/module-manager/operator/internal/pkg/util"
+	"github.com/kyma-project/module-manager/operator/pkg/ratelimit"
+	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	"github.com/go-logr/logr"
-	"github.com/kyma-project/manifest-operator/operator/api/v1alpha1"
-	"github.com/kyma-project/manifest-operator/operator/pkg/labels"
-	"github.com/kyma-project/manifest-operator/operator/pkg/manifest"
+	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
+	"github.com/kyma-project/module-manager/operator/pkg/labels"
+	"github.com/kyma-project/module-manager/operator/pkg/manifest"
 	"golang.org/x/time/rate"
 	"helm.sh/helm/v3/pkg/cli"
 	v1 "k8s.io/api/core/v1"
@@ -77,11 +77,12 @@ type ManifestReconciler struct {
 	CheckReadyStates        bool
 	CustomStateCheck        bool
 	Codec                   *types.Codec
+	InsecureRegistry        bool
 }
 
-//+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=component.kyma-project.io,resources=manifests/finalizers,verbs=update
+//+kubebuilder:rbac:groups=operator.kyma-project.io,resources=manifests,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=operator.kyma-project.io,resources=manifests/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=operator.kyma-project.io,resources=manifests/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;patch;get;list;watch
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
@@ -172,7 +173,7 @@ func (r *ManifestReconciler) sendJobToInstallChannel(ctx context.Context, logger
 
 	// send deploy requests
 	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, r.Client, r.CheckReadyStates,
-		r.CustomStateCheck, r.Codec)
+		r.CustomStateCheck, r.Codec, r.InsecureRegistry)
 	if err != nil {
 		return err
 	}
@@ -206,7 +207,7 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 
 	// send deploy requests
 	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, r.Client, r.CheckReadyStates,
-		r.CustomStateCheck, r.Codec)
+		r.CustomStateCheck, r.Codec, r.InsecureRegistry)
 	if err != nil {
 		return err
 	}
@@ -214,7 +215,7 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 	for _, deployInfo := range deployInfos {
 		args := prepareArgs(deployInfo)
 		manifestOperations, err := manifest.NewOperations(logger, deployInfo.RemoteConfig,
-			deployInfo.ReleaseName, cli.New(), args)
+			deployInfo.ReleaseName, cli.New(), args, []types.ObjectTransform{})
 		if err != nil {
 			logger.Error(err, fmt.Sprintf("error while creating library operations for manifest %s", namespacedName))
 			return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error())
@@ -282,7 +283,7 @@ func (r *ManifestReconciler) HandleCharts(deployInfo manifest.InstallInfo, mode 
 	var ready bool
 	// TODO: implement better settings handling
 	manifestOperations, err := manifest.NewOperations(logger, deployInfo.RemoteConfig,
-		deployInfo.ReleaseName, cli.New(), args)
+		deployInfo.ReleaseName, cli.New(), args, []types.ObjectTransform{})
 
 	if err == nil {
 		if create {

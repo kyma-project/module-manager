@@ -15,8 +15,8 @@ limitations under the License.
 */
 
 // Package v1alpha1 contains API Schema definitions for the component v1alpha1 API group
-//+kubebuilder:object:generate=true
-//+groupName=component.kyma-project.io
+// +kubebuilder:object:generate=true
+// +groupName=operator.kyma-project.io
 package v1alpha1
 
 import (
@@ -26,7 +26,7 @@ import (
 
 var (
 	// GroupVersion is group version used to register these objects.
-	GroupVersion = schema.GroupVersion{Group: "component.kyma-project.io", Version: "v1alpha1"} //nolint:gochecknoglobals
+	GroupVersion = schema.GroupVersion{Group: "operator.kyma-project.io", Version: "v1alpha1"} //nolint:gochecknoglobals
 
 	// GroupVersionResource is group version resource.
 	GroupVersionResource = GroupVersion.WithResource("manifests") //nolint:gochecknoglobals

@@ -1,0 +1,36 @@
+apiVersion: operator.kyma-project.io/v1alpha1
+kind: Manifest
+metadata:
+  labels:
+    operator.kyma-project.io/channel: stable
+    operator.kyma-project.io/controller-name: manifest
+    operator.kyma-project.io/kyma-name: kyma-sample
+  name: manifestkyma-sample
+  namespace: default
+spec:
+  resource:
+    kind: SampleCRD
+    resource: samplecrds
+    apiVersion: operator.kyma-project.io/v1alpha1
+    metadata:
+      name: sample-crd-from-manifest
+      namespace: default
+    spec:
+      randomkey: samplevalue
+  config:
+    ref: sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+    name: kyma.project.io/module/template
+    repo: kcp-registry.localhost:61370/unsigned/component-descriptors
+    type: oci-ref
+  installs:
+    - source:
+        name: kyma.project.io/module/template
+        repo: kcp-registry.localhost:61370/unsigned/component-descriptors
+        ref: sha256:3dca3f7647a352a3802afa03606e82c099211bc80d69b76b5523b1205a13e6c8
+        type: oci-ref
+      name: nginx-ingress
+    - source:
+        chartName: mysql
+        url: https://charts.bitnami.com/bitnami
+        type: helm-chart
+      name: bitnami
