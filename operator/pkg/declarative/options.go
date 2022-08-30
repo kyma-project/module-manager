@@ -20,3 +20,19 @@ func WithObjectTransform(operations ...types.ObjectTransform) ReconcilerOption {
 		return allOptions
 	}
 }
+
+// WithManifestResolver resolves manifest object for a given object instance.
+func WithManifestResolver(resolver types.ManifestResolver) ReconcilerOption {
+	return func(allOptions manifestOptions) manifestOptions {
+		allOptions.manifestResolver = resolver
+		return allOptions
+	}
+}
+
+// WithResourcesReady verifies if native resources are in their respective ready states.
+func WithResourcesReady(verify bool) ReconcilerOption {
+	return func(allOptions manifestOptions) manifestOptions {
+		allOptions.verify = verify
+		return allOptions
+	}
+}

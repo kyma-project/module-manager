@@ -10,6 +10,18 @@ const (
 	NilRefType    RefTypeMetadata = ""
 )
 
+// Flags define a set of configurable flags
+type Flags map[string]string
+
+// ChartFlags define flag based configurations for helm chart processing
+type ChartFlags struct {
+	// ConfigFlags
+	ConfigFlags Flags
+
+	// SetFlags
+	SetFlags Flags
+}
+
 // ImageSpec defines OCI Image specifications.
 type ImageSpec struct {
 	// Repo defines the Image repo
