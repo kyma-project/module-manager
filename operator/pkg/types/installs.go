@@ -11,14 +11,15 @@ const (
 )
 
 // Flags define a set of configurable flags
-type Flags map[string]string
+type Flags map[string]interface{}
 
 // ChartFlags define flag based configurations for helm chart processing
 type ChartFlags struct {
-	// ConfigFlags
+	// ConfigFlags support string, bool and int types as helm chart flags
+	// check: https://github.com/helm/helm/blob/d7b4c38c42cb0b77f1bcebf9bb4ae7695a10da0b/pkg/action/install.go#L67
 	ConfigFlags Flags
 
-	// SetFlags
+	// SetFlags are chart value overrides
 	SetFlags Flags
 }
 
