@@ -339,7 +339,8 @@ func (r *ManifestReconciler) prepareInstallInfo(ctx context.Context, objectInsta
 }
 
 func (r *ManifestReconciler) getManifestClient(logger *logr.Logger, configFlags map[string]interface{},
-	setFlags map[string]interface{}) (*manifest.Operations, error) {
+	setFlags map[string]interface{},
+) (*manifest.Operations, error) {
 	// Example: Prepare manifest library client
 	return manifest.NewOperations(logger, r.config, "nginx-release-name", cli.New(),
 		map[string]map[string]interface{}{
