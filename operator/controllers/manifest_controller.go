@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kyma-project/kyma-watcher/kcp/pkg/listener"
+	"github.com/kyma-project/runtime-watcher/listener"
 
 	"sigs.k8s.io/controller-runtime/pkg/ratelimiter"
 
