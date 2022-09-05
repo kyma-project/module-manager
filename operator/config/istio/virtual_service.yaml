@@ -1,0 +1,19 @@
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: kyma-events
+spec:
+  gateways:
+    - module-manager-kyma-gateway
+  hosts:
+    - '*'
+  http:
+    - match:
+        - uri:
+            regex: \/v.*\/manifest\/event
+      route:
+        - destination:
+            host: module-manager-event-service
+            port:
+              number: 2022
