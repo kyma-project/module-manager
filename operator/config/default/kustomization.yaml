@@ -12,7 +12,7 @@ namePrefix: module-manager-
 #commonLabels:
 #  someName: someValue
 
-bases:
+resources:
 #- ../crd
 - ../rbac
 - ../manager
