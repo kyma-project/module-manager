@@ -22,7 +22,9 @@ bases:
 # [CERTMANAGER] To enable cert-manager, uncomment all sections with 'CERTMANAGER'. 'WEBHOOK' components are required.
 #- ../certmanager
 # [PROMETHEUS] To enable prometheus monitor, uncomment all sections with 'PROMETHEUS'.
-- ../prometheus
+#- ../prometheus
+# [ISTIO] To enable istio gateway, uncomment all sections with 'ISTIO'.
+#- ../istio
 
 patchesStrategicMerge:
 # Protect the /metrics endpoint by putting it behind auth.
