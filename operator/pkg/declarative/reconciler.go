@@ -11,7 +11,6 @@ import (
 	"github.com/kyma-project/module-manager/operator/pkg/manifest"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"helm.sh/helm/v3/pkg/cli"
-	"helm.sh/helm/v3/pkg/strvals"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
@@ -48,6 +47,7 @@ type manifestOptions struct {
 	verify           bool
 	resourceLabels   map[string]string
 	objectTransforms []types.ObjectTransform
+	manifestResolver types.ManifestResolver
 }
 type ReconcilerOption func(manifestOptions) manifestOptions
 
@@ -66,6 +66,7 @@ func (r *ManifestReconciler) Inject(mgr manager.Manager, customObject types.Base
 	if err = r.applyOptions(opts...); err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -170,9 +171,14 @@ func (r *ManifestReconciler) applyLabels(objectInstance types.BaseCustomObject) 
 func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, objectInstance types.BaseCustomObject) error {
 	// TODO: processing logic here
 	logger := log.FromContext(ctx)
-	spec, err := getSpecFromObjectInstance(objectInstance)
+
+	// fetch install information
+	installSpec, err := r.options.manifestResolver.Get(objectInstance)
 	if err != nil {
 		return err
+	}
+	if installSpec.ChartPath == "" {
+		return fmt.Errorf("no chart path available for processing")
 	}
 
 	status, err := getStatusFromObjectInstance(objectInstance)
@@ -180,7 +186,7 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, objectIn
 		return err
 	}
 
-	manifestClient, err := r.getManifestClient(&logger, spec.ChartFlags)
+	manifestClient, err := r.getManifestClient(&logger, installSpec.ConfigFlags, installSpec.SetFlags)
 	if err != nil {
 		logger.Error(err, "error while parsing flags for resource %s", client.ObjectKeyFromObject(objectInstance))
 		status.State = types.StateError
@@ -191,7 +197,8 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, objectIn
 	}
 
 	// Use manifest library client to install a sample chart
-	installInfo, err := r.prepareInstallInfo(ctx, objectInstance, spec.ChartPath, spec.ReleaseName)
+	installInfo, err := r.prepareInstallInfo(ctx, objectInstance, installSpec.ChartPath,
+		resolveReleaseName(installSpec.ReleaseName, objectInstance))
 	if err != nil {
 		return err
 	}
@@ -218,9 +225,14 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, objectIn
 func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInstance types.BaseCustomObject) error {
 	// TODO: deletion logic here
 	logger := log.FromContext(ctx)
-	spec, err := getSpecFromObjectInstance(objectInstance)
+
+	// fetch uninstall information
+	installSpec, err := r.options.manifestResolver.Get(objectInstance)
 	if err != nil {
 		return err
+	}
+	if installSpec.ChartPath == "" {
+		return fmt.Errorf("no chart path available for processing")
 	}
 
 	status, err := getStatusFromObjectInstance(objectInstance)
@@ -228,7 +240,7 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInst
 		return err
 	}
 
-	manifestClient, err := r.getManifestClient(&logger, spec.ChartFlags)
+	manifestClient, err := r.getManifestClient(&logger, installSpec.ConfigFlags, installSpec.SetFlags)
 	if err != nil {
 		logger.Error(err, "error while parsing flags for resource %s", client.ObjectKeyFromObject(objectInstance))
 		status.State = types.StateError
@@ -239,7 +251,8 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInst
 	}
 
 	// Use manifest library client to install a sample chart
-	installInfo, err := r.prepareInstallInfo(ctx, objectInstance, spec.ChartPath, spec.ReleaseName)
+	installInfo, err := r.prepareInstallInfo(ctx, objectInstance, installSpec.ChartPath,
+		resolveReleaseName(installSpec.ReleaseName, objectInstance))
 	if err != nil {
 		return err
 	}
@@ -321,23 +334,20 @@ func (r *ManifestReconciler) prepareInstallInfo(ctx context.Context, objectInsta
 			// your custom logic here to set ready state
 			return true, nil
 		},
-		CheckReadyStates: true,
+		CheckReadyStates: r.options.verify,
 	}, nil
 }
 
-func (r *ManifestReconciler) getManifestClient(logger *logr.Logger, configString string,
+func (r *ManifestReconciler) getManifestClient(logger *logr.Logger, configFlags map[string]interface{},
+	setFlags map[string]interface{},
 ) (*manifest.Operations, error) {
-	config := map[string]interface{}{}
-	if err := strvals.ParseInto(configString, config); err != nil {
-		return nil, err
-	}
 	// Example: Prepare manifest library client
 	return manifest.NewOperations(logger, r.config, "nginx-release-name", cli.New(),
 		map[string]map[string]interface{}{
 			// check --set flags parameter for helm
-			"set": {},
+			"set": setFlags,
 			// comma separated values of manifest command line flags
-			"flags": config,
+			"flags": configFlags,
 		}, r.options.objectTransforms)
 }
 
@@ -351,6 +361,10 @@ func (r *ManifestReconciler) applyOptions(opts ...ReconcilerOption) error {
 
 	for _, opt := range opts {
 		params = opt(params)
+	}
+
+	if params.manifestResolver == nil {
+		return fmt.Errorf("no manifest resolver set, reconciliation cannot proceed")
 	}
 
 	r.options = params
@@ -404,27 +418,6 @@ func getStatusFromObjectInstance(objectInstance types.BaseCustomObject) (types.S
 	}
 }
 
-func getSpecFromObjectInstance(objectInstance types.BaseCustomObject) (types.Spec, error) {
-	switch typedObject := objectInstance.(type) {
-	case types.CustomObject:
-		return typedObject.GetSpec(), nil
-	case *unstructured.Unstructured:
-		unstructSpec, _, err := unstructured.NestedMap(typedObject.Object, "spec")
-		if err != nil {
-			return types.Spec{}, fmt.Errorf("unable to get spec from unstuctured: %w", err)
-		}
-		var addonSpec types.Spec
-		err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructSpec, &addonSpec)
-		if err != nil {
-			return addonSpec, err
-		}
-
-		return addonSpec, nil
-	default:
-		return types.Spec{}, getTypeError(client.ObjectKeyFromObject(objectInstance).String())
-	}
-}
-
 func GetComponentName(objectInstance types.BaseCustomObject) (string, error) {
 	switch typedObject := objectInstance.(type) {
 	case types.CustomObject:
@@ -434,4 +427,11 @@ func GetComponentName(objectInstance types.BaseCustomObject) (string, error) {
 	default:
 		return "", getTypeError(client.ObjectKeyFromObject(objectInstance).String())
 	}
+}
+
+func resolveReleaseName(releaseName string, objectInstance types.BaseCustomObject) string {
+	if releaseName == "" {
+		return client.ObjectKeyFromObject(objectInstance).String()
+	}
+	return releaseName
 }

@@ -11,7 +11,6 @@ type CustomObject interface {
 	runtime.Object
 	metav1.Object
 	ComponentName() string
-	GetSpec() Spec
 	GetStatus() Status
 	SetStatus(Status)
 }
@@ -23,23 +22,6 @@ type BaseCustomObject interface {
 
 // ObjectTransform is an operation that transforms the manifest objects before applying it.
 type ObjectTransform = func(context.Context, BaseCustomObject, *ManifestResources) error
-
-// +k8s:deepcopy-gen=true
-
-// Spec specifies spec for CustomObject.
-type Spec struct {
-	// ChartPath specifies path to local helm chart.
-	ChartPath string `json:"chartPath,omitempty"`
-
-	// ReleaseName specifies release name for helm chart.
-	ReleaseName string `json:"releaseName,omitempty"`
-
-	// ChartFlags specifies comma separated flags for chart installation.
-	ChartFlags string `json:"chartFlags,omitempty"`
-
-	// SetFlag specifies comma separated values for --set flag.
-	SetValues string `json:"setValues,omitempty"`
-}
 
 type State string
 
@@ -68,7 +50,9 @@ const (
 type Status struct {
 	// State signifies current state of CustomObject.
 	// Value can be one of ("Ready", "Processing", "Error", "Deleting").
-	State State `json:"state,omitempty"`
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Enum=Processing;Deleting;Ready;Error
+	State State `json:"state"`
 
 	// Conditions associated with CustomStatus.
 	Conditions []*metav1.Condition `json:"conditions,omitempty"`
