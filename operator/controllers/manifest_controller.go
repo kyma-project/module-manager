@@ -19,7 +19,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"github.com/kyma-project/module-manager/operator/pkg/custom"
 	"strings"
 	"time"
 
@@ -35,6 +34,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
+	"github.com/kyma-project/module-manager/operator/pkg/custom"
 	"github.com/kyma-project/module-manager/operator/pkg/labels"
 	"github.com/kyma-project/module-manager/operator/pkg/manifest"
 	"golang.org/x/time/rate"

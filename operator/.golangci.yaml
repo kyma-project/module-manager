@@ -25,6 +25,7 @@ linters:
     - unparam
     - wastedassign
     - ireturn
+    - ifshort
 linters-settings:
   gci:
     sections:

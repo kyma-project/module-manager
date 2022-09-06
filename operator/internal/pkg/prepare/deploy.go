@@ -95,7 +95,8 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 }
 
 func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo custom.ClusterInfo,
-	manifestObj *v1alpha1.Manifest) (custom.ClusterInfo, error) {
+	manifestObj *v1alpha1.Manifest,
+) (custom.ClusterInfo, error) {
 	// single cluster mode
 	if !manifestObj.Spec.Remote {
 		return defaultClusterInfo, nil

@@ -324,7 +324,7 @@ func (r *ManifestReconciler) prepareInstallInfo(ctx context.Context, objectInsta
 			// destination cluster rest config
 			Config: r.config,
 			// destination cluster rest client
-			Client: &r.nativeClient,
+			Client: r.nativeClient,
 		},
 		ResourceInfo: manifest.ResourceInfo{
 			// base operator resource to be passed for custom checks
