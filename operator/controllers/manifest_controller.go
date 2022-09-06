@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"github.com/kyma-project/module-manager/operator/pkg/custom"
 	"strings"
 	"time"
 
@@ -172,8 +173,10 @@ func (r *ManifestReconciler) sendJobToInstallChannel(ctx context.Context, logger
 	go r.ResponseHandlerFunc(ctx, logger, chartCount, responseChan, namespacedName)
 
 	// send deploy requests
-	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, r.Client, r.CheckReadyStates,
-		r.CustomStateCheck, r.Codec, r.InsecureRegistry)
+	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, custom.ClusterInfo{
+		Client: r.Client,
+		Config: r.RestConfig,
+	}, r.CheckReadyStates, r.CustomStateCheck, r.Codec, r.InsecureRegistry)
 	if err != nil {
 		return err
 	}
@@ -206,7 +209,10 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 	logger.Info("checking consistent state for " + namespacedName.String())
 
 	// send deploy requests
-	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, r.Client, r.CheckReadyStates,
+	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, custom.ClusterInfo{
+		Client: r.Client,
+		Config: r.RestConfig,
+	}, r.CheckReadyStates,
 		r.CustomStateCheck, r.Codec, r.InsecureRegistry)
 	if err != nil {
 		return err
@@ -214,7 +220,7 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 
 	for _, deployInfo := range deployInfos {
 		args := prepareArgs(deployInfo)
-		manifestOperations, err := manifest.NewOperations(logger, deployInfo.RemoteConfig,
+		manifestOperations, err := manifest.NewOperations(logger, deployInfo.Config,
 			deployInfo.ReleaseName, cli.New(), args, []types.ObjectTransform{})
 		if err != nil {
 			logger.Error(err, fmt.Sprintf("error while creating library operations for manifest %s", namespacedName))
@@ -282,7 +288,7 @@ func (r *ManifestReconciler) HandleCharts(deployInfo manifest.InstallInfo, mode 
 
 	var ready bool
 	// TODO: implement better settings handling
-	manifestOperations, err := manifest.NewOperations(logger, deployInfo.RemoteConfig,
+	manifestOperations, err := manifest.NewOperations(logger, deployInfo.Config,
 		deployInfo.ReleaseName, cli.New(), args, []types.ObjectTransform{})
 
 	if err == nil {

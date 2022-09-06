@@ -3,6 +3,7 @@
 # It should be run by config/default
 resources:
 - bases/operator.kyma-project.io_manifests.yaml
+- bases/sample_crd.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 patchesStrategicMerge:
