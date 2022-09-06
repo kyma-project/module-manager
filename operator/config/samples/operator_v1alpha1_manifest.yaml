@@ -18,17 +18,17 @@ spec:
     spec:
       randomkey: samplevalue
   config:
-    ref: sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
-    name: kyma.project.io/module/template
-    repo: kcp-registry.localhost:61370/unsigned/component-descriptors
+    ref: sha256:61be4f1fee1a2f51296cc805aa9b24bc14fd5c2b4aee1e24aadc2996b067ccec
+    name: kyma-project.io/module/example-module-name
+    repo: kcp-registry.localhost:3131/component-descriptors
     type: oci-ref
   installs:
     - source:
-        name: kyma.project.io/module/template
-        repo: kcp-registry.localhost:61370/unsigned/component-descriptors
-        ref: sha256:3dca3f7647a352a3802afa03606e82c099211bc80d69b76b5523b1205a13e6c8
+        name: kyma-project.io/module/example-module-name
+        repo: kcp-registry.localhost:3131/component-descriptors
+        ref: sha256:c64f0580a74259712f24243528881a76b5e1c9cd254fa58197de93a6347f99b9
         type: oci-ref
-      name: nginx-ingress
+      name: redis
     - source:
         chartName: mysql
         url: https://charts.bitnami.com/bitnami

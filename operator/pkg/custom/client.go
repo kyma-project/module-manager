@@ -13,9 +13,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type RemoteInfo struct {
-	RemoteConfig *rest.Config
-	RemoteClient *client.Client
+type ClusterInfo struct {
+	Config *rest.Config
+	Client client.Client
+}
+
+func (r ClusterInfo) IsEmpty() bool {
+	return r.Config == nil
 }
 
 type ClusterClient struct {

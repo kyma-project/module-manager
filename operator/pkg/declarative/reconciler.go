@@ -320,17 +320,17 @@ func (r *ManifestReconciler) prepareInstallInfo(ctx context.Context, objectInsta
 			ChartPath:   chartPath,
 			ReleaseName: releaseName,
 		},
-		RemoteInfo: custom.RemoteInfo{
+		ClusterInfo: custom.ClusterInfo{
 			// destination cluster rest config
-			RemoteConfig: r.config,
+			Config: r.config,
 			// destination cluster rest client
-			RemoteClient: &r.nativeClient,
+			Client: r.nativeClient,
 		},
 		ResourceInfo: manifest.ResourceInfo{
 			// base operator resource to be passed for custom checks
 			BaseResource: unstructuredObj,
 		},
-		CheckFn: func(context.Context, *unstructured.Unstructured, *logr.Logger, custom.RemoteInfo) (bool, error) {
+		CheckFn: func(context.Context, *unstructured.Unstructured, *logr.Logger, custom.ClusterInfo) (bool, error) {
 			// your custom logic here to set ready state
 			return true, nil
 		},

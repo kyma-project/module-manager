@@ -44,7 +44,7 @@ type ChartInfo struct {
 type InstallInfo struct {
 	*ChartInfo
 	ResourceInfo
-	custom.RemoteInfo
+	custom.ClusterInfo
 	Ctx              context.Context //nolint:containedctx
 	CheckFn          custom.CheckFnType
 	CheckReadyStates bool
@@ -150,18 +150,12 @@ func (o *Operations) VerifyResources(deployInfo InstallInfo) (bool, error) {
 	if len(targetResources) > len(existingResources) {
 		return false, nil
 	}
-	return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.BaseResource, o.logger, deployInfo.RemoteInfo)
+	return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.BaseResource, o.logger, deployInfo.ClusterInfo)
 }
 
 func (o *Operations) Install(deployInfo InstallInfo) (bool, error) {
 	// install crds first - if present do not update!
-	if err := resource.CreateCRDs(deployInfo.Ctx, deployInfo.Crds, *deployInfo.RemoteInfo.RemoteClient); err != nil {
-		return false, err
-	}
-
-	// install crs - if present do not update!
-	if err := resource.CreateCRs(deployInfo.Ctx, deployInfo.CustomResources,
-		*deployInfo.RemoteInfo.RemoteClient); err != nil {
+	if err := resource.CreateCRDs(deployInfo.Ctx, deployInfo.Crds, deployInfo.ClusterInfo.Client); err != nil {
 		return false, err
 	}
 
@@ -201,12 +195,12 @@ func (o *Operations) Install(deployInfo InstallInfo) (bool, error) {
 	}
 
 	// install crs - if present do not update!
-	if err := resource.CreateCRs(deployInfo.Ctx, deployInfo.CustomResources, *deployInfo.RemoteClient); err != nil {
+	if err := resource.CreateCRs(deployInfo.Ctx, deployInfo.CustomResources, deployInfo.Client); err != nil {
 		return false, err
 	}
 
 	// custom states check
-	return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.BaseResource, o.logger, deployInfo.RemoteInfo)
+	return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.BaseResource, o.logger, deployInfo.ClusterInfo)
 }
 
 func (o *Operations) Uninstall(deployInfo InstallInfo) (bool, error) {
@@ -239,17 +233,17 @@ func (o *Operations) Uninstall(deployInfo InstallInfo) (bool, error) {
 
 	// delete crs first - if not present ignore!
 	if err := resource.RemoveCRs(deployInfo.Ctx, deployInfo.CustomResources,
-		*deployInfo.RemoteInfo.RemoteClient); err != nil {
+		deployInfo.ClusterInfo.Client); err != nil {
 		return false, err
 	}
 
 	// delete crds first - if not present ignore!
-	if err := resource.RemoveCRDs(deployInfo.Ctx, deployInfo.Crds, *deployInfo.RemoteInfo.RemoteClient); err != nil {
+	if err := resource.RemoveCRDs(deployInfo.Ctx, deployInfo.Crds, deployInfo.ClusterInfo.Client); err != nil {
 		return false, err
 	}
 
 	// custom states check
-	return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.BaseResource, o.logger, deployInfo.RemoteInfo)
+	return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.BaseResource, o.logger, deployInfo.ClusterInfo)
 }
 
 func (o *Operations) getManifestForChartPath(chartPath, chartName string, actionClient *action.Install,

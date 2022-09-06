@@ -29,15 +29,10 @@ const (
 	configFileName  = "installConfig.yaml"
 )
 
-func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClient client.Client,
+func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClusterInfo custom.ClusterInfo,
 	checkReadyStates bool, customStateCheck bool, codec *types.Codec, insecureRegistry bool,
 ) ([]manifest.InstallInfo, error) {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
-	kymaOwnerLabel, labelExists := manifestObj.Labels[labels.ComponentOwner]
-	if !labelExists {
-		return nil, fmt.Errorf("label %s not set for manifest resource %s",
-			labels.ComponentOwner, namespacedName)
-	}
 
 	// extract config
 	config := manifestObj.Spec.Config
@@ -59,19 +54,7 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 	}
 
 	// evaluate rest config
-	customResCheck := &manifestCustom.Resource{DefaultClient: defaultClient}
-
-	// evaluate rest config
-	clusterClient := &custom.ClusterClient{DefaultClient: defaultClient}
-	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, manifestObj.Namespace)
-	if err != nil {
-		return nil, err
-	}
-
-	destinationClient, err := clusterClient.GetNewClient(restConfig, client.Options{})
-	if err != nil {
-		return nil, err
-	}
+	customResCheck := &manifestCustom.Resource{DefaultClient: defaultClusterInfo.Client}
 
 	// check crds - if present do not update
 	crds, err := parseCrds(ctx, manifestObj.Spec.CRDs, insecureRegistry)
@@ -84,12 +67,15 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 		return nil, err
 	}
 
+	// evaluate rest config
+	clusterInfo, err := getDestinationConfigAndClient(ctx, defaultClusterInfo, manifestObj)
+	if err != nil {
+		return nil, err
+	}
+
 	// parse installs
 	baseDeployInfo := manifest.InstallInfo{
-		RemoteInfo: custom.RemoteInfo{
-			RemoteConfig: restConfig,
-			RemoteClient: &destinationClient,
-		},
+		ClusterInfo: clusterInfo,
 		ResourceInfo: manifest.ResourceInfo{
 			Crds:            crds,
 			BaseResource:    &unstructured.Unstructured{Object: manifestObjMetadata},
@@ -106,6 +92,39 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 	}
 
 	return parseInstallations(manifestObj, codec, configs, baseDeployInfo, insecureRegistry)
+}
+
+func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo custom.ClusterInfo,
+	manifestObj *v1alpha1.Manifest,
+) (custom.ClusterInfo, error) {
+	// single cluster mode
+	if !manifestObj.Spec.Remote {
+		return defaultClusterInfo, nil
+	}
+
+	namespacedName := client.ObjectKeyFromObject(manifestObj)
+	kymaOwnerLabel, labelExists := manifestObj.Labels[labels.ComponentOwner]
+	if !labelExists {
+		return custom.ClusterInfo{}, fmt.Errorf("label %s not set for manifest resource %s",
+			labels.ComponentOwner, namespacedName)
+	}
+
+	// evaluate rest config
+	clusterClient := &custom.ClusterClient{DefaultClient: defaultClusterInfo.Client}
+	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, manifestObj.Namespace)
+	if err != nil {
+		return custom.ClusterInfo{}, err
+	}
+
+	destinationClient, err := clusterClient.GetNewClient(restConfig, client.Options{})
+	if err != nil {
+		return custom.ClusterInfo{}, err
+	}
+
+	return custom.ClusterInfo{
+		Config: restConfig,
+		Client: destinationClient,
+	}, nil
 }
 
 func parseInstallConfigs(decodedConfig interface{}) ([]interface{}, error) {
