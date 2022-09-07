@@ -7,9 +7,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/kyma-project/module-manager/operator/pkg/custom"
-	"github.com/kyma-project/module-manager/operator/pkg/manifest"
-	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"helm.sh/helm/v3/pkg/cli"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -21,6 +18,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/kyma-project/module-manager/operator/pkg/custom"
+	"github.com/kyma-project/module-manager/operator/pkg/manifest"
+	"github.com/kyma-project/module-manager/operator/pkg/types"
 )
 
 var _ reconcile.Reconciler = &ManifestReconciler{}
@@ -188,7 +189,8 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, objectIn
 
 	manifestClient, err := r.getManifestClient(&logger, installSpec.ConfigFlags, installSpec.SetFlags)
 	if err != nil {
-		logger.Error(err, "error while parsing flags for resource %s", client.ObjectKeyFromObject(objectInstance))
+		logger.Error(err, fmt.Sprintf("error while parsing flags for resource %s",
+			client.ObjectKeyFromObject(objectInstance)))
 		status.State = types.StateError
 		if err = setStatusForObjectInstance(objectInstance, status); err != nil {
 			return err
@@ -205,7 +207,7 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, objectIn
 
 	ready, err := manifestClient.Install(installInfo)
 	if err != nil {
-		logger.Error(err, "error while installing resource %s", client.ObjectKeyFromObject(objectInstance))
+		logger.Error(err, fmt.Sprintf("error while installing resource %s", client.ObjectKeyFromObject(objectInstance)))
 		status.State = types.StateError
 		if err = setStatusForObjectInstance(objectInstance, status); err != nil {
 			return err
@@ -242,7 +244,8 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInst
 
 	manifestClient, err := r.getManifestClient(&logger, installSpec.ConfigFlags, installSpec.SetFlags)
 	if err != nil {
-		logger.Error(err, "error while parsing flags for resource %s", client.ObjectKeyFromObject(objectInstance))
+		logger.Error(err, fmt.Sprintf(
+			"error while parsing flags for resource %s", client.ObjectKeyFromObject(objectInstance)))
 		status.State = types.StateError
 		if err = setStatusForObjectInstance(objectInstance, status); err != nil {
 			return err
@@ -259,7 +262,7 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInst
 
 	readyToBeDeleted, err := manifestClient.Uninstall(installInfo)
 	if err != nil {
-		logger.Error(err, "error while deleting resource %s", client.ObjectKeyFromObject(objectInstance))
+		logger.Error(err, fmt.Sprintf("error while deleting resource %s", client.ObjectKeyFromObject(objectInstance)))
 		status.State = types.StateError
 		if err = setStatusForObjectInstance(objectInstance, status); err != nil {
 			return err
