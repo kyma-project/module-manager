@@ -244,7 +244,8 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInst
 
 	manifestClient, err := r.getManifestClient(&logger, installSpec.ConfigFlags, installSpec.SetFlags)
 	if err != nil {
-		logger.Error(err, fmt.Sprintf("error while parsing flags for resource %s", client.ObjectKeyFromObject(objectInstance)))
+		logger.Error(err, fmt.Sprintf(
+			"error while parsing flags for resource %s", client.ObjectKeyFromObject(objectInstance)))
 		status.State = types.StateError
 		if err = setStatusForObjectInstance(objectInstance, status); err != nil {
 			return err
