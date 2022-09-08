@@ -26,4 +26,6 @@ WORKDIR /
 COPY --from=builder /workspace/manager .
 USER 65532:65532
 
+# Port for the listener endpoint
+EXPOSE 8082
 ENTRYPOINT ["/manager"]
