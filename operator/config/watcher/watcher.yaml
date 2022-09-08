@@ -1,0 +1,26 @@
+apiVersion: operator.kyma-project.io/v1alpha1
+kind: Watcher
+metadata:
+  name: controller-manager-watcher
+  namespace: system
+spec:
+  componentName: module-manager
+  contractVersion: v1
+  gvrsToWatch: [] # needs to be removed after removing it in the runtime-WatcherCRD
+  serviceInfo:
+    serviceName: event-service
+    servicePort: 2022
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: event-service
+  namespace: system
+spec:
+  selector:
+    app.kubernetes.io/component: module-manager.kyma-project.io
+  ports:
+    - protocol: TCP
+      port: 2022
+      targetPort: 2022
