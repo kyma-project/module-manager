@@ -1,5 +1,5 @@
 # Adds namespace to all resources.
-namespace: manifest-system
+namespace: kcp-system
 
 # Value of this field is prepended to the
 # names of all resources, e.g. a deployment named
@@ -9,8 +9,11 @@ namespace: manifest-system
 namePrefix: module-manager-
 
 # Labels to add to all resources and selectors.
-#commonLabels:
-#  someName: someValue
+commonLabels:
+  app.kubernetes.io/component: module-manager.kyma-project.io
+
+configurations:
+  - ./commonlabels_override.yaml
 
 resources:
 - ../crd
