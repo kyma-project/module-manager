@@ -11,6 +11,5 @@ configMapGenerator:
 
 images:
 - name: controller
-  newName: /module-manager
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
+  newName: eu.gcr.io/kyma-project/module-manager
+  newTag: 6ba23a71
