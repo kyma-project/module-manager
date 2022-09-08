@@ -52,13 +52,3 @@ spec:
       serviceAccountName: manager
       terminationGracePeriodSeconds: 10
 ---
-##### module manager needs a different label than lifecycle-manager to have a sufficient selector in place
-apiVersion: v1
-kind: Service
-metadata:
-  name: event-service
-spec:
-  ports:
-    - protocol: TCP
-      port: 2022
-      targetPort: 2022
