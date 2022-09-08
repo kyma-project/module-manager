@@ -12,6 +12,9 @@ namePrefix: module-manager-
 commonLabels:
   app.kubernetes.io/component: module-manager.kyma-project.io
 
+configurations:
+  - ./commonlabels_override.yaml
+
 resources:
 - ../crd
 - ../rbac

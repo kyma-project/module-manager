@@ -9,5 +9,3 @@ spec:
     port: 8443
     protocol: TCP
     targetPort: https
-  selector:
-    app.kubernetes.io/component: module-manager.kyma-project.io
