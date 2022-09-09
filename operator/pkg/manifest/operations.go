@@ -40,6 +40,12 @@ type ChartInfo struct {
 	Overrides    map[string]interface{}
 }
 
+type ResourceLists struct {
+	Target    kube.ResourceList
+	Installed kube.ResourceList
+	Namespace kube.ResourceList
+}
+
 // TODO: move Ctx out of struct.
 type InstallInfo struct {
 	*ChartInfo
@@ -110,44 +116,47 @@ func NewOperations(logger *logr.Logger, restConfig *rest.Config, releaseName str
 	return operations, nil
 }
 
-func (o *Operations) getClusterResources(deployInfo InstallInfo, operation HelmOperation) (kube.ResourceList,
-	kube.ResourceList, error,
-) {
+func (o *Operations) getClusterResources(deployInfo InstallInfo, operation HelmOperation) (ResourceLists, error) {
 	if deployInfo.ChartPath == "" {
 		if err := o.repoHandler.Add(deployInfo.RepoName, deployInfo.URL, o.logger); err != nil {
-			return nil, nil, err
+			return ResourceLists{}, err
 		}
 	}
 
 	manifest, err := o.getManifestForChartPath(deployInfo.ChartPath, deployInfo.ChartName, o.actionClient, o.args)
 	if err != nil {
-		return nil, nil, err
+		return ResourceLists{}, err
 	}
 
-	if err = o.helmClient.HandleNamespace(o.actionClient, operation); err != nil {
-		return nil, nil, err
+	resourceListWithNs, err := o.helmClient.HandleNamespace(o.actionClient, operation)
+	if err != nil {
+		return ResourceLists{}, err
 	}
 
 	targetResources, err := o.helmClient.GetTargetResources(deployInfo.Ctx, manifest,
 		o.actionClient.Namespace, o.resourceTransforms, deployInfo.BaseResource)
 	if err != nil {
-		return nil, nil, err
+		return ResourceLists{}, fmt.Errorf("could not render resources from manifest: %w", err)
 	}
 
 	existingResources, err := util.FilterExistingResources(targetResources)
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "could not render current resources from manifest")
+		return ResourceLists{}, fmt.Errorf("could not render existing resources from manifest: %w", err)
 	}
 
-	return targetResources, existingResources, nil
+	return ResourceLists{
+		Target:    targetResources,
+		Installed: existingResources,
+		Namespace: resourceListWithNs,
+	}, nil
 }
 
 func (o *Operations) VerifyResources(deployInfo InstallInfo) (bool, error) {
-	targetResources, existingResources, err := o.getClusterResources(deployInfo, "")
+	resourceLists, err := o.getClusterResources(deployInfo, "")
 	if err != nil {
 		return false, errors.Wrap(err, "could not render current resources from manifest")
 	}
-	if len(targetResources) > len(existingResources) {
+	if len(resourceLists.Target) > len(resourceLists.Installed) {
 		return false, nil
 	}
 	return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.BaseResource, o.logger, deployInfo.ClusterInfo)
@@ -159,29 +168,32 @@ func (o *Operations) Install(deployInfo InstallInfo) (bool, error) {
 		return false, err
 	}
 
-	targetResources, existingResources, err := o.getClusterResources(deployInfo, OperationCreate)
+	resourceLists, err := o.getClusterResources(deployInfo, OperationCreate)
 	if err != nil {
 		return false, err
 	}
 
-	if existingResources == nil && len(targetResources) > 0 {
-		if _, err = o.helmClient.PerformCreate(targetResources); err != nil {
+	if resourceLists.Installed == nil && len(resourceLists.Target) > 0 {
+		if _, err = o.helmClient.PerformCreate(resourceLists.Target); err != nil {
 			return false, err
 		}
 	} else {
-		if _, err = o.helmClient.PerformUpdate(existingResources, targetResources, true); err != nil {
+		if _, err = o.helmClient.PerformUpdate(resourceLists, true); err != nil {
 			return false, err
 		}
 	}
 
+	// verify namespace resource along with manifest resources
+	resourcesToBeVerified := append(resourceLists.Target, resourceLists.Namespace...)
+
 	// if Wait or WaitForJobs is enabled, wait for resources to be ready with a timeout
-	if err = o.helmClient.CheckWaitForResources(targetResources, o.actionClient, OperationCreate); err != nil {
+	if err = o.helmClient.CheckWaitForResources(resourcesToBeVerified, o.actionClient, OperationCreate); err != nil {
 		return false, err
 	}
 
 	if deployInfo.CheckReadyStates {
 		// check target resources are ready without waiting
-		if ready, err := o.helmClient.CheckReadyState(deployInfo.Ctx, targetResources); !ready || err != nil {
+		if ready, err := o.helmClient.CheckReadyState(deployInfo.Ctx, resourcesToBeVerified); !ready || err != nil {
 			return ready, err
 		}
 	}
@@ -204,13 +216,13 @@ func (o *Operations) Install(deployInfo InstallInfo) (bool, error) {
 }
 
 func (o *Operations) Uninstall(deployInfo InstallInfo) (bool, error) {
-	targetResources, existingResources, err := o.getClusterResources(deployInfo, OperationDelete)
+	resourceLists, err := o.getClusterResources(deployInfo, OperationDelete)
 	if err != nil {
 		return false, err
 	}
 
-	if existingResources != nil {
-		response, delErrors := o.kubeClient.Delete(existingResources)
+	if resourceLists.Installed != nil {
+		response, delErrors := o.kubeClient.Delete(resourceLists.Installed)
 		if len(delErrors) > 0 {
 			var wrappedError error
 			for _, err = range delErrors {
@@ -222,7 +234,10 @@ func (o *Operations) Uninstall(deployInfo InstallInfo) (bool, error) {
 		o.logger.Info("component deletion executed", "resource count", len(response.Deleted))
 	}
 
-	if err = o.helmClient.CheckWaitForResources(targetResources, o.actionClient, OperationDelete); err != nil {
+	// verify namespace resource along with manifest resources
+	resourcesToBeVerified := append(resourceLists.Target, resourceLists.Namespace...)
+
+	if err = o.helmClient.CheckWaitForResources(resourcesToBeVerified, o.actionClient, OperationDelete); err != nil {
 		return false, err
 	}
 

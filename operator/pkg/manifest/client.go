@@ -142,16 +142,38 @@ func (h *HelmClient) SetFlags(args map[string]map[string]interface{}, actionClie
 		if !value.IsValid() || !value.CanSet() {
 			continue
 		}
+
+		validConversion := true
+
 		//nolint:exhaustive
 		switch value.Kind() {
 		case reflect.Bool:
-			value.SetBool(flagValue.(bool))
-		case reflect.Int:
-			value.SetInt(flagValue.(int64))
-		case reflect.Int64:
-			value.SetInt(flagValue.(int64))
+			var valueToBeSet bool
+			valueToBeSet, validConversion = flagValue.(bool)
+			if validConversion {
+				value.SetBool(valueToBeSet)
+			}
+		case reflect.Int, reflect.Int64:
+			var valueToBeSet int64
+			valueToBeSet, validConversion = flagValue.(int64)
+			if validConversion {
+				value.SetInt(valueToBeSet)
+			}
+			var fallbackInt64 time.Duration
+			fallbackInt64, validConversion = flagValue.(time.Duration)
+			if validConversion {
+				value.SetInt(int64(fallbackInt64))
+			}
 		case reflect.String:
-			value.SetString(flagValue.(string))
+			var valueToBeSet string
+			valueToBeSet, validConversion = flagValue.(string)
+			if validConversion {
+				value.SetString(valueToBeSet)
+			}
+		}
+
+		if !validConversion {
+			fmt.Errorf("unsupported flag value %s:%v", flagKey, flagValue)
 		}
 	}
 	return nil
@@ -161,34 +183,35 @@ func (h *HelmClient) DownloadChart(actionClient *action.Install, chartName strin
 	return actionClient.ChartPathOptions.LocateChart(chartName, h.settings)
 }
 
-func (h *HelmClient) HandleNamespace(actionClient *action.Install, operationType HelmOperation) error {
+func (h *HelmClient) HandleNamespace(actionClient *action.Install, operationType HelmOperation,
+) (kube.ResourceList, error) {
 	// set kubeclient namespace for override
 	h.kubeClient.Namespace = actionClient.Namespace
 
 	// validate namespace parameters
 	// proceed only if not default namespace since it already exists
 	if !actionClient.CreateNamespace || actionClient.Namespace == v1.NamespaceDefault {
-		return nil
+		return nil, nil
 	}
 
 	ns := actionClient.Namespace
-	buf, err := util.GetNamespaceObjBytes(ns)
+	nsBuf, err := util.GetNamespaceObjBytes(ns)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	resourceList, err := h.kubeClient.Build(bytes.NewBuffer(buf), true)
+	resourceList, err := h.kubeClient.Build(bytes.NewBuffer(nsBuf), true)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	switch operationType {
 	case OperationCreate:
-		return h.createNamespace(resourceList)
+		return resourceList, h.createNamespace(resourceList)
 	case OperationDelete:
-		return h.deleteNamespace(resourceList)
+		return resourceList, h.deleteNamespace(resourceList)
 	}
 
-	return nil
+	return nil, nil
 }
 
 func (h *HelmClient) createNamespace(namespace kube.ResourceList) error {
@@ -299,9 +322,9 @@ func (h *HelmClient) GetTargetResources(ctx context.Context, manifest string, ta
 	return resourceList, nil
 }
 
-func (h *HelmClient) PerformUpdate(existingResources, targetResources kube.ResourceList, force bool,
+func (h *HelmClient) PerformUpdate(resourceLists ResourceLists, force bool,
 ) (*kube.Result, error) {
-	return h.kubeClient.Update(existingResources, targetResources, force)
+	return h.kubeClient.Update(resourceLists.Installed, resourceLists.Target, force)
 }
 
 func (h *HelmClient) PerformCreate(targetResources kube.ResourceList) (*kube.Result, error) {
@@ -316,13 +339,13 @@ func (h *HelmClient) CheckWaitForResources(targetResources kube.ResourceList, ac
 	}
 
 	if operation == OperationDelete {
-		return h.kubeClient.WaitForDelete(targetResources, h.waitTimeout)
+		return h.kubeClient.WaitForDelete(targetResources, actionClient.Timeout)
 	}
 
 	if actionClient.WaitForJobs {
-		return h.kubeClient.WaitWithJobs(targetResources, h.waitTimeout)
+		return h.kubeClient.WaitWithJobs(targetResources, actionClient.Timeout)
 	}
-	return h.kubeClient.Wait(targetResources, h.waitTimeout)
+	return h.kubeClient.Wait(targetResources, actionClient.Timeout)
 }
 
 func (h *HelmClient) CheckReadyState(ctx context.Context, targetResources kube.ResourceList,
