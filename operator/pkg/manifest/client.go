@@ -39,13 +39,12 @@ const (
 )
 
 type HelmClient struct {
-	kubeClient  *kube.Client
-	settings    *cli.EnvSettings
-	restGetter  *manifestRest.ManifestRESTClientGetter
-	clientSet   *kubernetes.Clientset
-	waitTimeout time.Duration
-	restConfig  *rest.Config
-	mapper      *restmapper.DeferredDiscoveryRESTMapper
+	kubeClient *kube.Client
+	settings   *cli.EnvSettings
+	restGetter *manifestRest.ManifestRESTClientGetter
+	clientSet  *kubernetes.Clientset
+	restConfig *rest.Config
+	mapper     *restmapper.DeferredDiscoveryRESTMapper
 }
 
 //nolint:gochecknoglobals
@@ -173,7 +172,7 @@ func (h *HelmClient) SetFlags(args map[string]map[string]interface{}, actionClie
 		}
 
 		if !validConversion {
-			fmt.Errorf("unsupported flag value %s:%v", flagKey, flagValue)
+			return fmt.Errorf("unsupported flag value %s:%v", flagKey, flagValue)
 		}
 	}
 	return nil
