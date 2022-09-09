@@ -46,6 +46,10 @@ type ResourceLists struct {
 	Namespace kube.ResourceList
 }
 
+func (r ResourceLists) getWaitForResources() kube.ResourceList {
+	return append(r.Target, r.Namespace...)
+}
+
 // TODO: move Ctx out of struct.
 type InstallInfo struct {
 	*ChartInfo
@@ -183,18 +187,16 @@ func (o *Operations) Install(deployInfo InstallInfo) (bool, error) {
 		}
 	}
 
-	// verify namespace resource along with manifest resources
-	//nolint:gocritic
-	resourcesToBeVerified := append(resourceLists.Target, resourceLists.Namespace...)
-
 	// if Wait or WaitForJobs is enabled, wait for resources to be ready with a timeout
-	if err = o.helmClient.CheckWaitForResources(resourcesToBeVerified, o.actionClient, OperationCreate); err != nil {
+	if err = o.helmClient.CheckWaitForResources(resourceLists.getWaitForResources(), o.actionClient,
+		OperationCreate); err != nil {
 		return false, err
 	}
 
 	if deployInfo.CheckReadyStates {
 		// check target resources are ready without waiting
-		if ready, err := o.helmClient.CheckReadyState(deployInfo.Ctx, resourcesToBeVerified); !ready || err != nil {
+		if ready, err := o.helmClient.CheckReadyState(deployInfo.Ctx,
+			resourceLists.getWaitForResources()); !ready || err != nil {
 			return ready, err
 		}
 	}
@@ -235,11 +237,7 @@ func (o *Operations) Uninstall(deployInfo InstallInfo) (bool, error) {
 		o.logger.Info("component deletion executed", "resource count", len(response.Deleted))
 	}
 
-	// verify namespace resource along with manifest resources
-	//nolint:gocritic
-	resourcesToBeVerified := append(resourceLists.Target, resourceLists.Namespace...)
-
-	if err = o.helmClient.CheckWaitForResources(resourcesToBeVerified, o.actionClient, OperationDelete); err != nil {
+	if err = o.helmClient.CheckWaitForResources(resourceLists.getWaitForResources(), o.actionClient, OperationDelete); err != nil {
 		return false, err
 	}
 
