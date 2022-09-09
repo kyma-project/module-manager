@@ -156,13 +156,14 @@ func (h *HelmClient) SetFlags(args map[string]map[string]interface{}, actionClie
 			var valueToBeSet int64
 			valueToBeSet, validConversion = flagValue.(int64)
 			if validConversion {
-				value.SetInt(valueToBeSet)
-			}
-			var fallbackInt64 time.Duration
-			fallbackInt64, validConversion = flagValue.(time.Duration)
-			if validConversion {
-				value.SetInt(int64(fallbackInt64))
-			}
+				 value.SetInt(valueToBeSet)
+			} else {
+				 var fallbackInt64 time.Duration
+				 fallbackInt64, validConversion = flagValue.(time.Duration)
+				 if validConversion {
+					 value.SetInt(int64(fallbackInt64))
+				}
+    			}
 		case reflect.String:
 			var valueToBeSet string
 			valueToBeSet, validConversion = flagValue.(string)
