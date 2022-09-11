@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -21,7 +23,6 @@ import (
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/kube"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -183,7 +184,7 @@ func (h *HelmClient) DownloadChart(actionClient *action.Install, chartName strin
 	return actionClient.ChartPathOptions.LocateChart(chartName, h.settings)
 }
 
-func (h *HelmClient) HandleNamespace(actionClient *action.Install, operationType HelmOperation,
+func (h *HelmClient) GetNsResource(actionClient *action.Install, operationType HelmOperation,
 ) (kube.ResourceList, error) {
 	// set kubeclient namespace for override
 	h.kubeClient.Namespace = actionClient.Namespace
@@ -199,29 +200,17 @@ func (h *HelmClient) HandleNamespace(actionClient *action.Install, operationType
 	if err != nil {
 		return nil, err
 	}
-	resourceList, err := h.kubeClient.Build(bytes.NewBuffer(nsBuf), true)
-	if err != nil {
-		return nil, err
-	}
-
-	switch operationType {
-	case OperationCreate:
-		return resourceList, h.createNamespace(resourceList)
-	case OperationDelete:
-		return resourceList, h.deleteNamespace(resourceList)
-	}
-
-	return nil, nil
+	return h.kubeClient.Build(bytes.NewBuffer(nsBuf), true)
 }
 
-func (h *HelmClient) createNamespace(namespace kube.ResourceList) error {
+func (h *HelmClient) CreateNamespace(namespace kube.ResourceList) error {
 	if _, err := h.kubeClient.Create(namespace); err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
 	return nil
 }
 
-func (h *HelmClient) deleteNamespace(namespace kube.ResourceList) error {
+func (h *HelmClient) DeleteNamespace(namespace kube.ResourceList) error {
 	if _, delErrors := h.kubeClient.Delete(namespace); len(delErrors) > 0 {
 		var wrappedError error
 		for _, err := range delErrors {
@@ -327,8 +316,8 @@ func (h *HelmClient) PerformUpdate(resourceLists ResourceLists, force bool,
 	return h.kubeClient.Update(resourceLists.Installed, resourceLists.Target, force)
 }
 
-func (h *HelmClient) PerformCreate(targetResources kube.ResourceList) (*kube.Result, error) {
-	return h.kubeClient.Create(targetResources)
+func (h *HelmClient) PerformCreate(resourceLists ResourceLists) (*kube.Result, error) {
+	return h.kubeClient.Create(resourceLists.Target)
 }
 
 func (h *HelmClient) CheckWaitForResources(targetResources kube.ResourceList, actionClient *action.Install,
@@ -348,11 +337,31 @@ func (h *HelmClient) CheckWaitForResources(targetResources kube.ResourceList, ac
 	return h.kubeClient.Wait(targetResources, actionClient.Timeout)
 }
 
-func (h *HelmClient) CheckReadyState(ctx context.Context, targetResources kube.ResourceList,
+func (h *HelmClient) CheckDesiredState(ctx context.Context, targetResources kube.ResourceList, operation HelmOperation,
 ) (bool, error) {
+	if operation == OperationDelete {
+		return h.checkResourcesDeleted(targetResources)
+	}
+
 	readyChecker := kube.NewReadyChecker(h.clientSet, func(format string, v ...interface{}) {},
 		kube.PausedAsReady(true), kube.CheckJobs(true))
 	return h.checkReady(ctx, targetResources, readyChecker)
+}
+
+func (h *HelmClient) checkResourcesDeleted(targetResources kube.ResourceList) (bool, error) {
+	resourcesDeleted := true
+	err := targetResources.Visit(func(info *resource.Info, err error) error {
+		if err != nil {
+			return err
+		}
+		err = info.Get()
+		if err == nil || !apierrors.IsNotFound(err) {
+			resourcesDeleted = false
+			return err
+		}
+		return nil
+	})
+	return resourcesDeleted, err
 }
 
 func (h *HelmClient) setNamespaceIfNotPresent(targetNamespace string, resourceInfo *resource.Info,
