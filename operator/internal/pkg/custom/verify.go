@@ -21,13 +21,13 @@ type Resource struct {
 }
 
 func (r *Resource) DefaultFn(context.Context, *unstructured.Unstructured, *logr.Logger,
-	custom.RemoteInfo,
+	custom.ClusterInfo,
 ) (bool, error) {
 	return true, nil
 }
 
 func (r *Resource) CheckFn(ctx context.Context, manifestObj *unstructured.Unstructured, logger *logr.Logger,
-	remoteInfo custom.RemoteInfo,
+	clusterInfo custom.ClusterInfo,
 ) (bool, error) {
 	spec, found := manifestObj.Object["spec"].(map[string]interface{})
 	if !found {
@@ -44,7 +44,7 @@ func (r *Resource) CheckFn(ctx context.Context, manifestObj *unstructured.Unstru
 
 	// check custom resource for states
 	customStatus := &custom.Status{
-		Reader: *remoteInfo.RemoteClient,
+		Reader: clusterInfo.Client,
 	}
 
 	ready, err := customStatus.WaitForCustomResources(ctx, resource)

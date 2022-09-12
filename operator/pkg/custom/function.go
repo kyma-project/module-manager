@@ -8,9 +8,9 @@ import (
 	"github.com/go-logr/logr"
 )
 
-type CheckFnType func(context.Context, *unstructured.Unstructured, *logr.Logger, RemoteInfo) (bool, error)
+type CheckFnType func(context.Context, *unstructured.Unstructured, *logr.Logger, ClusterInfo) (bool, error)
 
 type Check interface {
-	CheckFn(context.Context, *unstructured.Unstructured, *logr.Logger, RemoteInfo) (bool, error)
-	DefaultFn(context.Context, *unstructured.Unstructured, *logr.Logger, RemoteInfo) (bool, error)
+	CheckFn(context.Context, *unstructured.Unstructured, *logr.Logger, ClusterInfo) (bool, error)
+	DefaultFn(context.Context, *unstructured.Unstructured, *logr.Logger, ClusterInfo) (bool, error)
 }
