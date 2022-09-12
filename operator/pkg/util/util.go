@@ -46,7 +46,7 @@ func GetNamespaceObjBytes(clientNs string) ([]byte, error) {
 }
 
 func FilterExistingResources(resources kube.ResourceList) (kube.ResourceList, error) {
-	var requireUpdate kube.ResourceList
+	var existingResources kube.ResourceList
 
 	err := resources.Visit(func(info *resource.Info, err error) error {
 		if err != nil {
@@ -64,11 +64,11 @@ func FilterExistingResources(resources kube.ResourceList) (kube.ResourceList, er
 
 		// TODO: Adapt standard labels / annotations here
 
-		requireUpdate.Append(info)
+		existingResources.Append(info)
 		return nil
 	})
 
-	return requireUpdate, err
+	return existingResources, err
 }
 
 func GetConfig(kubeConfig string, explicitPath string) (*rest.Config, error) {
