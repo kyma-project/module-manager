@@ -640,6 +640,8 @@ github.com/kunwardeep/paralleltest v1.0.3/go.mod h1:vLydzomDFpk7yu5UX02RmP0H8QfR
 github.com/kylelemons/godebug v1.1.0/go.mod h1:9/0rRGxNHcop5bhtWyNeEfOS8JIWk580+fNqagV/RAw=
 github.com/kyma-project/runtime-watcher/listener v0.0.0-20220908063746-2d181250af21 h1:weJf8dy0513l09ZVlWzIUcfbzCVjVk5A+QxHBa13yI8=
 github.com/kyma-project/runtime-watcher/listener v0.0.0-20220908063746-2d181250af21/go.mod h1:yvtrVD5RuwBz4eQc8MrH8FsPJL2QATdPLa8NKjr0ULk=
+github.com/kyma-project/runtime-watcher/listener v0.0.0-20220913065035-8e26868a2938 h1:b7MrIgbwToROZCSzochYvTZFaR10ZRKRBwi5m0KpnMY=
+github.com/kyma-project/runtime-watcher/listener v0.0.0-20220913065035-8e26868a2938/go.mod h1:yvtrVD5RuwBz4eQc8MrH8FsPJL2QATdPLa8NKjr0ULk=
 github.com/kyoh86/exportloopref v0.1.8/go.mod h1:1tUcJeiioIs7VWe5gcOObrux3lb66+sBqGZrRkMwPgg=
 github.com/lann/builder v0.0.0-20180802200727-47ae307949d0 h1:SOEGU9fKiNWd/HOJuq6+3iTQz8KNCLtVX6idSoTLdUw=
 github.com/lann/builder v0.0.0-20180802200727-47ae307949d0/go.mod h1:dXGbAdH5GtBTC4WfIxhKZfyBF/HBFgRZSWwZ9g/He9o=

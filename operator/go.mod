@@ -7,7 +7,7 @@ require (
 	github.com/gofrs/flock v0.8.1
 	github.com/google/go-containerregistry v0.10.0
 	github.com/invopop/jsonschema v0.5.0
-	github.com/kyma-project/runtime-watcher/listener v0.0.0-20220908063746-2d181250af21
+	github.com/kyma-project/runtime-watcher/listener v0.0.0-20220913065035-8e26868a2938
 	github.com/onsi/ginkgo/v2 v2.1.4
 	github.com/onsi/gomega v1.20.0
 	github.com/pkg/errors v0.9.1

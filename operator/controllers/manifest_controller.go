@@ -428,8 +428,11 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 		Watches(&source.Kind{Type: &v1.Secret{}}, handler.Funcs{}).
 		Watches(eventChannel, &handler.Funcs{
 			GenericFunc: func(e event.GenericEvent, q workqueue.RateLimitingInterface) {
-				logger := log.FromContext(ctx)
-				logger.WithName("listener").Info("event coming from SKR adding to queue")
+				ctrl.Log.WithName("listener").Info(
+					fmt.Sprintf("event coming from SKR, adding %s to queue",
+						client.ObjectKeyFromObject(e.Object).String()),
+				)
+
 				q.Add(ctrl.Request{
 					NamespacedName: client.ObjectKeyFromObject(e.Object),
 				})
