@@ -22,14 +22,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kyma-project/runtime-watcher/listener"
-
 	"sigs.k8s.io/controller-runtime/pkg/ratelimiter"
 
 	"github.com/kyma-project/module-manager/operator/internal/pkg/prepare"
 	"github.com/kyma-project/module-manager/operator/internal/pkg/util"
 	"github.com/kyma-project/module-manager/operator/pkg/ratelimit"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
+	listener "github.com/kyma-project/runtime-watcher/listener/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	"github.com/go-logr/logr"
@@ -427,11 +426,14 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 		For(&v1alpha1.Manifest{}).
 		Watches(&source.Kind{Type: &v1.Secret{}}, handler.Funcs{}).
 		Watches(eventChannel, &handler.Funcs{
-			GenericFunc: func(e event.GenericEvent, q workqueue.RateLimitingInterface) {
-				logger := log.FromContext(ctx)
-				logger.WithName("listener").Info("event coming from SKR adding to queue")
-				q.Add(ctrl.Request{
-					NamespacedName: client.ObjectKeyFromObject(e.Object),
+			GenericFunc: func(event event.GenericEvent, queue workqueue.RateLimitingInterface) {
+				ctrl.Log.WithName("listener").Info(
+					fmt.Sprintf("event coming from SKR, adding %s to queue",
+						client.ObjectKeyFromObject(event.Object).String()),
+				)
+
+				queue.Add(ctrl.Request{
+					NamespacedName: client.ObjectKeyFromObject(event.Object),
 				})
 			},
 		}).

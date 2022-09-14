@@ -3,13 +3,16 @@ kind: Watcher
 metadata:
   name: controller-manager-watcher
   namespace: system
+  labels:
+    operator.kyma-project.io/managed-by: "module-manager"
 spec:
-  componentName: module-manager
-  contractVersion: v1
-  gvrsToWatch: [] # needs to be removed after removing it in the runtime-WatcherCRD
+  labelsToWatch:
+    watched-by: "module-manager"
+  field: "status"
   serviceInfo:
-    serviceName: event-service
-    servicePort: 2022
+    name: event-service
+    port: 2022
+    namespace: system
 
 ---
 apiVersion: v1
