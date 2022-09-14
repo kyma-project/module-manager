@@ -22,14 +22,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kyma-project/runtime-watcher/listener"
-
 	"sigs.k8s.io/controller-runtime/pkg/ratelimiter"
 
 	"github.com/kyma-project/module-manager/operator/internal/pkg/prepare"
 	"github.com/kyma-project/module-manager/operator/internal/pkg/util"
 	"github.com/kyma-project/module-manager/operator/pkg/ratelimit"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
+	listener "github.com/kyma-project/runtime-watcher/listener/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	"github.com/go-logr/logr"
