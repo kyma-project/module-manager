@@ -23,3 +23,6 @@ testbin/*
 *.swp
 *.swo
 *~
+
+# Dry Run Directory for generated Manifests
+dry-run
