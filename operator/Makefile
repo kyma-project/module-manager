@@ -50,6 +50,13 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
 
+
+.PHONY: dry-run
+dry-run: manifests ## Generate manifests
+	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
+	mkdir -p dry-run
+	$(KUSTOMIZE) build config/default > dry-run/manifests.yaml
+
 .PHONY: fmt
 fmt: ## Run go fmt against code.
 	go fmt ./...
