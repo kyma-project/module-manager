@@ -180,11 +180,11 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 
 func defineFlagVar() *FlagVar {
 	flagVar := new(FlagVar)
-	flag.StringVar(&flagVar.metricsAddr, "metrics-bind-address", ":2020",
+	flag.StringVar(&flagVar.metricsAddr, "metrics-bind-address", ":8080",
 		"The address the metric endpoint binds to.")
-	flag.StringVar(&flagVar.probeAddr, "health-probe-bind-address", ":2021",
+	flag.StringVar(&flagVar.probeAddr, "health-probe-bind-address", ":8081",
 		"The address the probe endpoint binds to.")
-	flag.StringVar(&flagVar.listenerAddr, "listener-address", ":2022",
+	flag.StringVar(&flagVar.listenerAddr, "listener-address", ":8082",
 		"The address the probe endpoint binds to.")
 	flag.BoolVar(&flagVar.enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+

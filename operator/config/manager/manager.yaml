@@ -24,7 +24,7 @@ spec:
         - --leader-elect
         image: controller:latest
         ports:
-          - containerPort: 2029
+          - containerPort: 8082
         name: manager
         securityContext:
           allowPrivilegeEscalation: false
