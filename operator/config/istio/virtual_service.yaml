@@ -16,4 +16,4 @@ spec:
         - destination:
             host: module-manager-event-service
             port:
-              number: 2022
+              number: 8082

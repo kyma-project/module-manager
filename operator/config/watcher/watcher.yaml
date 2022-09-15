@@ -11,7 +11,7 @@ spec:
   field: "status"
   serviceInfo:
     name: event-service
-    port: 2022
+    port: 8082
     namespace: system
 
 ---
@@ -25,5 +25,5 @@ spec:
     app.kubernetes.io/component: module-manager.kyma-project.io
   ports:
     - protocol: TCP
-      port: 2022
-      targetPort: 2022
+      port: 8082
+      targetPort: 8082
