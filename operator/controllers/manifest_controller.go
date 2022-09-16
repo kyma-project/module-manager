@@ -122,11 +122,6 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, r.updateManifest(ctx, &manifestObj)
 	}
 
-	// ensure runtime-watcher labels are set
-	if err := r.InsertWatcherLabels(ctx, manifestObj); err != nil {
-		return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Failure)}, err
-	}
-
 	// state handling
 	switch manifestObj.Status.State {
 	case "":
@@ -447,27 +442,4 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 			MaxConcurrentReconciles: r.MaxConcurrentReconciles,
 		}).
 		Complete(r)
-}
-
-func (r *ManifestReconciler) InsertWatcherLabels(ctx context.Context, manifestObj v1alpha1.Manifest) error {
-	if manifestObj.Spec.Remote {
-		manifestLabels := manifestObj.Spec.Resource.GetLabels()
-
-		ownedByValue := fmt.Sprintf("%s__%s", manifestObj.Namespace, manifestObj.Name)
-		watchedByValue := "lifecycle-manager"
-
-		if manifestLabels == nil {
-			manifestLabels = make(map[string]string)
-		}
-
-		manifestLabels["operator.kyma-project.io/owned-by"] = ownedByValue
-		manifestLabels["operator.kyma-project.io/watched-by"] = watchedByValue
-
-		manifestObj.Spec.Resource.SetLabels(manifestLabels)
-
-		if err := r.Update(ctx, &manifestObj); err != nil {
-			return fmt.Errorf("could not ensure runtime-watcher labels are set: %w", err)
-		}
-	}
-	return nil
 }
