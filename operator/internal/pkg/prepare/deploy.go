@@ -73,6 +73,9 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 		return nil, err
 	}
 
+	// ensure runtime-watcher labels are set to CustomResource
+	InsertWatcherLabels(manifestObj)
+
 	// parse installs
 	baseDeployInfo := manifest.InstallInfo{
 		ClusterInfo: clusterInfo,
@@ -282,4 +285,22 @@ func parseChartConfigAndValues(install v1alpha1.InstallInfo, configs []interface
 	}
 
 	return config, values, nil
+}
+
+// InsertWatcherLabels adds watcher labels to custom resource of the Manifest CR
+func InsertWatcherLabels(manifestObj *v1alpha1.Manifest) {
+	if manifestObj.Spec.Remote {
+		manifestLabels := manifestObj.Spec.Resource.GetLabels()
+
+		ownedByValue := fmt.Sprintf(labels.OwnedByFormat, manifestObj.Namespace, manifestObj.Name)
+
+		if manifestLabels == nil {
+			manifestLabels = make(map[string]string)
+		}
+
+		manifestLabels[labels.OwnedByLabel] = ownedByValue
+		manifestLabels[labels.WatchedByLabel] = labels.OperatorName
+
+		manifestObj.Spec.Resource.SetLabels(manifestLabels)
+	}
 }
