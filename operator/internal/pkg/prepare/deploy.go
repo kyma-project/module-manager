@@ -287,7 +287,7 @@ func parseChartConfigAndValues(install v1alpha1.InstallInfo, configs []interface
 	return config, values, nil
 }
 
-// InsertWatcherLabels inserts labels into the given manifestCR, which are needed to ensure
+// InsertWatcherLabels adds watcher labels to custom resource of the Manifest CR
 // a working e2e-flow for the runtime-watcher.
 func InsertWatcherLabels(manifestObj *v1alpha1.Manifest) {
 	if manifestObj.Spec.Remote {
