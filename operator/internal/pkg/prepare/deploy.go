@@ -293,14 +293,14 @@ func InsertWatcherLabels(manifestObj *v1alpha1.Manifest) {
 	if manifestObj.Spec.Remote {
 		manifestLabels := manifestObj.Spec.Resource.GetLabels()
 
-		ownedByValue := fmt.Sprintf(v1alpha1.OwnedByFormat, manifestObj.Namespace, manifestObj.Name)
+		ownedByValue := fmt.Sprintf(labels.OwnedByFormat, manifestObj.Namespace, manifestObj.Name)
 
 		if manifestLabels == nil {
 			manifestLabels = make(map[string]string)
 		}
 
-		manifestLabels[v1alpha1.OwnedByLabel] = ownedByValue
-		manifestLabels[v1alpha1.WatchedByLabel] = v1alpha1.OperatorName
+		manifestLabels[labels.OwnedByLabel] = ownedByValue
+		manifestLabels[labels.WatchedByLabel] = labels.OperatorName
 
 		manifestObj.Spec.Resource.SetLabels(manifestLabels)
 	}
