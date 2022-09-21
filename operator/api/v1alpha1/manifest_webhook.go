@@ -37,7 +37,7 @@ func (m *Manifest) SetupWebhookWithManager(mgr ctrl.Manager) error {
 }
 
 //nolint:lll
-//+kubebuilder:webhook:path=/mutate-component-kyma-project-io-v1alpha1-manifest,mutating=true,failurePolicy=fail,sideEffects=None,groups=operator.kyma-project.io,resources=manifests,verbs=create;update,versions=v1alpha1,name=mmanifest.kb.io,admissionReviewVersions=v1
+//+kubebuilder:webhook:path=/mutate-operator-kyma-project-io-v1alpha1-manifest,mutating=true,failurePolicy=fail,sideEffects=None,groups=operator.kyma-project.io,resources=manifests,verbs=create;update,versions=v1alpha1,name=mmanifest.kb.io,admissionReviewVersions=v1
 
 var _ webhook.Defaulter = &Manifest{}
 
@@ -54,7 +54,7 @@ func (m *Manifest) Default() {
 }
 
 //nolint:lll
-//+kubebuilder:webhook:path=/validate-component-kyma-project-io-v1alpha1-manifest, mutating=false,failurePolicy=fail,sideEffects=None,groups=operator.kyma-project.io,resources=manifests,verbs=create;update,versions=v1alpha1,name=vmanifest.kb.io,admissionReviewVersions=v1
+//+kubebuilder:webhook:path=/validate-operator-kyma-project-io-v1alpha1-manifest, mutating=false,failurePolicy=fail,sideEffects=None,groups=operator.kyma-project.io,resources=manifests,verbs=create;update,versions=v1alpha1,name=vmanifest.kb.io,admissionReviewVersions=v1
 
 var _ webhook.Validator = &Manifest{}
 

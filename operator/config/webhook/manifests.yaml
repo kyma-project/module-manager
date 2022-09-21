@@ -11,7 +11,7 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /mutate-component-kyma-project-io-v1alpha1-manifest
+      path: /mutate-operator-kyma-project-io-v1alpha1-manifest
   failurePolicy: Fail
   name: mmanifest.kb.io
   rules:
@@ -38,7 +38,7 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-component-kyma-project-io-v1alpha1-manifest
+      path: /validate-operator-kyma-project-io-v1alpha1-manifest
   failurePolicy: Fail
   name: vmanifest.kb.io
   rules:
