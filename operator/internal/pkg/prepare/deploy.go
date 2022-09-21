@@ -38,7 +38,7 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 	config := manifestObj.Spec.Config
 
 	var configs []any
-	if config.Repo != "" || config.Ref != "" {
+	if config.Repo != "" || config.Ref != "" { //nolint:nestif
 		decodedConfig, err := descriptor.DecodeYamlFromDigest(config.Repo, config.Name, config.Ref,
 			filepath.Join(config.Ref, configFileName))
 		if err != nil {
@@ -289,7 +289,7 @@ func parseChartConfigAndValues(install v1alpha1.InstallInfo, configs []interface
 	return config, values, nil
 }
 
-// InsertWatcherLabels adds watcher labels to custom resource of the Manifest CR
+// InsertWatcherLabels adds watcher labels to custom resource of the Manifest CR.
 func InsertWatcherLabels(manifestObj *v1alpha1.Manifest) {
 	if manifestObj.Spec.Remote {
 		manifestLabels := manifestObj.Spec.Resource.GetLabels()
