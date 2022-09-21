@@ -37,19 +37,21 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 	// extract config
 	config := manifestObj.Spec.Config
 
-	decodedConfig, err := descriptor.DecodeYamlFromDigest(config.Repo, config.Name, config.Ref,
-		filepath.Join(config.Ref, configFileName))
-	var configs []interface{}
-	if err != nil {
-		// if EOF error proceed without config
-		if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
-			return nil, err
-		}
-	} else {
-		var err error
-		configs, err = parseInstallConfigs(decodedConfig)
+	var configs []any
+	if config.Repo != "" || config.Ref != "" { //nolint:nestif
+		decodedConfig, err := descriptor.DecodeYamlFromDigest(config.Repo, config.Name, config.Ref,
+			filepath.Join(config.Ref, configFileName))
 		if err != nil {
-			return nil, fmt.Errorf("manifest %s encountered an err: %w", namespacedName, err)
+			// if EOF error proceed without config
+			if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+				return nil, err
+			}
+		} else {
+			var err error
+			configs, err = parseInstallConfigs(decodedConfig)
+			if err != nil {
+				return nil, fmt.Errorf("manifest %s encountered an err: %w", namespacedName, err)
+			}
 		}
 	}
 
@@ -287,7 +289,7 @@ func parseChartConfigAndValues(install v1alpha1.InstallInfo, configs []interface
 	return config, values, nil
 }
 
-// InsertWatcherLabels adds watcher labels to custom resource of the Manifest CR
+// InsertWatcherLabels adds watcher labels to custom resource of the Manifest CR.
 func InsertWatcherLabels(manifestObj *v1alpha1.Manifest) {
 	if manifestObj.Spec.Remote {
 		manifestLabels := manifestObj.Spec.Resource.GetLabels()
