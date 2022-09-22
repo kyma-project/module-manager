@@ -21,6 +21,10 @@ import (
 	"os"
 	"time"
 
+	internalTypes "github.com/kyma-project/module-manager/operator/internal/pkg/types"
+
+	internalTypes "github.com/kyma-project/module-manager/operator/internal/pkg/types"
+
 	"github.com/kyma-project/module-manager/operator/controllers"
 	opLabels "github.com/kyma-project/module-manager/operator/pkg/labels"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
@@ -137,14 +141,16 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 		os.Exit(1)
 	}
 	if err = (&controllers.ManifestReconciler{
-		Client:                  mgr.GetClient(),
-		Scheme:                  mgr.GetScheme(),
-		Workers:                 manifestWorkers,
-		MaxConcurrentReconciles: flagVar.concurrentReconciles,
-		CheckReadyStates:        flagVar.checkReadyStates,
-		CustomStateCheck:        flagVar.customStateCheck,
-		Codec:                   codec,
-		InsecureRegistry:        flagVar.insecureRegistry,
+		Client:  mgr.GetClient(),
+		Scheme:  mgr.GetScheme(),
+		Workers: manifestWorkers,
+		ReconcileFlagConfig: internalTypes.ReconcileFlagConfig{
+			Codec:                   codec,
+			MaxConcurrentReconciles: flagVar.concurrentReconciles,
+			CheckReadyStates:        flagVar.checkReadyStates,
+			CustomStateCheck:        flagVar.customStateCheck,
+			InsecureRegistry:        flagVar.insecureRegistry,
+		},
 		RequeueIntervals: controllers.RequeueIntervals{
 			Success: flagVar.requeueSuccessInterval,
 			Failure: flagVar.requeueFailureInterval,
