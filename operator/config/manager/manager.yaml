@@ -22,7 +22,7 @@ spec:
       annotations:
         kubectl.kubernetes.io/default-container: manager
       labels:
-        app.kubernetes.io/component: lifecycle-manager.kyma-project.io
+        app.kubernetes.io/component: module-manager.kyma-project.io
     spec:
       securityContext:
         runAsNonRoot: true
