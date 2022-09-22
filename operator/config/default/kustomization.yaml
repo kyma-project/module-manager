@@ -35,7 +35,7 @@ components:
   # [ISTIO] To enable istio gateway, uncomment all sections with 'ISTIO'.
   #- ../istio
   # [GRAFANA] To generate configmap for provision grafana dashboard
-  #- ../grafana
+  - ../grafana
   # [Load Test] To generate default prometheus operator related resources for load testing
   #- ../load_test
 
