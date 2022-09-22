@@ -6,3 +6,6 @@ configurations:
 
 resources:
 - monitor.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
