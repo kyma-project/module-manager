@@ -61,11 +61,6 @@ spec:
                     - oci-ref
                     - ""
                     type: string
-                required:
-                - name
-                - ref
-                - repo
-                - type
                 type: object
               crds:
                 description: CRDs specifies the custom resource definitions' ImageSpec
@@ -86,11 +81,6 @@ spec:
                     - oci-ref
                     - ""
                     type: string
-                required:
-                - name
-                - ref
-                - repo
-                - type
                 type: object
               installs:
                 description: Installs specifies a list of installations for Manifest

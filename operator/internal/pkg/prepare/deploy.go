@@ -38,7 +38,7 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 	config := manifestObj.Spec.Config
 
 	var configs []any
-	if config.Repo != "" || config.Ref != "" { //nolint:nestif
+	if config.Type.NotEmpty() { //nolint:nestif
 		decodedConfig, err := descriptor.DecodeYamlFromDigest(config.Repo, config.Name, config.Ref,
 			filepath.Join(config.Ref, configFileName))
 		if err != nil {
@@ -184,7 +184,7 @@ func parseInstallations(manifestObj *v1alpha1.Manifest, codec *types.Codec,
 func parseCrds(ctx context.Context, crdImage types.ImageSpec, insecureRegistry bool,
 ) ([]*v1.CustomResourceDefinition, error) {
 	// if crds do not exist - do nothing
-	if crdImage.Type == types.NilRefType {
+	if crdImage.Type.NotEmpty() {
 		return nil, nil
 	}
 

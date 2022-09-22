@@ -4,6 +4,10 @@ import "k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 type RefTypeMetadata string
 
+func (r RefTypeMetadata) NotEmpty() bool {
+	return r != NilRefType
+}
+
 const (
 	HelmChartType RefTypeMetadata = "helm-chart"
 	OciRefType    RefTypeMetadata = "oci-ref"
@@ -26,16 +30,20 @@ type ChartFlags struct {
 // ImageSpec defines OCI Image specifications.
 type ImageSpec struct {
 	// Repo defines the Image repo
+	// +kubebuilder:validation:Optional
 	Repo string `json:"repo"`
 
 	// Name defines the Image name
+	// +kubebuilder:validation:Optional
 	Name string `json:"name"`
 
 	// Ref is either a sha value, tag or version
+	// +kubebuilder:validation:Optional
 	Ref string `json:"ref"`
 
 	// Type defines the chart as "oci-ref"
 	// +kubebuilder:validation:Enum=helm-chart;oci-ref;""
+	// +kubebuilder:validation:Optional
 	Type RefTypeMetadata `json:"type"`
 }
 
