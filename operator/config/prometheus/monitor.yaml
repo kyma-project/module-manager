@@ -3,13 +3,14 @@
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: manager-metrics-monitor
+  labels:
+    app.kubernetes.io/component: module-manager.kyma-project.io
+  name: controller-manager-metrics-monitor
   namespace: system
 spec:
   endpoints:
     - path: /metrics
-      port: https
-      scheme: https
-      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
-      tlsConfig:
-        insecureSkipVerify: true
+      port: metrics
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: module-manager.kyma-project.io
