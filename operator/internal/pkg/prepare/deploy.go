@@ -12,16 +12,17 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
 	manifestCustom "github.com/kyma-project/module-manager/operator/internal/pkg/custom"
+	internalTypes "github.com/kyma-project/module-manager/operator/internal/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/custom"
 	"github.com/kyma-project/module-manager/operator/pkg/descriptor"
 	"github.com/kyma-project/module-manager/operator/pkg/labels"
 	"github.com/kyma-project/module-manager/operator/pkg/manifest"
 	"github.com/kyma-project/module-manager/operator/pkg/resource"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
-
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -30,7 +31,7 @@ const (
 )
 
 func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClusterInfo custom.ClusterInfo,
-	checkReadyStates bool, customStateCheck bool, codec *types.Codec, insecureRegistry bool,
+	flags internalTypes.ReconcileFlagConfig,
 ) ([]manifest.InstallInfo, error) {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 
@@ -59,7 +60,7 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 	customResCheck := &manifestCustom.Resource{DefaultClient: defaultClusterInfo.Client}
 
 	// check crds - if present do not update
-	crds, err := parseCrds(ctx, manifestObj.Spec.CRDs, insecureRegistry)
+	crds, err := parseCrds(ctx, manifestObj.Spec.CRDs, flags.InsecureRegistry)
 	if err != nil {
 		return nil, err
 	}
@@ -88,15 +89,15 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 		},
 		Ctx:              ctx,
 		CheckFn:          customResCheck.DefaultFn,
-		CheckReadyStates: checkReadyStates,
+		CheckReadyStates: flags.CheckReadyStates,
 	}
 
 	// replace with check function that checks for readiness of custom resources
-	if customStateCheck {
+	if flags.CustomStateCheck {
 		baseDeployInfo.CheckFn = customResCheck.CheckFn
 	}
 
-	return parseInstallations(manifestObj, codec, configs, baseDeployInfo, insecureRegistry)
+	return parseInstallations(manifestObj, flags.Codec, configs, baseDeployInfo, flags.InsecureRegistry)
 }
 
 func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo custom.ClusterInfo,

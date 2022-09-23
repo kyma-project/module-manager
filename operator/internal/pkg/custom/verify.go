@@ -25,6 +25,11 @@ func (r *Resource) DefaultFn(context.Context, *unstructured.Unstructured, *logr.
 func (r *Resource) CheckFn(ctx context.Context, manifestObj *unstructured.Unstructured, logger *logr.Logger,
 	clusterInfo custom.ClusterInfo,
 ) (bool, error) {
+	// if manifest resource is in deleting state - validate check
+	if !manifestObj.GetDeletionTimestamp().IsZero() {
+		return true, nil
+	}
+
 	resource := manifestObj.Object["spec"].(map[string]interface{})["resource"].(*unstructured.Unstructured)
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 

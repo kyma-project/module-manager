@@ -4,15 +4,13 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/kyma-project/module-manager/operator/pkg/resource"
-	"github.com/kyma-project/module-manager/operator/pkg/types"
 	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	"github.com/kyma-project/module-manager/operator/pkg/resource"
+	"github.com/kyma-project/module-manager/operator/pkg/types"
+
 	"github.com/go-logr/logr"
-	"github.com/kyma-project/module-manager/operator/pkg/custom"
-	manifestRest "github.com/kyma-project/module-manager/operator/pkg/rest"
-	"github.com/kyma-project/module-manager/operator/pkg/util"
 	"github.com/pkg/errors"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
@@ -20,6 +18,10 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/kyma-project/module-manager/operator/pkg/custom"
+	manifestRest "github.com/kyma-project/module-manager/operator/pkg/rest"
+	"github.com/kyma-project/module-manager/operator/pkg/util"
 )
 
 type Mode int
