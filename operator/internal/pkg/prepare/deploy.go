@@ -7,25 +7,22 @@ import (
 	"io"
 	"path/filepath"
 
-	internalTypes "github.com/kyma-project/module-manager/operator/internal/pkg/types"
-
-	internalTypes "github.com/kyma-project/module-manager/operator/internal/pkg/types"
-
 	"helm.sh/helm/v3/pkg/strvals"
 	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
 	manifestCustom "github.com/kyma-project/module-manager/operator/internal/pkg/custom"
+	internalTypes "github.com/kyma-project/module-manager/operator/internal/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/custom"
 	"github.com/kyma-project/module-manager/operator/pkg/descriptor"
 	"github.com/kyma-project/module-manager/operator/pkg/labels"
 	"github.com/kyma-project/module-manager/operator/pkg/manifest"
 	"github.com/kyma-project/module-manager/operator/pkg/resource"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
-
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (

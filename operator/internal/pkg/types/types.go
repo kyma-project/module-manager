@@ -1,6 +1,8 @@
 package types
 
-import "github.com/kyma-project/module-manager/operator/pkg/types"
+import (
+	"github.com/kyma-project/module-manager/operator/pkg/types"
+)
 
 type ReconcileFlagConfig struct {
 	Codec                   *types.Codec

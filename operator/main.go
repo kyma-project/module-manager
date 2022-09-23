@@ -21,21 +21,19 @@ import (
 	"os"
 	"time"
 
-	internalTypes "github.com/kyma-project/module-manager/operator/internal/pkg/types"
-
-	internalTypes "github.com/kyma-project/module-manager/operator/internal/pkg/types"
-
-	"github.com/kyma-project/module-manager/operator/controllers"
-	opLabels "github.com/kyma-project/module-manager/operator/pkg/labels"
-	"github.com/kyma-project/module-manager/operator/pkg/types"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/rest"
 
+	manifestv1alpha1 "github.com/kyma-project/module-manager/operator/api/v1alpha1"
+	"github.com/kyma-project/module-manager/operator/controllers"
+	internalTypes "github.com/kyma-project/module-manager/operator/internal/pkg/types"
+	opLabels "github.com/kyma-project/module-manager/operator/pkg/labels"
+	"github.com/kyma-project/module-manager/operator/pkg/types"
+
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
-	manifestv1alpha1 "github.com/kyma-project/module-manager/operator/api/v1alpha1"
 	apiExtensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
