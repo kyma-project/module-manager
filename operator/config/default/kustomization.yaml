@@ -11,9 +11,11 @@ namePrefix: module-manager-
 # Labels to add to all resources and selectors.
 commonLabels:
   app.kubernetes.io/component: module-manager.kyma-project.io
-
-configurations:
-  - ./commonlabels_override.yaml
+  app.kubernetes.io/instance: module-manager-main
+  app.kubernetes.io/name: module-manager
+  app.kubernetes.io/created-by: kustomize
+  app.kubernetes.io/managed-by: kustomize
+  app.kubernetes.io/part-of: manual-deployment
 
 resources:
   - ../manager
@@ -32,6 +34,10 @@ components:
   #- ../prometheus
   # [ISTIO] To enable istio gateway, uncomment all sections with 'ISTIO'.
   #- ../istio
+  # [GRAFANA] To generate configmap for provision grafana dashboard
+  #- ../grafana
+  # [Load Test] To generate default prometheus operator related resources for load testing
+  #- ../load_test
 
 patchesStrategicMerge:
 # Protect the /metrics endpoint by putting it behind auth.
