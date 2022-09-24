@@ -4,13 +4,14 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/kyma-project/module-manager/operator/pkg/labels"
-	"github.com/kyma-project/module-manager/operator/pkg/util"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	k8slabels "k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/kyma-project/module-manager/operator/pkg/labels"
 )
 
 type ClusterInfo struct {
@@ -58,8 +59,7 @@ func (cc *ClusterClient) GetRestConfig(ctx context.Context, kymaOwner string, na
 		return nil, err
 	}
 
-	kubeconfigString := string(kubeConfigSecret.Data["config"])
-	restConfig, err := util.GetConfig(kubeconfigString, "")
+	restConfig, err := clientcmd.RESTConfigFromKubeConfig(kubeConfigSecret.Data["config"])
 	if err != nil {
 		return nil, err
 	}
