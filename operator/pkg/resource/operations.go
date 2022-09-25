@@ -111,13 +111,13 @@ func readFile(fileName string) ([][]byte, error) {
 	return yamlStructs, nil
 }
 
-func CreateCRDs(ctx context.Context, crds []*apiextensionsv1.CustomResourceDefinition,
-	destinationClient client.Client,
+func CheckCRDs(ctx context.Context, crds []*apiextensionsv1.CustomResourceDefinition,
+	destinationClient client.Client, createIfNotPresent bool,
 ) error {
 	for _, crd := range crds {
 		existingCrd := apiextensionsv1.CustomResourceDefinition{}
 		if err := destinationClient.Get(ctx, client.ObjectKeyFromObject(crd), &existingCrd); err != nil {
-			if client.IgnoreNotFound(err) != nil {
+			if !createIfNotPresent || client.IgnoreNotFound(err) != nil {
 				return err
 			}
 
@@ -129,8 +129,8 @@ func CreateCRDs(ctx context.Context, crds []*apiextensionsv1.CustomResourceDefin
 	return nil
 }
 
-func CreateCRs(ctx context.Context, crs []*unstructured.Unstructured,
-	destinationClient client.Client,
+func CheckCRs(ctx context.Context, crs []*unstructured.Unstructured,
+	destinationClient client.Client, createIfNotPresent bool,
 ) error {
 	for _, resource := range crs {
 		existingCustomResource := unstructured.Unstructured{}
@@ -140,7 +140,7 @@ func CreateCRs(ctx context.Context, crs []*unstructured.Unstructured,
 			Namespace: resource.GetNamespace(),
 		}
 		if err := destinationClient.Get(ctx, customResourceKey, &existingCustomResource); err != nil {
-			if client.IgnoreNotFound(err) != nil {
+			if !createIfNotPresent || client.IgnoreNotFound(err) != nil {
 				return err
 			}
 
@@ -173,7 +173,8 @@ func RemoveCRDs(ctx context.Context, crds []*apiextensionsv1.CustomResourceDefin
 
 func RemoveCRs(ctx context.Context, crs []*unstructured.Unstructured,
 	destinationClient client.Client,
-) error {
+) (bool, error) {
+	deleted := true
 	for _, resource := range crs {
 		existingCustomResource := unstructured.Unstructured{}
 		existingCustomResource.SetGroupVersionKind(resource.GroupVersionKind())
@@ -183,14 +184,16 @@ func RemoveCRs(ctx context.Context, crs []*unstructured.Unstructured,
 		}
 		if err := destinationClient.Get(ctx, customResourceKey, &existingCustomResource); err != nil {
 			if client.IgnoreNotFound(err) != nil {
-				return err
+				return false, err
 			}
+			// resource deleted
 			continue
 		}
 
+		deleted = false
 		if err := destinationClient.Delete(ctx, resource); err != nil {
-			return err
+			return false, err
 		}
 	}
-	return nil
+	return deleted, nil
 }

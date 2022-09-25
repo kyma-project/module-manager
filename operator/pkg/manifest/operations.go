@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/kyma-project/module-manager/operator/pkg/resource"
@@ -158,6 +159,26 @@ func (o *Operations) getClusterResources(deployInfo InstallInfo, operation HelmO
 }
 
 func (o *Operations) VerifyResources(deployInfo InstallInfo) (bool, error) {
+	// verify CRDs
+	if err := resource.CheckCRDs(deployInfo.Ctx, deployInfo.Crds, deployInfo.ClusterInfo.Client,
+		false); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	// verify CR
+	if err := resource.CheckCRs(deployInfo.Ctx, deployInfo.CustomResources, deployInfo.ClusterInfo.Client,
+		false); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	// verify manifest resources - by count
+	// TODO: better strategy for resource verification?
 	resourceLists, err := o.getClusterResources(deployInfo, "")
 	if err != nil {
 		return false, errors.Wrap(err, "could not render current resources from manifest")
@@ -170,7 +191,8 @@ func (o *Operations) VerifyResources(deployInfo InstallInfo) (bool, error) {
 
 func (o *Operations) Install(deployInfo InstallInfo) (bool, error) {
 	// install crds first - if present do not update!
-	if err := resource.CreateCRDs(deployInfo.Ctx, deployInfo.Crds, deployInfo.ClusterInfo.Client); err != nil {
+	if err := resource.CheckCRDs(deployInfo.Ctx, deployInfo.Crds, deployInfo.ClusterInfo.Client,
+		true); err != nil {
 		return false, err
 	}
 
@@ -197,7 +219,8 @@ func (o *Operations) Install(deployInfo InstallInfo) (bool, error) {
 	}
 
 	// install crs - if present do not update!
-	if err := resource.CreateCRs(deployInfo.Ctx, deployInfo.CustomResources, deployInfo.Client); err != nil {
+	if err := resource.CheckCRs(deployInfo.Ctx, deployInfo.CustomResources, deployInfo.Client,
+		true); err != nil {
 		return false, err
 	}
 
@@ -259,6 +282,13 @@ func (o *Operations) uninstallResources(resourceLists ResourceLists) error {
 
 func (o *Operations) Uninstall(deployInfo InstallInfo) (bool, error) {
 	resourceLists, err := o.getClusterResources(deployInfo, OperationDelete)
+	// delete crs first - proceed only if not found
+	// since there might be a deletion process to be completed by other manifest resources
+	if deleted, err := resource.RemoveCRs(deployInfo.Ctx, deployInfo.CustomResources,
+		deployInfo.ClusterInfo.Client); err != nil || !deleted {
+		return false, err
+	}
+
 	if err != nil {
 		return false, err
 	}
@@ -274,12 +304,6 @@ func (o *Operations) Uninstall(deployInfo InstallInfo) (bool, error) {
 
 	// update manifest chart in a separate go-routine
 	if err = o.repoHandler.Update(deployInfo.Ctx); err != nil {
-		return false, err
-	}
-
-	// delete crs first - if not present ignore!
-	if err := resource.RemoveCRs(deployInfo.Ctx, deployInfo.CustomResources,
-		deployInfo.ClusterInfo.Client); err != nil {
 		return false, err
 	}
 
