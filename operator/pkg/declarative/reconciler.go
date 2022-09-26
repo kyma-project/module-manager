@@ -187,7 +187,7 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, objectIn
 		return err
 	}
 
-	manifestClient, err := r.getManifestClient(&logger, installSpec.ConfigFlags, installSpec.SetFlags)
+	manifestClient, err := r.getManifestClient(&logger, installSpec, objectInstance)
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("error while parsing flags for resource %s",
 			client.ObjectKeyFromObject(objectInstance)))
@@ -242,7 +242,7 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInst
 		return err
 	}
 
-	manifestClient, err := r.getManifestClient(&logger, installSpec.ConfigFlags, installSpec.SetFlags)
+	manifestClient, err := r.getManifestClient(&logger, installSpec, objectInstance)
 	if err != nil {
 		logger.Error(err, fmt.Sprintf(
 			"error while parsing flags for resource %s", client.ObjectKeyFromObject(objectInstance)))
@@ -341,16 +341,16 @@ func (r *ManifestReconciler) prepareInstallInfo(ctx context.Context, objectInsta
 	}, nil
 }
 
-func (r *ManifestReconciler) getManifestClient(logger *logr.Logger, configFlags map[string]interface{},
-	setFlags map[string]interface{},
-) (*manifest.Operations, error) {
+func (r *ManifestReconciler) getManifestClient(logger *logr.Logger, spec types.InstallationSpec,
+	objectInstance types.BaseCustomObject) (*manifest.Operations, error) {
+
 	// Example: Prepare manifest library client
-	return manifest.NewOperations(logger, r.config, "nginx-release-name", cli.New(),
-		map[string]map[string]interface{}{
+	return manifest.NewOperations(logger, r.config, resolveReleaseName(spec.ReleaseName, objectInstance),
+		cli.New(), map[string]map[string]interface{}{
 			// check --set flags parameter for helm
-			"set": setFlags,
+			"set": spec.SetFlags,
 			// comma separated values of manifest command line flags
-			"flags": configFlags,
+			"flags": spec.ConfigFlags,
 		}, r.options.objectTransforms)
 }
 
@@ -434,7 +434,7 @@ func GetComponentName(objectInstance types.BaseCustomObject) (string, error) {
 
 func resolveReleaseName(releaseName string, objectInstance types.BaseCustomObject) string {
 	if releaseName == "" {
-		return client.ObjectKeyFromObject(objectInstance).String()
+		return objectInstance.GetName()
 	}
 	return releaseName
 }

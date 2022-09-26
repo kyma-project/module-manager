@@ -186,16 +186,17 @@ func parseCrds(ctx context.Context, crdImage types.ImageSpec, insecureRegistry b
 ) ([]*v1.CustomResourceDefinition, error) {
 	// if crds do not exist - do nothing
 	if crdImage.Type.NotEmpty() {
-		return nil, nil
-	}
 
-	// extract helm chart from layer digest
-	crdsPath, err := descriptor.GetPathFromExtractedTarGz(crdImage, insecureRegistry)
-	if err != nil {
-		return nil, err
-	}
+		// extract helm chart from layer digest
+		crdsPath, err := descriptor.GetPathFromExtractedTarGz(crdImage, insecureRegistry)
+		if err != nil {
+			return nil, err
+		}
 
-	return resource.GetCRDsFromPath(ctx, crdsPath)
+		return resource.GetCRDsFromPath(ctx, crdsPath)
+
+	}
+	return nil, nil
 }
 
 func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *types.Codec,
