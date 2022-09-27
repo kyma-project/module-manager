@@ -2,7 +2,6 @@ package custom
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -11,9 +10,6 @@ import (
 	"github.com/kyma-project/module-manager/operator/pkg/custom"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
-
-var ErrSpecResourceCastFailed = errors.New("spec.resource case assertion failed")
-var ErrSpecCastFailed = errors.New("spec case assertion failed")
 
 type Resource struct {
 	DefaultClient client.Client
@@ -29,17 +25,12 @@ func (r *Resource) DefaultFn(context.Context, *unstructured.Unstructured, *logr.
 func (r *Resource) CheckFn(ctx context.Context, manifestObj *unstructured.Unstructured, logger *logr.Logger,
 	clusterInfo custom.ClusterInfo,
 ) (bool, error) {
-	spec, found := manifestObj.Object["spec"].(map[string]interface{})
-	if !found {
-		return false, ErrSpecCastFailed
+	// if manifest resource is in deleting state - validate check
+	if !manifestObj.GetDeletionTimestamp().IsZero() {
+		return true, nil
 	}
-	resourceMap, found := spec["resource"].(map[string]interface{})
-	if !found {
-		return false, ErrSpecResourceCastFailed
-	}
-	resource := &unstructured.Unstructured{}
-	resource.SetUnstructuredContent(resourceMap)
 
+	resource := manifestObj.Object["spec"].(map[string]interface{})["resource"].(*unstructured.Unstructured)
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 
 	// check custom resource for states

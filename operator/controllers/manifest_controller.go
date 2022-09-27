@@ -24,18 +24,9 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/ratelimiter"
 
-	"github.com/kyma-project/module-manager/operator/internal/pkg/prepare"
-	"github.com/kyma-project/module-manager/operator/internal/pkg/util"
-	"github.com/kyma-project/module-manager/operator/pkg/ratelimit"
-	"github.com/kyma-project/module-manager/operator/pkg/types"
-	listener "github.com/kyma-project/runtime-watcher/listener/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	"github.com/go-logr/logr"
-	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
-	"github.com/kyma-project/module-manager/operator/pkg/custom"
-	"github.com/kyma-project/module-manager/operator/pkg/labels"
-	"github.com/kyma-project/module-manager/operator/pkg/manifest"
 	"golang.org/x/time/rate"
 	"helm.sh/helm/v3/pkg/cli"
 	v1 "k8s.io/api/core/v1"
@@ -50,6 +41,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+
+	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
+	"github.com/kyma-project/module-manager/operator/internal/pkg/prepare"
+	internalTypes "github.com/kyma-project/module-manager/operator/internal/pkg/types"
+	"github.com/kyma-project/module-manager/operator/internal/pkg/util"
+	"github.com/kyma-project/module-manager/operator/pkg/custom"
+	"github.com/kyma-project/module-manager/operator/pkg/labels"
+	"github.com/kyma-project/module-manager/operator/pkg/manifest"
+	"github.com/kyma-project/module-manager/operator/pkg/ratelimit"
+	"github.com/kyma-project/module-manager/operator/pkg/types"
+	listener "github.com/kyma-project/runtime-watcher/listener/pkg/event"
 )
 
 type RequeueIntervals struct {
@@ -67,17 +69,13 @@ type OperationRequest struct {
 // ManifestReconciler reconciles a Manifest object.
 type ManifestReconciler struct {
 	client.Client
-	Scheme                  *runtime.Scheme
-	RestConfig              *rest.Config
-	RestMapper              *restmapper.DeferredDiscoveryRESTMapper
-	DeployChan              chan OperationRequest
-	Workers                 *ManifestWorkerPool
-	RequeueIntervals        RequeueIntervals
-	MaxConcurrentReconciles int
-	CheckReadyStates        bool
-	CustomStateCheck        bool
-	Codec                   *types.Codec
-	InsecureRegistry        bool
+	Scheme           *runtime.Scheme
+	RestConfig       *rest.Config
+	RestMapper       *restmapper.DeferredDiscoveryRESTMapper
+	DeployChan       chan OperationRequest
+	Workers          *ManifestWorkerPool
+	RequeueIntervals RequeueIntervals
+	internalTypes.ReconcileFlagConfig
 }
 
 //+kubebuilder:rbac:groups=operator.kyma-project.io,resources=manifests,verbs=get;list;watch;create;update;patch;delete
@@ -173,9 +171,8 @@ func (r *ManifestReconciler) sendJobToInstallChannel(ctx context.Context, logger
 
 	// send deploy requests
 	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, custom.ClusterInfo{
-		Client: r.Client,
-		Config: r.RestConfig,
-	}, r.CheckReadyStates, r.CustomStateCheck, r.Codec, r.InsecureRegistry)
+		Client: r.Client, Config: r.RestConfig,
+	}, r.ReconcileFlagConfig)
 	if err != nil {
 		return err
 	}
@@ -209,10 +206,8 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 
 	// send deploy requests
 	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, custom.ClusterInfo{
-		Client: r.Client,
-		Config: r.RestConfig,
-	}, r.CheckReadyStates,
-		r.CustomStateCheck, r.Codec, r.InsecureRegistry)
+		Client: r.Client, Config: r.RestConfig,
+	}, r.ReconcileFlagConfig)
 	if err != nil {
 		return err
 	}

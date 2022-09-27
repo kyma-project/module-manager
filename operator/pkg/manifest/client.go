@@ -10,7 +10,6 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
-	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
@@ -18,8 +17,8 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
 
-	manifestRest "github.com/kyma-project/module-manager/operator/pkg/rest"
-	"github.com/kyma-project/module-manager/operator/pkg/util"
+	"github.com/kyma-project/module-manager/operator/pkg/types"
+
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/kube"
@@ -28,6 +27,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/resource"
 	"k8s.io/client-go/kubernetes"
+
+	manifestRest "github.com/kyma-project/module-manager/operator/pkg/rest"
+	"github.com/kyma-project/module-manager/operator/pkg/util"
 )
 
 type OperationType string
@@ -118,9 +120,15 @@ func (h *HelmClient) SetDefaultClientConfig(actionClient *action.Install, releas
 	actionClient.WaitForJobs = false
 	actionClient.Replace = true     // Skip the name check
 	actionClient.IncludeCRDs = true // include CRDs in the templated output
-	actionClient.ClientOnly = true
+
+	// ClientOnly has no interaction with the API server
+	// So unless mentioned no additional API Versions can be used as part of helm chart installation
+	actionClient.ClientOnly = false
+
 	actionClient.ReleaseName = releaseName
 	actionClient.Namespace = v1.NamespaceDefault
+	// this will prohibit resource conflict validation while uninstalling
+	actionClient.IsUpgrade = true
 
 	// default versioning if unspecified
 	if actionClient.Version == "" && actionClient.Devel {

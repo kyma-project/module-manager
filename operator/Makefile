@@ -50,6 +50,13 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
 
+
+.PHONY: dry-run
+dry-run: manifests ## Generate manifests
+	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
+	mkdir -p dry-run
+	$(KUSTOMIZE) build config/default > dry-run/manifests.yaml
+
 .PHONY: fmt
 fmt: ## Run go fmt against code.
 	go fmt ./...
@@ -146,3 +153,8 @@ client-gen: ## Download client-gen
 lint: ## Run golangci-lint against code.
 	GOBIN=$(LOCALBIN) go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANG_CI_LINT_VERSION)
 	$(LOCALBIN)/golangci-lint run
+
+.PHONY: grafana-dashboard
+grafana-dashboard: ## Generating Grafana manifests to visualize controller status.
+	kubebuilder edit --plugins grafana.kubebuilder.io/v1-alpha
+	mv grafana/* config/grafana

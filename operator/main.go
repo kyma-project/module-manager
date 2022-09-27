@@ -21,17 +21,19 @@ import (
 	"os"
 	"time"
 
-	"github.com/kyma-project/module-manager/operator/controllers"
-	opLabels "github.com/kyma-project/module-manager/operator/pkg/labels"
-	"github.com/kyma-project/module-manager/operator/pkg/types"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/rest"
 
+	manifestv1alpha1 "github.com/kyma-project/module-manager/operator/api/v1alpha1"
+	"github.com/kyma-project/module-manager/operator/controllers"
+	internalTypes "github.com/kyma-project/module-manager/operator/internal/pkg/types"
+	opLabels "github.com/kyma-project/module-manager/operator/pkg/labels"
+	"github.com/kyma-project/module-manager/operator/pkg/types"
+
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
-	manifestv1alpha1 "github.com/kyma-project/module-manager/operator/api/v1alpha1"
 	apiExtensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -137,14 +139,16 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 		os.Exit(1)
 	}
 	if err = (&controllers.ManifestReconciler{
-		Client:                  mgr.GetClient(),
-		Scheme:                  mgr.GetScheme(),
-		Workers:                 manifestWorkers,
-		MaxConcurrentReconciles: flagVar.concurrentReconciles,
-		CheckReadyStates:        flagVar.checkReadyStates,
-		CustomStateCheck:        flagVar.customStateCheck,
-		Codec:                   codec,
-		InsecureRegistry:        flagVar.insecureRegistry,
+		Client:  mgr.GetClient(),
+		Scheme:  mgr.GetScheme(),
+		Workers: manifestWorkers,
+		ReconcileFlagConfig: internalTypes.ReconcileFlagConfig{
+			Codec:                   codec,
+			MaxConcurrentReconciles: flagVar.concurrentReconciles,
+			CheckReadyStates:        flagVar.checkReadyStates,
+			CustomStateCheck:        flagVar.customStateCheck,
+			InsecureRegistry:        flagVar.insecureRegistry,
+		},
 		RequeueIntervals: controllers.RequeueIntervals{
 			Success: flagVar.requeueSuccessInterval,
 			Failure: flagVar.requeueFailureInterval,
@@ -180,11 +184,11 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 
 func defineFlagVar() *FlagVar {
 	flagVar := new(FlagVar)
-	flag.StringVar(&flagVar.metricsAddr, "metrics-bind-address", ":2020",
+	flag.StringVar(&flagVar.metricsAddr, "metrics-bind-address", ":8080",
 		"The address the metric endpoint binds to.")
-	flag.StringVar(&flagVar.probeAddr, "health-probe-bind-address", ":2021",
+	flag.StringVar(&flagVar.probeAddr, "health-probe-bind-address", ":8081",
 		"The address the probe endpoint binds to.")
-	flag.StringVar(&flagVar.listenerAddr, "listener-address", ":2022",
+	flag.StringVar(&flagVar.listenerAddr, "listener-address", ":8082",
 		"The address the probe endpoint binds to.")
 	flag.BoolVar(&flagVar.enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+

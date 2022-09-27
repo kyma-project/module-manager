@@ -12,16 +12,17 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
 	manifestCustom "github.com/kyma-project/module-manager/operator/internal/pkg/custom"
+	internalTypes "github.com/kyma-project/module-manager/operator/internal/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/custom"
 	"github.com/kyma-project/module-manager/operator/pkg/descriptor"
 	"github.com/kyma-project/module-manager/operator/pkg/labels"
 	"github.com/kyma-project/module-manager/operator/pkg/manifest"
 	"github.com/kyma-project/module-manager/operator/pkg/resource"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
-
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -30,26 +31,28 @@ const (
 )
 
 func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClusterInfo custom.ClusterInfo,
-	checkReadyStates bool, customStateCheck bool, codec *types.Codec, insecureRegistry bool,
+	flags internalTypes.ReconcileFlagConfig,
 ) ([]manifest.InstallInfo, error) {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 
 	// extract config
 	config := manifestObj.Spec.Config
 
-	decodedConfig, err := descriptor.DecodeYamlFromDigest(config.Repo, config.Name, config.Ref,
-		filepath.Join(config.Ref, configFileName))
-	var configs []interface{}
-	if err != nil {
-		// if EOF error proceed without config
-		if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
-			return nil, err
-		}
-	} else {
-		var err error
-		configs, err = parseInstallConfigs(decodedConfig)
+	var configs []any
+	if config.Type.NotEmpty() { //nolint:nestif
+		decodedConfig, err := descriptor.DecodeYamlFromDigest(config.Repo, config.Name, config.Ref,
+			filepath.Join(config.Ref, configFileName))
 		if err != nil {
-			return nil, fmt.Errorf("manifest %s encountered an err: %w", namespacedName, err)
+			// if EOF error proceed without config
+			if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+				return nil, err
+			}
+		} else {
+			var err error
+			configs, err = parseInstallConfigs(decodedConfig)
+			if err != nil {
+				return nil, fmt.Errorf("manifest %s encountered an err: %w", namespacedName, err)
+			}
 		}
 	}
 
@@ -57,7 +60,7 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 	customResCheck := &manifestCustom.Resource{DefaultClient: defaultClusterInfo.Client}
 
 	// check crds - if present do not update
-	crds, err := parseCrds(ctx, manifestObj.Spec.CRDs, insecureRegistry)
+	crds, err := parseCrds(ctx, manifestObj.Spec.CRDs, flags.InsecureRegistry)
 	if err != nil {
 		return nil, err
 	}
@@ -73,6 +76,9 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 		return nil, err
 	}
 
+	// ensure runtime-watcher labels are set to CustomResource
+	InsertWatcherLabels(manifestObj)
+
 	// parse installs
 	baseDeployInfo := manifest.InstallInfo{
 		ClusterInfo: clusterInfo,
@@ -83,15 +89,15 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 		},
 		Ctx:              ctx,
 		CheckFn:          customResCheck.DefaultFn,
-		CheckReadyStates: checkReadyStates,
+		CheckReadyStates: flags.CheckReadyStates,
 	}
 
 	// replace with check function that checks for readiness of custom resources
-	if customStateCheck {
+	if flags.CustomStateCheck {
 		baseDeployInfo.CheckFn = customResCheck.CheckFn
 	}
 
-	return parseInstallations(manifestObj, codec, configs, baseDeployInfo, insecureRegistry)
+	return parseInstallations(manifestObj, flags.Codec, configs, baseDeployInfo, flags.InsecureRegistry)
 }
 
 func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo custom.ClusterInfo,
@@ -180,17 +186,18 @@ func parseInstallations(manifestObj *v1alpha1.Manifest, codec *types.Codec,
 func parseCrds(ctx context.Context, crdImage types.ImageSpec, insecureRegistry bool,
 ) ([]*v1.CustomResourceDefinition, error) {
 	// if crds do not exist - do nothing
-	if crdImage.Type == types.NilRefType {
-		return nil, nil
-	}
+	if crdImage.Type.NotEmpty() {
 
-	// extract helm chart from layer digest
-	crdsPath, err := descriptor.GetPathFromExtractedTarGz(crdImage, insecureRegistry)
-	if err != nil {
-		return nil, err
-	}
+		// extract helm chart from layer digest
+		crdsPath, err := descriptor.GetPathFromExtractedTarGz(crdImage, insecureRegistry)
+		if err != nil {
+			return nil, err
+		}
 
-	return resource.GetCRDsFromPath(ctx, crdsPath)
+		return resource.GetCRDsFromPath(ctx, crdsPath)
+
+	}
+	return nil, nil
 }
 
 func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *types.Codec,
@@ -283,4 +290,22 @@ func parseChartConfigAndValues(install v1alpha1.InstallInfo, configs []interface
 	}
 
 	return config, values, nil
+}
+
+// InsertWatcherLabels adds watcher labels to custom resource of the Manifest CR.
+func InsertWatcherLabels(manifestObj *v1alpha1.Manifest) {
+	if manifestObj.Spec.Remote {
+		manifestLabels := manifestObj.Spec.Resource.GetLabels()
+
+		ownedByValue := fmt.Sprintf(labels.OwnedByFormat, manifestObj.Namespace, manifestObj.Name)
+
+		if manifestLabels == nil {
+			manifestLabels = make(map[string]string)
+		}
+
+		manifestLabels[labels.OwnedByLabel] = ownedByValue
+		manifestLabels[labels.WatchedByLabel] = labels.OperatorName
+
+		manifestObj.Spec.Resource.SetLabels(manifestLabels)
+	}
 }
