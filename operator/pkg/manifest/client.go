@@ -229,7 +229,7 @@ func (h *HelmClient) DeleteNamespace(namespace kube.ResourceList) error {
 	return nil
 }
 
-func newRestClient(restConfig rest.Config, gv schema.GroupVersion) (rest.Interface, error) {
+func newRestClient(restConfig rest.Config, gv schema.GroupVersion) (resource.RESTClient, error) {
 	restConfig.ContentConfig = resource.UnstructuredPlusDefaultContentConfig()
 	restConfig.GroupVersion = &gv
 
