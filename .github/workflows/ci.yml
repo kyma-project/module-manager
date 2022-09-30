@@ -62,7 +62,7 @@ jobs:
     strategy:
       matrix:
         cli-stability: ["unstable"]
-        smoke-run: [ "${{ github.repository }}", "kyma-project/lifecycle-manager" ]
+        smoke-run: [ "${{ github.repository }}" ]
     needs: [wait-for-img, kustomize]
     name: "Kyma CLI - ${{ matrix.cli-stability }} - Integration (Tests of ${{ matrix.smoke-run }})"
     runs-on: ubuntu-latest
@@ -70,6 +70,7 @@ jobs:
       MODULE_MANAGER: ${{ github.repository }}
       LIFECYCLE_MANAGER: kyma-project/lifecycle-manager
       K3D_VERSION: v5.4.6
+      CLUSTER_NAME: "kyma"
     steps:
       - name: Checkout Lifecycle-Manager
         uses: actions/checkout@v3
@@ -104,8 +105,6 @@ jobs:
           version: ${{ matrix.cli-stability }}
       - run: ln -s ${{ steps.kyma.outputs.path }} /usr/local/bin/kyma
       - name: Run Provision
-        env:
-          CLUSTER_NAME: "kyma"
         run: |
           kyma provision k3d \
             -p 8083:80@loadbalancer \
@@ -137,5 +136,5 @@ jobs:
       - name: Run Smoke Tests for ${{ matrix.smoke-run }}
         run: |
           cd $(go env GOPATH)/src/github.com/${{ matrix.smoke-run }}/tests/smoke
-          go test smoke_test.go -v -provision-type external --kubeconfig $GITHUB_WORKSPACE/kubeconfig.yaml
+          go test smoke_test.go -v --kubeconfig $GITHUB_WORKSPACE/kubeconfig.yaml
 
