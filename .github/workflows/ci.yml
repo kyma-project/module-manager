@@ -84,7 +84,6 @@ jobs:
         with:
           repository: ${{ env.MODULE_MANAGER }}
           path: ${{ env.MODULE_MANAGER }}
-          ref: main
       - name: Move Module-Manager
         run: |
           mkdir -p $(go env GOPATH)/src/github.com/$MODULE_MANAGER
