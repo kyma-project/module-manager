@@ -102,7 +102,7 @@ jobs:
         uses: jakobmoellersap/kyma-cli-action@v0.0.1-alpha1
         with:
           version: ${{ matrix.cli-stability }}
-      - run: ls -l ${{ steps.kyma.outputs.path }} /usr/local/bin/kyma
+      - run: ln -s ${{ steps.kyma.outputs.path }} /usr/local/bin/kyma
       - name: Run Provision
         env:
           CLUSTER_NAME: "kyma"
