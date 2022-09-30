@@ -17,25 +17,45 @@ limitations under the License.
 package controllers_test
 
 import (
+	"context"
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/client-go/kubernetes/scheme"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	//+kubebuilder:scaffold:imports
+
+	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
+	"github.com/kyma-project/module-manager/operator/controllers"
+	internalTypes "github.com/kyma-project/module-manager/operator/internal/pkg/types"
+	"github.com/kyma-project/module-manager/operator/internal/pkg/util"
+	"github.com/kyma-project/module-manager/operator/pkg/types"
 )
 
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
 var (
-	k8sClient client.Client        //nolint:gochecknoglobals
-	testEnv   *envtest.Environment //nolint:gochecknoglobals
+	k8sClient  client.Client        //nolint:gochecknoglobals
+	testEnv    *envtest.Environment //nolint:gochecknoglobals
+	k8sManager ctrl.Manager         //nolint:gochecknoglobals
+	ctx        context.Context      //nolint:gochecknoglobals
+	cancel     context.CancelFunc   //nolint:gochecknoglobals
+)
+
+const (
+	helmCacheHomeEnv = "HELM_CACHE_HOME"
+	helmCacheHome    = "/tmp/caches"
+	helmCacheRepoEnv = "HELM_REPOSITORY_CACHE"
+	helmCacheRepo    = "/tmp/caches/repository"
 )
 
 func TestAPIs(t *testing.T) {
@@ -46,7 +66,9 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
+	ctx, cancel = context.WithCancel(context.TODO())
+	logger := zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true))
+	logf.SetLogger(logger)
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
@@ -60,12 +82,56 @@ var _ = BeforeSuite(func() {
 
 	//+kubebuilder:scaffold:scheme
 
+	v1alpha1.AddToScheme(scheme.Scheme)
+	metricsBindAddress, found := os.LookupEnv("metrics-bind-address")
+	if !found {
+		metricsBindAddress = ":8080"
+	}
+
+	k8sManager, err = ctrl.NewManager(cfg, ctrl.Options{
+		MetricsBindAddress: metricsBindAddress,
+		Scheme:             scheme.Scheme,
+		NewCache:           util.GetCacheFunc(),
+	})
+	Expect(err).ToNot(HaveOccurred())
+	manifestWorkers := controllers.NewManifestWorkers(&logger, 1)
+	codec, err := types.NewCodec()
+	Expect(err).ToNot(HaveOccurred())
+
+	err = (&controllers.ManifestReconciler{
+		Client:  k8sManager.GetClient(),
+		Scheme:  scheme.Scheme,
+		Workers: manifestWorkers,
+		ReconcileFlagConfig: internalTypes.ReconcileFlagConfig{
+			Codec:                   codec,
+			MaxConcurrentReconciles: 1,
+			CheckReadyStates:        false,
+			CustomStateCheck:        false,
+			InsecureRegistry:        true,
+		},
+		RequeueIntervals: controllers.RequeueIntervals{
+			Success: time.Second * 10,
+			Failure: time.Second * 2,
+			Waiting: time.Second * 2,
+		},
+	}).SetupWithManager(ctx, k8sManager, 1*time.Second, 1000*time.Second,
+		30, 200, "8082")
+	Expect(err).ToNot(HaveOccurred())
+
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
+
+	go func() {
+		defer GinkgoRecover()
+		err = k8sManager.Start(ctx)
+		Expect(err).ToNot(HaveOccurred(), "failed to run manager")
+	}()
+
 })
 
 var _ = AfterSuite(func() {
+	cancel()
 	By("tearing down the test environment")
 	err := testEnv.Stop()
 	Expect(err).NotTo(HaveOccurred())

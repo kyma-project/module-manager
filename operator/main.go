@@ -21,14 +21,12 @@ import (
 	"os"
 	"time"
 
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/rest"
 
 	manifestv1alpha1 "github.com/kyma-project/module-manager/operator/api/v1alpha1"
 	"github.com/kyma-project/module-manager/operator/controllers"
 	internalTypes "github.com/kyma-project/module-manager/operator/internal/pkg/types"
-	opLabels "github.com/kyma-project/module-manager/operator/pkg/labels"
+	"github.com/kyma-project/module-manager/operator/internal/pkg/util"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -99,21 +97,11 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
-	newCache := cache.BuilderWithOptions(cache.Options{
-		SelectorsByObject: cache.SelectorsByObject{
-			&v1.Secret{}: {
-				Label: labels.SelectorFromSet(
-					labels.Set{opLabels.ManagedBy: opLabels.LifecycleManager},
-				),
-			},
-		},
-	})
-
 	config := ctrl.GetConfigOrDie()
 	config.QPS = float32(flagVar.clientQPS)
 	config.Burst = flagVar.clientBurst
 
-	setupWithManager(flagVar, newCache, scheme, config)
+	setupWithManager(flagVar, util.GetCacheFunc(), scheme, config)
 }
 
 func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme *runtime.Scheme, config *rest.Config) {
