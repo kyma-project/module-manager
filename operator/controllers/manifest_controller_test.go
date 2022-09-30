@@ -63,7 +63,7 @@ func createRepo() error {
 		return err
 	}
 	os.Setenv(helmCacheHomeEnv, helmCacheHome)
-	os.Setenv(helmCacheRepoEnv, helmCacheHomeEnv)
+	os.Setenv(helmCacheRepoEnv, helmCacheRepo)
 	return nil
 }
 
@@ -80,7 +80,7 @@ func deleteRepo() error {
 var _ = Describe("given manifest with", Ordered, func() {
 	manifest := createManifest()
 	BeforeAll(func() {
-		createRepo()
+		Expect(createRepo()).Should(Succeed())
 	})
 	BeforeEach(func() {
 		Expect(k8sClient.Create(ctx, manifest)).Should(Succeed())
@@ -96,6 +96,6 @@ var _ = Describe("given manifest with", Ordered, func() {
 	})
 
 	AfterAll(func() {
-		deleteRepo()
+		Expect(deleteRepo()).Should(Succeed())
 	})
 })

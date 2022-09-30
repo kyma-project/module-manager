@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+
 	//+kubebuilder:scaffold:imports
 
 	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
@@ -82,7 +83,7 @@ var _ = BeforeSuite(func() {
 
 	//+kubebuilder:scaffold:scheme
 
-	v1alpha1.AddToScheme(scheme.Scheme)
+	Expect(v1alpha1.AddToScheme(scheme.Scheme)).To(Succeed())
 	metricsBindAddress, found := os.LookupEnv("metrics-bind-address")
 	if !found {
 		metricsBindAddress = ":8080"
@@ -127,7 +128,6 @@ var _ = BeforeSuite(func() {
 		err = k8sManager.Start(ctx)
 		Expect(err).ToNot(HaveOccurred(), "failed to run manager")
 	}()
-
 })
 
 var _ = AfterSuite(func() {
