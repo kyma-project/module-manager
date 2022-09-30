@@ -62,7 +62,7 @@ jobs:
     strategy:
       matrix:
         cli-stability: ["unstable"]
-        smoke-run: [ ${{ env.LIFECYCLE_MANAGER }}, ${{ env.MODULE_MANAGER }} ]
+        smoke-run: [ "${{ env.LIFECYCLE_MANAGER }}", "${{ env.MODULE_MANAGER }}" ]
     needs: [wait-for-img, kustomize]
     name: "Kyma CLI - ${{ matrix.cli-stability }} - Integration (Tests of ${{ matrix.smoke-run }})"
     runs-on: ubuntu-latest
