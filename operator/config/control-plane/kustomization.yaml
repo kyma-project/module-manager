@@ -1,0 +1,106 @@
+# WARNING: This is a Kustomization that CANNOT run standalone
+# It is meant to be used in conjunction with a control-plane deployment only and has prerequisites that
+# need to be explicitly created externally in a centrally managed place (e.g. the kcp-system).
+# In fact, in order to avoid conflicts, it even explicitly patches out certain configuration elements.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Adds namespace to all resources.
+namespace: kcp-system
+
+namePrefix: kmm- #kyma-module-manager
+# Labels to add to all resources and selectors.
+commonLabels:
+  app.kubernetes.io/instance: kcp-module-manager
+  app.kubernetes.io/name: module-manager
+  app.kubernetes.io/created-by: argo-cd
+  app.kubernetes.io/part-of: kcp
+  app.kubernetes.io/managed-by: kustomize
+
+images:
+- name: eu.gcr.io/kyma-project/module-manager
+
+resources:
+  - ../manager
+
+components:
+  - ../crd
+  - ../rbac
+
+  # [CERTMANAGER] To enable cert-manager, uncomment all sections with 'CERTMANAGER'. 'WEBHOOK' components are required.
+  - ../certmanager
+  # [ISTIO] To enable istio, uncomment all sections with 'ISTIO'.
+  - ../istio
+  # [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix including the one in
+  # crd/kustomization.yaml
+  - ../webhook
+  # [PROMETHEUS] To enable prometheus monitor, uncomment all sections with 'PROMETHEUS'.
+  - ../prometheus
+  # [GRAFANA] To enable prometheus monitor, uncomment all sections with 'GRAFANA'.
+  - ../grafana
+
+patchesJson6902:
+  - target:
+      version: v1
+      kind: ConfigMap
+      name: kmm-controller-resources-metrics
+    path: patches/namespace_replace.yaml
+  - target:
+      version: v1
+      kind: ConfigMap
+      name: kmm-controller-runtime-metrics
+    path: patches/namespace_replace.yaml
+
+patchesStrategicMerge:
+  # We expect an istio gateway to be already present in KCP
+  - patches/gateway_delete.yaml
+  # We expect a kcp-system namespace to be already present in KCP
+  - patches/namespace_delete.yaml
+  # For prometheus scraping in KCP, serviceMonitor better enable mTls for communication
+  - patches/service_monitor.yaml
+
+# [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix including the one in
+# crd/kustomization.yaml
+  - patches/manager_webhook_patch.yaml
+  # patches here are for enabling the conversion webhook for each CRD
+  - patches/webhook_in_manifests.yaml
+
+# [CERTMANAGER] To enable cert-manager, uncomment all sections with 'CERTMANAGER'.
+# Uncomment 'CERTMANAGER' sections in crd/kustomization.yaml to enable the CA injection in the admission webhooks.
+# 'CERTMANAGER' needs to be enabled to use ca injection
+  - patches/webhookcainjection_patch.yaml
+  # patches here are for enabling the CA injection for each CRD
+  - patches/cainjection_in_manifests.yaml
+  # We override the certificate name to ensure that Cert-Manager uses a unique cert in conjunction with other
+  # kubebuilder operators.
+  - patches/certificate_name.yaml
+
+# the following config is for teaching kustomize how to do var substitution
+vars:
+# [CERTMANAGER] To enable cert-manager, uncomment all sections with 'CERTMANAGER' prefix.
+- name: CERTIFICATE_NAMESPACE # namespace of the certificate CR
+  objref:
+    kind: Certificate
+    group: cert-manager.io
+    version: v1
+    name: serving-cert # this name should match the one in certificate.yaml
+  fieldref:
+    fieldpath: metadata.namespace
+- name: CERTIFICATE_NAME
+  objref:
+    kind: Certificate
+    group: cert-manager.io
+    version: v1
+    name: serving-cert # this name should match the one in certificate.yaml
+- name: SERVICE_NAMESPACE # namespace of the service
+  objref:
+    kind: Service
+    version: v1
+    name: webhook-service
+  fieldref:
+    fieldpath: metadata.namespace
+- name: SERVICE_NAME
+  objref:
+    kind: Service
+    version: v1
+    name: webhook-service

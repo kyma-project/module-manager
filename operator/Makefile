@@ -52,10 +52,16 @@ generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and
 
 
 .PHONY: dry-run
-dry-run: manifests ## Generate manifests
+dry-run: kustomize manifests
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	mkdir -p dry-run
 	$(KUSTOMIZE) build config/default > dry-run/manifests.yaml
+
+.PHONY: dry-run-control-plane
+dry-run-control-plane: kustomize manifests
+	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
+	mkdir -p dry-run
+	$(KUSTOMIZE) build config/control-plane > dry-run/manifests.yaml
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.

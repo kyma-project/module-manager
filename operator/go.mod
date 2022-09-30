@@ -14,11 +14,11 @@ require (
 	github.com/xeipuuv/gojsonschema v1.2.0
 	golang.org/x/time v0.0.0-20220722155302-e5dcc9cfc0b9
 	helm.sh/helm/v3 v3.9.4
-	k8s.io/api v0.24.4
+	k8s.io/api v0.25.0
 	k8s.io/apiextensions-apiserver v0.24.3
-	k8s.io/apimachinery v0.24.4
+	k8s.io/apimachinery v0.25.0
 	k8s.io/cli-runtime v0.24.3
-	k8s.io/client-go v0.24.4
+	k8s.io/client-go v0.25.0
 	sigs.k8s.io/controller-runtime v0.12.3
 	sigs.k8s.io/yaml v1.3.0
 )
