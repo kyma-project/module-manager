@@ -101,12 +101,13 @@ jobs:
       - id: kyma
         uses: jakobmoellersap/kyma-cli-action@v0.0.1-alpha1
         with:
-          version: unstable
+          version: ${{ matrix.cli-stability }}
+      - run: ls -l ${{ steps.kyma.outputs.path }} /usr/local/bin/kyma
       - name: Run Provision
         env:
           CLUSTER_NAME: "kyma"
         run: |
-          ${{ steps.kyma.outputs.path }} provision k3d \
+          kyma provision k3d \
             -p 8083:80@loadbalancer \
             -p 8443:443@loadbalancer \
             --timeout 1m \
@@ -114,10 +115,9 @@ jobs:
             --name $CLUSTER_NAME
           k3d kubeconfig merge $CLUSTER_NAME -o $GITHUB_WORKSPACE/kubeconfig.yaml
       - name: Run Deploy
-        run: ${{ steps.kyma.outputs.path }} alpha deploy --source=local
-      - name: Inject GOPATH into go Setup
-        run: echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
+        run: kyma alpha deploy --source=local
       - uses: actions/cache@v3
+        name: Cache Go Dependencies for Lifecycle Manager
         with:
           path: |
             ~/go/pkg/mod
@@ -125,6 +125,8 @@ jobs:
           key: ${{ runner.os }}-go-cli-integration-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-cli-integration-
+      - name: Inject GOPATH into go Setup
+        run: echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
       - name: Set up Go for Lifecycle Manager
         uses: actions/setup-go@v3
         with:
