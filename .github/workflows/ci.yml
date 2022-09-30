@@ -62,8 +62,9 @@ jobs:
     strategy:
       matrix:
         cli-stability: ["unstable"]
+        smoke-run: [ ${{ env.LIFECYCLE_MANAGER }}, ${{ env.MODULE_MANAGER }} ]
     needs: [wait-for-img, kustomize]
-    name: "Kyma CLI Integration"
+    name: "Kyma CLI - ${{ matrix.cli-stability }} - Integration (Tests of ${{ matrix.smoke-run }})"
     runs-on: ubuntu-latest
     env:
       MODULE_MANAGER: ${{ github.repository }}
@@ -124,27 +125,17 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: ${{ runner.os }}-go-cli-integration-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-go-cli-integration-${{ matrix.smoke-run }}-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-go-cli-integration-
+            ${{ runner.os }}-go-cli-integration-${{ matrix.smoke-run }}
 
-      - name: Set up Go for ${{ env.LIFECYCLE_MANAGER }}
+      - name: Set up Go for ${{ matrix.smoke-run }}
         uses: actions/setup-go@v3
         with:
-          go-version-file: ${{ env.GOPATH }}/src/github.com/${{ env.LIFECYCLE_MANAGER }}/tests/smoke/go.mod
-          cache-dependency-path: ${{ env.GOPATH }}/src/github.com/${{ env.LIFECYCLE_MANAGER }}/tests/smoke/go.sum
-      - name: Run Smoke Tests for ${{ env.LIFECYCLE_MANAGER }}
+          go-version-file: ${{ env.GOPATH }}/src/github.com/${{ matrix.smoke-run }}/tests/smoke/go.mod
+          cache-dependency-path: ${{ env.GOPATH }}/src/github.com/${{ matrix.smoke-run }}/tests/smoke/go.sum
+      - name: Run Smoke Tests for ${{ matrix.smoke-run }}
         run: |
-          cd $(go env GOPATH)/src/github.com/$LIFECYCLE_MANAGER/tests/smoke
+          cd $(go env GOPATH)/src/github.com/${{ matrix.smoke-run }}/tests/smoke
           go test smoke_test.go -v -provision-type external --kubeconfig $GITHUB_WORKSPACE/kubeconfig.yaml
-
-      - name: Set up Go for ${{ env.MODULE_MANAGER }}
-        uses: actions/setup-go@v3
-        with:
-          go-version-file: ${{ env.GOPATH }}/src/github.com/${{ env.MODULE_MANAGER }}/tests/smoke/go.mod
-          cache-dependency-path: ${{ env.GOPATH }}/src/github.com/${{ env.MODULE_MANAGER }}/tests/smoke/go.sum
-      - name: Run Smoke Tests for ${{ env.MODULE_MANAGER }}
-        run: |
-          cd $(go env GOPATH)/src/github.com/$MODULE_MANAGER/tests/smoke
-          go test smoke_test.go -v --kubeconfig $GITHUB_WORKSPACE/kubeconfig.yaml
 
