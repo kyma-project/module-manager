@@ -13,13 +13,6 @@ It has 3 main goals:
 This Repo contains a `Makefile` which will execute `go test` against a smoke-test running
 with [The official Kubernetes E2E Testing Framework](https://github.com/kubernetes-sigs/e2e-framework).
 
-It will also use a downloaded version of kustomize and the Kyma CLI to properly test its workflows.
-
-## Prerequisites for running the Smoke Tests
-
-1. A unix HOST OS
-2. Support for the Docker Socket for the Provisioning Parts
-
 ## Run the Tests
 
 Simply run `make` and let the magic happen!
