@@ -92,7 +92,7 @@ type Operations struct {
 	repoHandler        *RepoHandler
 	restGetter         *manifestRest.ManifestRESTClientGetter
 	actionClient       *action.Install
-	args               map[string]map[string]interface{}
+	setFlags           map[string]interface{}
 	resourceTransforms []types.ObjectTransform
 }
 
@@ -106,17 +106,26 @@ func NewOperations(logger *logr.Logger, restConfig *rest.Config, releaseName str
 		return &Operations{}, err
 	}
 
+	setFlags, ok := args["set"]
+	if !ok {
+		setFlags = map[string]interface{}{}
+	}
+
 	operations := &Operations{
 		logger:             logger,
 		restGetter:         restGetter,
 		repoHandler:        NewRepoHandler(logger, settings),
 		kubeClient:         kubeClient,
 		helmClient:         helmClient,
-		args:               args,
+		setFlags:           setFlags,
 		resourceTransforms: resourceTransforms,
 	}
 
-	operations.actionClient, err = operations.helmClient.NewInstallActionClient(v1.NamespaceDefault, releaseName, args)
+	configFlags, ok := args["flags"]
+	if !ok {
+		configFlags = map[string]interface{}{}
+	}
+	operations.actionClient, err = operations.helmClient.NewInstallActionClient(v1.NamespaceDefault, releaseName, configFlags)
 	if err != nil {
 		return &Operations{}, err
 	}
@@ -129,8 +138,8 @@ func (o *Operations) getClusterResources(deployInfo InstallInfo, operation HelmO
 			return ResourceLists{}, err
 		}
 	}
-
-	manifest, err := o.getManifestForChartPath(deployInfo.ChartPath, deployInfo.ChartName, o.actionClient, o.args)
+	
+	manifest, err := o.getManifestForChartPath(deployInfo.ChartPath, deployInfo.ChartName, o.actionClient, o.setFlags)
 	if err != nil {
 		return ResourceLists{}, err
 	}
@@ -317,7 +326,7 @@ func (o *Operations) Uninstall(deployInfo InstallInfo) (bool, error) {
 }
 
 func (o *Operations) getManifestForChartPath(chartPath, chartName string, actionClient *action.Install,
-	args map[string]map[string]interface{},
+	setFlags map[string]interface{},
 ) (string, error) {
 	var err error
 	if chartPath == "" {
@@ -333,13 +342,8 @@ func (o *Operations) getManifestForChartPath(chartPath, chartName string, action
 		return "", err
 	}
 
-	mergedVals, ok := args["set"]
-	if !ok {
-		mergedVals = map[string]interface{}{}
-	}
-
 	// retrieve manifest
-	release, err := actionClient.Run(chartRequested, mergedVals)
+	release, err := actionClient.Run(chartRequested, setFlags)
 	if err != nil {
 		return "", err
 	}
