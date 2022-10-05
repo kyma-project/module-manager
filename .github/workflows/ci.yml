@@ -1,0 +1,140 @@
+# This is a basic workflow to help you get started with Actions
+
+name: CI
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push or pull request events but only for the "main" branch
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  wait-for-img:
+    name: "Wait for Image Build"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: autotelic/action-wait-for-status-check@v1
+        id: wait-for-build
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # Context for which we should look for the matching status
+          statusName: ${{ (github.event_name == 'pull_request') && 'pull-build' || 'main-build' }}
+          timeoutSeconds: 180
+          intervalSeconds: 10
+      - name: Exit If Failing Build Requirement
+        if: steps.wait-for-build.outputs.state != 'success'
+        run: |
+          echo "Image build did not succeed, skipping Smoke Test!"
+          exit 1
+
+  kustomize:
+    strategy:
+      matrix:
+        flavor: ["", "-control-plane"]
+    name: "Kustomize (dry-run${{ matrix.flavor }})"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          cache: true
+          go-version-file: 'operator/go.mod'
+          cache-dependency-path: 'operator/go.sum'
+      - run: cd operator && make dry-run${{ matrix.flavor }} IMG='*:latest'
+      - name: Archive Manifests
+        uses: actions/upload-artifact@v3
+        with:
+          retention-days: 5
+          name: dry-run${{ matrix.flavor }}
+          path: |
+            operator/dry-run/*.yaml
+            
+
+  cli-integration:
+    strategy:
+      matrix:
+        cli-stability: ["unstable"]
+        smoke-run: [ "${{ github.repository }}" ]
+    needs: [wait-for-img, kustomize]
+    name: "Kyma CLI - ${{ matrix.cli-stability }} - Integration (Tests of ${{ matrix.smoke-run }})"
+    runs-on: ubuntu-latest
+    env:
+      MODULE_MANAGER: ${{ github.repository }}
+      LIFECYCLE_MANAGER: kyma-project/lifecycle-manager
+      K3D_VERSION: v5.4.6
+      CLUSTER_NAME: "kyma"
+    steps:
+      - name: Checkout Lifecycle-Manager
+        uses: actions/checkout@v3
+        with:
+          repository: ${{ env.LIFECYCLE_MANAGER }}
+          path: ${{ env.LIFECYCLE_MANAGER }}
+      - name: Move Lifecycle-Manager
+        run: |
+          mkdir -p $(go env GOPATH)/src/github.com/$LIFECYCLE_MANAGER
+          mv $GITHUB_WORKSPACE/$LIFECYCLE_MANAGER/** $(go env GOPATH)/src/github.com/$LIFECYCLE_MANAGER/
+      - name: Checkout Module-Manager
+        uses: actions/checkout@v3
+        with:
+          repository: ${{ env.MODULE_MANAGER }}
+          path: ${{ env.MODULE_MANAGER }}
+      - name: Move Module-Manager
+        run: |
+          mkdir -p $(go env GOPATH)/src/github.com/$MODULE_MANAGER
+          mv $GITHUB_WORKSPACE/$MODULE_MANAGER/** $(go env GOPATH)/src/github.com/$MODULE_MANAGER/
+      - name: Override Kustomize Controller Image TAG in Pull Request to PR Image
+        if: github.event_name == 'pull_request'
+        run: |
+          wget -qO - "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          mv kustomize /usr/local/bin/
+          cd $(go env GOPATH)/src/github.com/${{ github.repository }}/operator/config/manager
+          kustomize edit set image controller="*:PR-${{ github.event.pull_request.number }}"
+      - name: Set up k3d
+        run: wget -qO - https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | TAG=$K3D_VERSION bash
+      - id: kyma
+        uses: jakobmoellersap/kyma-cli-action@v0.0.1-alpha1
+        with:
+          version: ${{ matrix.cli-stability }}
+      - run: ln -s ${{ steps.kyma.outputs.path }} /usr/local/bin/kyma
+      - name: Run Provision
+        run: |
+          kyma provision k3d \
+            -p 8083:80@loadbalancer \
+            -p 8443:443@loadbalancer \
+            --timeout 1m \
+            --k3d-arg --no-rollback \
+            --name $CLUSTER_NAME
+          k3d kubeconfig merge $CLUSTER_NAME -o $GITHUB_WORKSPACE/kubeconfig.yaml
+      - name: Run Deploy
+        run: kyma alpha deploy --source=local
+      - name: Inject GOPATH into go Setup
+        run: echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
+
+      - uses: actions/cache@v3
+        name: Cache Go Dependencies for Smoke Tests
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-cli-integration-${{ matrix.smoke-run }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-cli-integration-${{ matrix.smoke-run }}
+
+      - name: Set up Go for ${{ matrix.smoke-run }}
+        uses: actions/setup-go@v3
+        with:
+          go-version-file: ${{ env.GOPATH }}/src/github.com/${{ matrix.smoke-run }}/tests/smoke/go.mod
+          cache-dependency-path: ${{ env.GOPATH }}/src/github.com/${{ matrix.smoke-run }}/tests/smoke/go.sum
+      - name: Run Smoke Tests for ${{ matrix.smoke-run }}
+        run: |
+          cd $(go env GOPATH)/src/github.com/${{ matrix.smoke-run }}/tests/smoke
+          go test smoke_test.go -v --kubeconfig $GITHUB_WORKSPACE/kubeconfig.yaml
+
