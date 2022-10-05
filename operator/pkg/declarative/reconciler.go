@@ -96,11 +96,7 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if !objectInstance.GetDeletionTimestamp().IsZero() &&
 		status.State != types.StateDeleting {
 		// if the status is not yet set to deleting, also update the status
-		status.State = types.StateDeleting
-		if err = setStatusForObjectInstance(objectInstance, status); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, r.nativeClient.Status().Update(ctx, objectInstance)
+		return ctrl.Result{}, r.setStatusForObjectInstance(ctx, objectInstance, status.WithState(types.StateDeleting))
 	}
 
 	// add deletion finalizer
@@ -137,12 +133,7 @@ func (r *ManifestReconciler) HandleInitialState(ctx context.Context, objectInsta
 		return r.nativeClient.Update(ctx, objectInstance)
 	}
 
-	// Example: Set to Processing state
-	status.State = types.StateProcessing
-	if err = setStatusForObjectInstance(objectInstance, status); err != nil {
-		return err
-	}
-	return r.nativeClient.Status().Update(ctx, objectInstance)
+	return r.setStatusForObjectInstance(ctx, objectInstance, status.WithState(types.StateProcessing))
 }
 
 func (r *ManifestReconciler) applyLabels(objectInstance types.BaseCustomObject) bool {
@@ -191,11 +182,7 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, objectIn
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("error while parsing flags for resource %s",
 			client.ObjectKeyFromObject(objectInstance)))
-		status.State = types.StateError
-		if err = setStatusForObjectInstance(objectInstance, status); err != nil {
-			return err
-		}
-		return r.nativeClient.Status().Update(ctx, objectInstance)
+		return r.setStatusForObjectInstance(ctx, objectInstance, status.WithState(types.StateError))
 	}
 
 	// Use manifest library client to install a sample chart
@@ -207,25 +194,17 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, objectIn
 
 	ready, err := manifestClient.Install(installInfo)
 	if err != nil {
-		logger.Error(err, fmt.Sprintf("error while installing resource %s", client.ObjectKeyFromObject(objectInstance)))
-		status.State = types.StateError
-		if err = setStatusForObjectInstance(objectInstance, status); err != nil {
-			return err
-		}
-		return r.nativeClient.Status().Update(ctx, objectInstance)
+		logger.Error(err, fmt.Sprintf("error while installing resource %s",
+			client.ObjectKeyFromObject(objectInstance)))
+		return r.setStatusForObjectInstance(ctx, objectInstance, status.WithState(types.StateError))
 	}
 	if ready {
-		status.State = types.StateReady
-		if err = setStatusForObjectInstance(objectInstance, status); err != nil {
-			return err
-		}
-		return r.nativeClient.Status().Update(ctx, objectInstance)
+		return r.setStatusForObjectInstance(ctx, objectInstance, status.WithState(types.StateReady))
 	}
 	return nil
 }
 
 func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInstance types.BaseCustomObject) error {
-	// TODO: deletion logic here
 	logger := log.FromContext(ctx)
 
 	// fetch uninstall information
@@ -247,10 +226,7 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInst
 		logger.Error(err, fmt.Sprintf(
 			"error while parsing flags for resource %s", client.ObjectKeyFromObject(objectInstance)))
 		status.State = types.StateError
-		if err = setStatusForObjectInstance(objectInstance, status); err != nil {
-			return err
-		}
-		return r.nativeClient.Status().Update(ctx, objectInstance)
+		return r.setStatusForObjectInstance(ctx, objectInstance, status.WithState(types.StateError))
 	}
 
 	// Use manifest library client to install a sample chart
@@ -264,10 +240,7 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInst
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("error while deleting resource %s", client.ObjectKeyFromObject(objectInstance)))
 		status.State = types.StateError
-		if err = setStatusForObjectInstance(objectInstance, status); err != nil {
-			return err
-		}
-		return r.nativeClient.Status().Update(ctx, objectInstance)
+		return r.setStatusForObjectInstance(ctx, objectInstance, status.WithState(types.StateError))
 	}
 	if readyToBeDeleted {
 		// Example: If Deleting state, remove Finalizers
@@ -279,24 +252,56 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInst
 }
 
 func (r *ManifestReconciler) HandleErrorState(ctx context.Context, objectInstance types.BaseCustomObject) error {
-	// TODO: error logic here
-
 	status, err := getStatusFromObjectInstance(objectInstance)
 	if err != nil {
 		return err
 	}
-	// Example: If Error state, set state to Processing
-	status.State = types.StateProcessing
-	if err = setStatusForObjectInstance(objectInstance, status); err != nil {
-		return err
-	}
-	return r.nativeClient.Status().Update(ctx, objectInstance)
+	return r.setStatusForObjectInstance(ctx, objectInstance, status.WithState(types.StateProcessing))
 }
 
-func (r *ManifestReconciler) HandleReadyState(_ context.Context, _ types.BaseCustomObject) error {
-	// TODO: ready logic here
+func (r *ManifestReconciler) HandleReadyState(ctx context.Context, objectInstance types.BaseCustomObject) error {
+	logger := log.FromContext(ctx)
+	status, err := getStatusFromObjectInstance(objectInstance)
+	if err != nil {
+		return err
+	}
 
-	// Example: If Ready state, check consistency of deployed module
+	// fetch install information
+	installSpec, err := r.options.manifestResolver.Get(objectInstance)
+	if err != nil {
+		return err
+	}
+	if installSpec.ChartPath == "" {
+		return fmt.Errorf("no chart path available for processing")
+	}
+
+	// send deploy requests
+	manifestClient, err := r.getManifestClient(&logger, installSpec, objectInstance)
+	if err != nil {
+		logger.Error(err, fmt.Sprintf(
+			"error while parsing flags for resource %s", client.ObjectKeyFromObject(objectInstance)))
+		return r.setStatusForObjectInstance(ctx, objectInstance, status.WithState(types.StateError))
+	}
+
+	// Use manifest library client to install a sample chart
+	installInfo, err := r.prepareInstallInfo(ctx, objectInstance, installSpec.ChartPath,
+		resolveReleaseName(installSpec.ReleaseName, objectInstance))
+	if err != nil {
+		return err
+	}
+
+	// evaluate chart install
+	var ready bool
+	ready, err = manifestClient.VerifyResources(installInfo)
+
+	// update only if resources not ready OR an error occurred during chart verification
+	if err != nil {
+		logger.Error(err, fmt.Sprintf("error while installing resource %s",
+			client.ObjectKeyFromObject(objectInstance)))
+		return r.setStatusForObjectInstance(ctx, objectInstance, status.WithState(types.StateError))
+	} else if !ready {
+		return r.setStatusForObjectInstance(ctx, objectInstance, status.WithState(types.StateProcessing))
+	}
 	return nil
 }
 
@@ -374,26 +379,34 @@ func (r *ManifestReconciler) applyOptions(opts ...ReconcilerOption) error {
 	return nil
 }
 
-func setStatusForObjectInstance(objectInstance types.BaseCustomObject, status types.Status) error {
+func (r *ManifestReconciler) setStatusForObjectInstance(ctx context.Context, objectInstance types.BaseCustomObject,
+	status types.Status) error {
+	var err error
+	var unstructStatus map[string]interface{}
+
 	switch typedObject := objectInstance.(type) {
 	case types.CustomObject:
 		typedObject.SetStatus(status)
 	case *unstructured.Unstructured:
-		unstructStatus, err := runtime.DefaultUnstructuredConverter.ToUnstructured(status)
+		unstructStatus, err = runtime.DefaultUnstructuredConverter.ToUnstructured(status)
 		if err != nil {
-			return fmt.Errorf("unable to convert unstructured to addonStatus: %w", err)
+			err = fmt.Errorf("unable to convert unstructured to addonStatus: %w", err)
+			break
 		}
 
-		err = unstructured.SetNestedMap(typedObject.Object, unstructStatus, "status")
-		if err != nil {
-			return fmt.Errorf("unable to set status in unstructured: %w", err)
+		if err = unstructured.SetNestedMap(typedObject.Object, unstructStatus, "status"); err != nil {
+			err = fmt.Errorf("unable to set status in unstructured: %w", err)
 		}
-
-		return nil
 	default:
-		return getTypeError(client.ObjectKeyFromObject(objectInstance).String())
+		err = getTypeError(client.ObjectKeyFromObject(objectInstance).String())
 	}
-	return nil
+
+	// return intermediate error
+	if err != nil {
+		return err
+	}
+
+	return r.nativeClient.Status().Update(ctx, objectInstance)
 }
 
 func getTypeError(namespacedName string) error {

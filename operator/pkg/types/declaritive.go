@@ -57,3 +57,8 @@ type Status struct {
 	// Conditions associated with CustomStatus.
 	Conditions []*metav1.Condition `json:"conditions,omitempty"`
 }
+
+func (s *Status) WithState(state State) Status {
+	s.State = state
+	return *s
+}
