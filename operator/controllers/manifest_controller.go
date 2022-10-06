@@ -202,7 +202,7 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 			"observed generation change")
 	}
 
-	logger.Info("checking consistent state for " + namespacedName.String())
+	logger.V(1).Info("checking consistent state for " + namespacedName.String())
 
 	// send deploy requests
 	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, custom.ClusterInfo{
@@ -320,11 +320,11 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 		case response := <-responseChan:
 			responses = append(responses, response)
 			if response.Err != nil {
-				logger.Error(fmt.Errorf("chart installation failure for %s!!! : %w",
+				logger.Error(fmt.Errorf("chart installation failure for '%s': %w",
 					response.ResNamespacedName.String(), response.Err), "")
 				errorState = true
 			} else if !response.Ready {
-				logger.Info(fmt.Sprintf("chart checks still processing %s!!!",
+				logger.Info(fmt.Sprintf("chart checks still processing '%s'",
 					response.ResNamespacedName.String()))
 				processing = true
 			}
@@ -333,7 +333,7 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 
 	latestManifestObj := &v1alpha1.Manifest{}
 	if err := r.Get(ctx, namespacedName, latestManifestObj); err != nil {
-		logger.Error(err, "error while locating", "resource", namespacedName)
+		logger.V(2).Error(err, "error while locating", "resource", namespacedName)
 		return
 	}
 
@@ -350,7 +350,7 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 		}
 
 		// finalizer removal failure - set error state
-		logger.Error(err, "unexpected error while removing finalizer from",
+		logger.V(2).Error(err, "unexpected error while removing finalizer from",
 			"resource", namespacedName)
 		errorState = true
 	}
