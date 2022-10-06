@@ -5,11 +5,17 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/kyma-project/module-manager/operator/pkg/manifest"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
+	opLabels "github.com/kyma-project/module-manager/operator/pkg/labels"
+	"github.com/kyma-project/module-manager/operator/pkg/manifest"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
 )
 
 func getReadyConditionForComponent(manifest *v1alpha1.Manifest,
@@ -88,4 +94,16 @@ func AddReadyConditionForResponses(responses []*manifest.InstallResponse, logger
 			ChartName:    response.ChartName,
 		}}, status, message)
 	}
+}
+
+func GetCacheFunc() cache.NewCacheFunc {
+	return cache.BuilderWithOptions(cache.Options{
+		SelectorsByObject: cache.SelectorsByObject{
+			&v1.Secret{}: {
+				Label: labels.SelectorFromSet(
+					labels.Set{opLabels.ManagedBy: opLabels.LifecycleManager},
+				),
+			},
+		},
+	})
 }

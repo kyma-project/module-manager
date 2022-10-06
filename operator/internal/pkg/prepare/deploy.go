@@ -85,7 +85,7 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 		ResourceInfo: manifest.ResourceInfo{
 			Crds:            crds,
 			BaseResource:    &unstructured.Unstructured{Object: manifestObjMetadata},
-			CustomResources: []*unstructured.Unstructured{&manifestObj.Spec.Resource},
+			CustomResources: []*unstructured.Unstructured{},
 		},
 		Ctx:              ctx,
 		CheckFn:          customResCheck.DefaultFn,
@@ -95,6 +95,11 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 	// replace with check function that checks for readiness of custom resources
 	if flags.CustomStateCheck {
 		baseDeployInfo.CheckFn = customResCheck.CheckFn
+	}
+
+	// add custom resource if provided
+	if manifestObj.Spec.Resource.Object != nil {
+		baseDeployInfo.CustomResources = append(baseDeployInfo.CustomResources, &manifestObj.Spec.Resource)
 	}
 
 	return parseInstallations(manifestObj, flags.Codec, configs, baseDeployInfo, flags.InsecureRegistry)
@@ -187,7 +192,6 @@ func parseCrds(ctx context.Context, crdImage types.ImageSpec, insecureRegistry b
 ) ([]*v1.CustomResourceDefinition, error) {
 	// if crds do not exist - do nothing
 	if crdImage.Type.NotEmpty() {
-
 		// extract helm chart from layer digest
 		crdsPath, err := descriptor.GetPathFromExtractedTarGz(crdImage, insecureRegistry)
 		if err != nil {
@@ -195,7 +199,6 @@ func parseCrds(ctx context.Context, crdImage types.ImageSpec, insecureRegistry b
 		}
 
 		return resource.GetCRDsFromPath(ctx, crdsPath)
-
 	}
 	return nil, nil
 }
