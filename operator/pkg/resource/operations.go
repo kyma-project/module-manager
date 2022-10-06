@@ -80,7 +80,7 @@ func readCRDs(ctx context.Context, basePath string, files []os.DirEntry,
 			return nil, err
 		}
 
-		logger.Info("read CRDs from", "file", file.Name())
+		logger.V(2).Info("read CRDs from", "file", file.Name())
 	}
 
 	return crds, nil

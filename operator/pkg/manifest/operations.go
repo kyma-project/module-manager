@@ -138,7 +138,7 @@ func (o *Operations) getClusterResources(deployInfo InstallInfo, operation HelmO
 			return ResourceLists{}, err
 		}
 	}
-	
+
 	manifest, err := o.getManifestForChartPath(deployInfo.ChartPath, deployInfo.ChartName, o.actionClient, o.setFlags)
 	if err != nil {
 		return ResourceLists{}, err
@@ -335,7 +335,7 @@ func (o *Operations) getManifestForChartPath(chartPath, chartName string, action
 			return "", err
 		}
 	}
-	o.logger.Info("chart located", "path", chartPath)
+	o.logger.V(2).Info("chart located", "path", chartPath)
 
 	chartRequested, err := o.repoHandler.LoadChart(chartPath, actionClient)
 	if err != nil {

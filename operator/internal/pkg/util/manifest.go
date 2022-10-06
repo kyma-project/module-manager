@@ -72,13 +72,13 @@ func AddReadyConditionForResponses(responses []*manifest.InstallResponse, logger
 
 		configBytes, err := json.Marshal(response.ClientConfig)
 		if err != nil {
-			logger.Error(err, "error marshalling chart config for",
+			logger.V(2).Error(err, "error marshalling chart config for",
 				"resource", namespacedName)
 		}
 
 		overrideBytes, err := json.Marshal(response.Overrides)
 		if err != nil {
-			logger.Error(err, "error marshalling chart values for",
+			logger.V(2).Error(err, "error marshalling chart values for",
 				"resource", namespacedName)
 		}
 
