@@ -347,8 +347,8 @@ func (r *ManifestReconciler) prepareInstallInfo(ctx context.Context, objectInsta
 }
 
 func (r *ManifestReconciler) getManifestClient(logger *logr.Logger, spec types.InstallationSpec,
-	objectInstance types.BaseCustomObject) (*manifest.Operations, error) {
-
+	objectInstance types.BaseCustomObject,
+) (*manifest.Operations, error) {
 	// Example: Prepare manifest library client
 	return manifest.NewOperations(logger, r.config, resolveReleaseName(spec.ReleaseName, objectInstance),
 		cli.New(), map[string]map[string]interface{}{
