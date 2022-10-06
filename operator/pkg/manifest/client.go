@@ -115,10 +115,16 @@ func (h *HelmClient) NewUninstallActionClient(namespace string) (*action.Uninsta
 }
 
 func (h *HelmClient) SetDefaultClientConfig(actionClient *action.Install, releaseName string) {
-	actionClient.DryRun = true
+	actionClient.DryRun = false
 	actionClient.Atomic = false
-	actionClient.Wait = false
+
+	// Wait until all Pods, Services, etc. of the Deployment, StatefulSet, or ReplicaSet are in a
+	// ready state before marking the release as successful
+	// It will wait for as long as timeout is set
+	actionClient.Wait = true
 	actionClient.WaitForJobs = false
+	actionClient.Timeout = 5 * time.Minute
+
 	actionClient.Replace = true     // Skip the name check
 	actionClient.IncludeCRDs = true // include CRDs in the templated output
 
