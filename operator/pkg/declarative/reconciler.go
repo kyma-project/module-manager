@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"helm.sh/helm/v3/pkg/cli"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
@@ -178,21 +177,14 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, objectIn
 		return err
 	}
 
-	manifestClient, err := r.getManifestClient(&logger, installSpec, objectInstance)
-	if err != nil {
-		logger.Error(err, fmt.Sprintf("error while parsing flags for resource %s",
-			client.ObjectKeyFromObject(objectInstance)))
-		return r.setStatusForObjectInstance(ctx, objectInstance, status.WithState(types.StateError))
-	}
-
 	// Use manifest library client to install a sample chart
-	installInfo, err := r.prepareInstallInfo(ctx, objectInstance, installSpec.ChartPath,
+	installInfo, err := r.prepareInstallInfo(ctx, objectInstance, installSpec,
 		resolveReleaseName(installSpec.ReleaseName, objectInstance))
 	if err != nil {
 		return err
 	}
 
-	ready, err := manifestClient.Install(installInfo)
+	ready, err := manifest.InstallChart(&logger, installInfo, r.options.objectTransforms)
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("error while installing resource %s",
 			client.ObjectKeyFromObject(objectInstance)))
@@ -216,27 +208,27 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInst
 		return fmt.Errorf("no chart path available for processing")
 	}
 
+	// fallback logic for flags
+	if installSpec.SetFlags == nil {
+		installSpec.SetFlags = map[string]interface{}{}
+	}
+	if installSpec.ConfigFlags == nil {
+		installSpec.ConfigFlags = map[string]interface{}{}
+	}
+
 	status, err := getStatusFromObjectInstance(objectInstance)
 	if err != nil {
 		return err
 	}
 
-	manifestClient, err := r.getManifestClient(&logger, installSpec, objectInstance)
-	if err != nil {
-		logger.Error(err, fmt.Sprintf(
-			"error while parsing flags for resource %s", client.ObjectKeyFromObject(objectInstance)))
-		status.State = types.StateError
-		return r.setStatusForObjectInstance(ctx, objectInstance, status.WithState(types.StateError))
-	}
-
 	// Use manifest library client to install a sample chart
-	installInfo, err := r.prepareInstallInfo(ctx, objectInstance, installSpec.ChartPath,
+	installInfo, err := r.prepareInstallInfo(ctx, objectInstance, installSpec,
 		resolveReleaseName(installSpec.ReleaseName, objectInstance))
 	if err != nil {
 		return err
 	}
 
-	readyToBeDeleted, err := manifestClient.Uninstall(installInfo)
+	readyToBeDeleted, err := manifest.UninstallChart(&logger, installInfo, r.options.objectTransforms)
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("error while deleting resource %s", client.ObjectKeyFromObject(objectInstance)))
 		status.State = types.StateError
@@ -275,24 +267,15 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, objectInstanc
 		return fmt.Errorf("no chart path available for processing")
 	}
 
-	// send deploy requests
-	manifestClient, err := r.getManifestClient(&logger, installSpec, objectInstance)
-	if err != nil {
-		logger.Error(err, fmt.Sprintf(
-			"error while parsing flags for resource %s", client.ObjectKeyFromObject(objectInstance)))
-		return r.setStatusForObjectInstance(ctx, objectInstance, status.WithState(types.StateError))
-	}
-
 	// Use manifest library client to install a sample chart
-	installInfo, err := r.prepareInstallInfo(ctx, objectInstance, installSpec.ChartPath,
+	installInfo, err := r.prepareInstallInfo(ctx, objectInstance, installSpec,
 		resolveReleaseName(installSpec.ReleaseName, objectInstance))
 	if err != nil {
 		return err
 	}
 
-	// evaluate chart install
-	var ready bool
-	ready, err = manifestClient.VerifyResources(installInfo)
+	// verify installed resources
+	ready, err := manifest.ConsistencyCheck(&logger, installInfo, r.options.objectTransforms)
 
 	// update only if resources not ready OR an error occurred during chart verification
 	if err != nil {
@@ -306,7 +289,7 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, objectInstanc
 }
 
 func (r *ManifestReconciler) prepareInstallInfo(ctx context.Context, objectInstance types.BaseCustomObject,
-	chartPath string, releaseName string,
+	installSpec types.InstallationSpec, releaseName string,
 ) (manifest.InstallInfo, error) {
 	unstructuredObj := &unstructured.Unstructured{}
 	var err error
@@ -325,8 +308,9 @@ func (r *ManifestReconciler) prepareInstallInfo(ctx context.Context, objectInsta
 	return manifest.InstallInfo{
 		Ctx: ctx,
 		ChartInfo: &manifest.ChartInfo{
-			ChartPath:   chartPath,
+			ChartPath:   installSpec.ChartPath,
 			ReleaseName: releaseName,
+			Flags:       installSpec.ChartFlags,
 		},
 		ClusterInfo: custom.ClusterInfo{
 			// destination cluster rest config
@@ -344,19 +328,6 @@ func (r *ManifestReconciler) prepareInstallInfo(ctx context.Context, objectInsta
 		},
 		CheckReadyStates: r.options.verify,
 	}, nil
-}
-
-func (r *ManifestReconciler) getManifestClient(logger *logr.Logger, spec types.InstallationSpec,
-	objectInstance types.BaseCustomObject,
-) (*manifest.Operations, error) {
-	// Example: Prepare manifest library client
-	return manifest.NewOperations(logger, r.config, resolveReleaseName(spec.ReleaseName, objectInstance),
-		cli.New(), map[string]map[string]interface{}{
-			// check --set flags parameter for helm
-			"set": spec.SetFlags,
-			// comma separated values of manifest command line flags
-			"flags": spec.ConfigFlags,
-		}, r.options.objectTransforms)
 }
 
 func (r *ManifestReconciler) applyOptions(opts ...ReconcilerOption) error {

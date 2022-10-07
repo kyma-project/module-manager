@@ -28,7 +28,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"golang.org/x/time/rate"
-	"helm.sh/helm/v3/pkg/cli"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
@@ -213,17 +212,7 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 	}
 
 	for _, deployInfo := range deployInfos {
-		args := prepareArgs(deployInfo)
-		manifestOperations, err := manifest.NewOperations(logger, deployInfo.Config,
-			deployInfo.ReleaseName, cli.New(), args, []types.ObjectTransform{})
-		if err != nil {
-			logger.Error(err, fmt.Sprintf("error while creating library operations for manifest %s", namespacedName))
-			return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error())
-		}
-
-		// evaluate chart install
-		var ready bool
-		ready, err = manifestOperations.VerifyResources(deployInfo)
+		ready, err := manifest.ConsistencyCheck(logger, deployInfo, []types.ObjectTransform{})
 
 		// prepare chart response object
 		chartResponse := &manifest.InstallResponse{
@@ -231,8 +220,7 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 			ResNamespacedName: client.ObjectKeyFromObject(manifestObj),
 			Err:               err,
 			ChartName:         deployInfo.ChartName,
-			ClientConfig:      deployInfo.ClientConfig,
-			Overrides:         deployInfo.Overrides,
+			Flags:             deployInfo.Flags,
 		}
 
 		// update only if resources not ready OR an error occurred during chart verification
@@ -273,24 +261,17 @@ func (r *ManifestReconciler) updateManifestStatus(ctx context.Context, manifestO
 	return r.Status().Update(ctx, manifestObj.SetObservedGeneration())
 }
 
-func (r *ManifestReconciler) HandleCharts(deployInfo manifest.InstallInfo, mode manifest.Mode, logger *logr.Logger,
-) *manifest.InstallResponse {
-	args := prepareArgs(deployInfo)
-
+func (r *ManifestReconciler) HandleCharts(deployInfo manifest.InstallInfo, mode manifest.Mode,
+	logger *logr.Logger) *manifest.InstallResponse {
 	// evaluate create or delete chart
 	create := mode == manifest.CreateMode
 
 	var ready bool
-	// TODO: implement better settings handling
-	manifestOperations, err := manifest.NewOperations(logger, deployInfo.Config,
-		deployInfo.ReleaseName, cli.New(), args, []types.ObjectTransform{})
-
-	if err == nil {
-		if create {
-			ready, err = manifestOperations.Install(deployInfo)
-		} else {
-			ready, err = manifestOperations.Uninstall(deployInfo)
-		}
+	var err error
+	if create {
+		ready, err = manifest.InstallChart(logger, deployInfo, []types.ObjectTransform{})
+	} else {
+		ready, err = manifest.UninstallChart(logger, deployInfo, []types.ObjectTransform{})
 	}
 
 	return &manifest.InstallResponse{
@@ -298,8 +279,7 @@ func (r *ManifestReconciler) HandleCharts(deployInfo manifest.InstallInfo, mode 
 		ResNamespacedName: client.ObjectKeyFromObject(deployInfo.BaseResource),
 		Err:               err,
 		ChartName:         deployInfo.ChartName,
-		ClientConfig:      deployInfo.ClientConfig,
-		Overrides:         deployInfo.Overrides,
+		Flags:             deployInfo.Flags,
 	}
 }
 
@@ -389,20 +369,11 @@ func ManifestRateLimiter(failureBaseDelay time.Duration, failureMaxDelay time.Du
 		&workqueue.BucketRateLimiter{Limiter: rate.NewLimiter(rate.Limit(frequency), burst)})
 }
 
-func prepareArgs(deployInfo manifest.InstallInfo) map[string]map[string]interface{} {
-	return map[string]map[string]interface{}{
-		// check --set flags parameter from manifest
-		"set": deployInfo.Overrides,
-		// comma separated values of manifest command line flags
-		"flags": deployInfo.ClientConfig,
-	}
-}
-
 // SetupWithManager sets up the controller with the Manager.
 func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager,
 	failureBaseDelay time.Duration, failureMaxDelay time.Duration, frequency int, burst int, listenerAddr string,
 ) error {
-	r.DeployChan = make(chan OperationRequest)
+	r.DeployChan = make(chan OperationRequest, r.Workers.GetWorkerPoolSize())
 	r.Workers.StartWorkers(ctx, r.DeployChan, r.HandleCharts)
 
 	// default config from kubebuilder
