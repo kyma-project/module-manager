@@ -76,13 +76,13 @@ func AddReadyConditionForResponses(responses []*manifest.InstallResponse, logger
 			message = "installation processing"
 		}
 
-		configBytes, err := json.Marshal(response.ClientConfig)
+		configBytes, err := json.Marshal(response.Flags.ConfigFlags)
 		if err != nil {
 			logger.V(2).Error(err, "error marshalling chart config for",
 				"resource", namespacedName)
 		}
 
-		overrideBytes, err := json.Marshal(response.Overrides)
+		overrideBytes, err := json.Marshal(response.Flags.SetFlags)
 		if err != nil {
 			logger.V(2).Error(err, "error marshalling chart values for",
 				"resource", namespacedName)

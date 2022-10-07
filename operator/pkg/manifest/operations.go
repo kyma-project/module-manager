@@ -17,7 +17,6 @@ import (
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/kube"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kyma-project/module-manager/operator/pkg/custom"
@@ -34,13 +33,12 @@ const (
 
 // ChartInfo defines chart information.
 type ChartInfo struct {
-	ChartPath    string
-	RepoName     string
-	URL          string
-	ChartName    string
-	ReleaseName  string
-	ClientConfig map[string]interface{}
-	Overrides    map[string]interface{}
+	ChartPath   string
+	RepoName    string
+	URL         string
+	ChartName   string
+	ReleaseName string
+	Flags       types.ChartFlags
 }
 
 type ResourceLists struct {
@@ -75,8 +73,7 @@ type ResponseChan chan *InstallResponse
 type InstallResponse struct {
 	Ready             bool
 	ChartName         string
-	ClientConfig      map[string]interface{}
-	Overrides         map[string]interface{}
+	Flags             types.ChartFlags
 	ResNamespacedName client.ObjectKey
 	Err               error
 }
@@ -92,23 +89,48 @@ type Operations struct {
 	repoHandler        *RepoHandler
 	restGetter         *manifestRest.ManifestRESTClientGetter
 	actionClient       *action.Install
-	setFlags           map[string]interface{}
+	flags              types.ChartFlags
 	resourceTransforms []types.ObjectTransform
 }
 
-func NewOperations(logger *logr.Logger, restConfig *rest.Config, releaseName string, settings *cli.EnvSettings,
-	args map[string]map[string]interface{}, resourceTransforms []types.ObjectTransform,
-) (*Operations, error) {
-	restGetter := manifestRest.NewRESTClientGetter(restConfig)
-	kubeClient := kube.New(restGetter)
-	helmClient, err := NewHelmClient(kubeClient, restGetter, restConfig, settings)
+func InstallChart(logger *logr.Logger, deployInfo InstallInfo, resourceTransforms []types.ObjectTransform,
+) (bool, error) {
+	operations, err := newOperations(logger, deployInfo, resourceTransforms)
 	if err != nil {
-		return &Operations{}, err
+		return false, err
 	}
 
-	setFlags, ok := args["set"]
-	if !ok {
-		setFlags = map[string]interface{}{}
+	return operations.install(deployInfo)
+}
+
+func UninstallChart(logger *logr.Logger, deployInfo InstallInfo, resourceTransforms []types.ObjectTransform,
+) (bool, error) {
+	operations, err := newOperations(logger, deployInfo, resourceTransforms)
+	if err != nil {
+		return false, err
+	}
+
+	return operations.uninstall(deployInfo)
+}
+
+func ConsistencyCheck(logger *logr.Logger, deployInfo InstallInfo, resourceTransforms []types.ObjectTransform,
+) (bool, error) {
+	operations, err := newOperations(logger, deployInfo, resourceTransforms)
+	if err != nil {
+		return false, err
+	}
+
+	return operations.consistencyCheck(deployInfo)
+}
+
+func newOperations(logger *logr.Logger, deployInfo InstallInfo, resourceTransforms []types.ObjectTransform,
+) (*Operations, error) {
+	settings := cli.New()
+	restGetter := manifestRest.NewRESTClientGetter(deployInfo.Config)
+	kubeClient := kube.New(restGetter)
+	helmClient, err := NewHelmClient(kubeClient, restGetter, deployInfo.Config, settings)
+	if err != nil {
+		return nil, err
 	}
 
 	operations := &Operations{
@@ -117,17 +139,14 @@ func NewOperations(logger *logr.Logger, restConfig *rest.Config, releaseName str
 		repoHandler:        NewRepoHandler(logger, settings),
 		kubeClient:         kubeClient,
 		helmClient:         helmClient,
-		setFlags:           setFlags,
+		flags:              deployInfo.Flags,
 		resourceTransforms: resourceTransforms,
 	}
 
-	configFlags, ok := args["flags"]
-	if !ok {
-		configFlags = map[string]interface{}{}
-	}
-	operations.actionClient, err = operations.helmClient.NewInstallActionClient(v1.NamespaceDefault, releaseName, configFlags)
+	operations.actionClient, err = operations.helmClient.NewInstallActionClient(v1.NamespaceDefault,
+		deployInfo.ReleaseName, deployInfo.Flags)
 	if err != nil {
-		return &Operations{}, err
+		return nil, err
 	}
 	return operations, nil
 }
@@ -139,7 +158,7 @@ func (o *Operations) getClusterResources(deployInfo InstallInfo, operation HelmO
 		}
 	}
 
-	manifest, err := o.getManifestForChartPath(deployInfo.ChartPath, deployInfo.ChartName, o.actionClient, o.setFlags)
+	manifest, err := o.getManifestForChartPath(deployInfo.ChartPath, deployInfo.ChartName, o.actionClient, o.flags)
 	if err != nil {
 		return ResourceLists{}, err
 	}
@@ -167,7 +186,7 @@ func (o *Operations) getClusterResources(deployInfo InstallInfo, operation HelmO
 	}, nil
 }
 
-func (o *Operations) VerifyResources(deployInfo InstallInfo) (bool, error) {
+func (o *Operations) consistencyCheck(deployInfo InstallInfo) (bool, error) {
 	// verify CRDs
 	if err := resource.CheckCRDs(deployInfo.Ctx, deployInfo.Crds, deployInfo.ClusterInfo.Client,
 		false); err != nil {
@@ -198,7 +217,7 @@ func (o *Operations) VerifyResources(deployInfo InstallInfo) (bool, error) {
 	return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.BaseResource, o.logger, deployInfo.ClusterInfo)
 }
 
-func (o *Operations) Install(deployInfo InstallInfo) (bool, error) {
+func (o *Operations) install(deployInfo InstallInfo) (bool, error) {
 	// install crds first - if present do not update!
 	if err := resource.CheckCRDs(deployInfo.Ctx, deployInfo.Crds, deployInfo.ClusterInfo.Client,
 		true); err != nil {
@@ -289,7 +308,7 @@ func (o *Operations) uninstallResources(resourceLists ResourceLists) error {
 	return nil
 }
 
-func (o *Operations) Uninstall(deployInfo InstallInfo) (bool, error) {
+func (o *Operations) uninstall(deployInfo InstallInfo) (bool, error) {
 	resourceLists, err := o.getClusterResources(deployInfo, OperationDelete)
 	// delete crs first - proceed only if not found
 	// since there might be a deletion process to be completed by other manifest resources
@@ -326,8 +345,7 @@ func (o *Operations) Uninstall(deployInfo InstallInfo) (bool, error) {
 }
 
 func (o *Operations) getManifestForChartPath(chartPath, chartName string, actionClient *action.Install,
-	setFlags map[string]interface{},
-) (string, error) {
+	flags types.ChartFlags) (string, error) {
 	var err error
 	if chartPath == "" {
 		chartPath, err = o.helmClient.DownloadChart(actionClient, chartName)
@@ -343,7 +361,7 @@ func (o *Operations) getManifestForChartPath(chartPath, chartName string, action
 	}
 
 	// retrieve manifest
-	release, err := actionClient.Run(chartRequested, setFlags)
+	release, err := actionClient.Run(chartRequested, flags.SetFlags)
 	if err != nil {
 		return "", err
 	}

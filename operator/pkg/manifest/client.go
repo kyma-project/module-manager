@@ -95,7 +95,7 @@ func (h *HelmClient) getGenericConfig(namespace string) (*action.Configuration, 
 	return actionConfig, nil
 }
 
-func (h *HelmClient) NewInstallActionClient(namespace, releaseName string, configFlags map[string]interface{},
+func (h *HelmClient) NewInstallActionClient(namespace, releaseName string, flags types.ChartFlags,
 ) (*action.Install, error) {
 	actionConfig, err := h.getGenericConfig(namespace)
 	if err != nil {
@@ -103,7 +103,7 @@ func (h *HelmClient) NewInstallActionClient(namespace, releaseName string, confi
 	}
 	actionClient := action.NewInstall(actionConfig)
 	h.SetDefaultClientConfig(actionClient, releaseName)
-	return actionClient, h.SetConfigFlags(configFlags, actionClient)
+	return actionClient, h.SetFlags(flags, actionClient)
 }
 
 func (h *HelmClient) NewUninstallActionClient(namespace string) (*action.Uninstall, error) {
@@ -143,10 +143,11 @@ func (h *HelmClient) SetDefaultClientConfig(actionClient *action.Install, releas
 	}
 }
 
-func (h *HelmClient) SetConfigFlags(configFlags map[string]interface{}, actionClient *action.Install) error {
+func (h *HelmClient) SetFlags(flags types.ChartFlags, actionClient *action.Install) error {
 	clientValue := reflect.Indirect(reflect.ValueOf(actionClient))
 
-	for flagKey, flagValue := range configFlags {
+	// TODO: as per requirements add more Kind types
+	for flagKey, flagValue := range flags.ConfigFlags {
 		value := clientValue.FieldByName(flagKey)
 		if !value.IsValid() || !value.CanSet() {
 			continue
