@@ -120,12 +120,13 @@ func (h *HelmClient) SetDefaultClientConfig(actionClient *action.Install, releas
 	actionClient.WaitForJobs = false
 	actionClient.Replace = true     // Skip the name check
 	actionClient.IncludeCRDs = true // include CRDs in the templated output
+	actionClient.UseReleaseName = false
+	actionClient.ReleaseName = releaseName
 
 	// ClientOnly has no interaction with the API server
 	// So unless mentioned no additional API Versions can be used as part of helm chart installation
 	actionClient.ClientOnly = false
 
-	actionClient.ReleaseName = releaseName
 	actionClient.Namespace = v1.NamespaceDefault
 	// this will prohibit resource conflict validation while uninstalling
 	actionClient.IsUpgrade = true
