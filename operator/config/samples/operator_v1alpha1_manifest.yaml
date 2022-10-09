@@ -34,3 +34,8 @@ spec:
         ref: sha256:c64f0580a74259712f24243528881a76b5e1c9cd254fa58197de93a6347f99b9
         type: oci-ref
       name: redis
+    - source:
+        chartName: mysql
+        url: https://charts.bitnami.com/bitnami
+        type: helm-chart
+      name: bitnami
