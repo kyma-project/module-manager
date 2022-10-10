@@ -61,6 +61,8 @@ The component-descriptor generated from this guide could be used to independentl
 > which corresponds to helm configuration and set value flags for an installation in `.Spec.Installs[].Name`.
 
 ### Sample Resource
+<details>
+<summary><b>Example</b></summary>
 
 ```yaml
 apiVersion: operator.kyma-project.io/v1alpha1
@@ -106,6 +108,7 @@ spec:
         type: helm-chart
       name: bitnami
 ```
+</details>
 
 ## Manifest library
 
@@ -121,6 +124,8 @@ To get started, simply import package `github.com/kyma-project/module-manager/op
 For more options and information refer to the [InstallInfo](operator/pkg/manifest/operations.go) type definition.
 
 ### Sample usage
+<details>
+<summary><b>Example</b></summary>
 
 ```go
 package sample
@@ -188,6 +193,8 @@ if err != nil {
 return false, err
 }
 ```
+
+</details>
 
 ## Run the operator 
 
