@@ -39,7 +39,7 @@ func (r *Resource) CheckFn(ctx context.Context, manifestObj *unstructured.Unstru
 	}
 
 	ready, err := customStatus.WaitForCustomResources(ctx, resource)
-	if client.IgnoreNotFound(err) != nil {
+	if err != nil {
 		logger.Error(err,
 			fmt.Sprintf("error while tracking status of custom resources for manifest %s",
 				namespacedName))
