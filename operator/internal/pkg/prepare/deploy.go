@@ -178,8 +178,10 @@ func parseInstallations(manifestObj *v1alpha1.Manifest, codec *types.Codec,
 
 		// common deploy properties
 		chartInfo.ReleaseName = install.Name
-		chartInfo.Overrides = chartValues
-		chartInfo.ClientConfig = chartConfig
+		chartInfo.Flags = types.ChartFlags{
+			ConfigFlags: chartConfig,
+			SetFlags:    chartValues,
+		}
 
 		deployInfo.ChartInfo = chartInfo
 		deployInfos = append(deployInfos, deployInfo)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
+
 	"github.com/kyma-project/module-manager/operator/pkg/manifest"
 )
 
@@ -31,7 +32,7 @@ func NewManifestWorkers(logger *logr.Logger, workersConcurrentManifests int) *Ma
 }
 
 func (mw *ManifestWorkerPool) StartWorkers(ctx context.Context, jobChan <-chan OperationRequest,
-	handlerFn func(info manifest.InstallInfo, mode manifest.Mode, logger *logr.Logger) *manifest.InstallResponse,
+	handlerFn func(manifest.InstallInfo, manifest.Mode, *logr.Logger) *manifest.InstallResponse,
 ) {
 	for worker := 1; worker <= mw.GetWorkerPoolSize(); worker++ {
 		go func(ctx context.Context, workerId int, deployJob <-chan OperationRequest) {
