@@ -171,7 +171,6 @@ func parseInstallations(manifestObj *v1alpha1.Manifest, codec *types.Codec,
 
 		// filter config for install
 		chartConfig, chartValues, err := parseChartConfigAndValues(install, configs, namespacedName.String())
-		chartValues["nameOverride"] = manifestObj.Name + "-" + install.Name
 		if err != nil {
 			return nil, err
 		}
