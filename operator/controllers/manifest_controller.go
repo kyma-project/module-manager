@@ -381,7 +381,7 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 
 	// register listener component
 	runnableListener, eventChannel := listener.RegisterListenerComponent(
-		listenerAddr, strings.ToLower(v1alpha1.ManifestKind))
+		listenerAddr, strings.ToLower(labels.OperatorName))
 
 	// start listener as a manager runnable
 	if err := mgr.Add(runnableListener); err != nil {
