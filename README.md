@@ -52,7 +52,7 @@ The `Spec` contains the necessary properties to process installations as seen in
 | Resource   | Additional unstructured custom resource to be installed, used for implicit reconciliation via Installs        |
 | Installs   | OCI image specification for a list of Helm charts                                                             |
 | Config     | Optional: OCI image specification for Helm configuration and set flags                                        |
-| CRDs       | Optional: OCI image specification for additional CRDs that are pre-installed before helm charts are processed |
+| CRDs       | Optional: OCI image specification for additional CRDs that are pre-installed before Helm charts are processed |
 
 If `.Spec.Remote.` is set to `true`, the operator looks for a secret with the name specified by Manifest CR's label `operator.kyma-project.io/kyma-name: kyma-sample`.
 This secret is used to connect to an existing cluster (target) for `Manifest` resource installations.
@@ -208,12 +208,12 @@ return false, err
 2. Set your `KUBECONFIG` environment variable to point towards the desired cluster.
 3. Run the following `make` file commands:
 
-| Make command | Description                                          |
-|--------------|------------------------------------------------------|
-| build        | Run fmt, vet and DeepCopy method implementations     |
-| manifests    | Create RBACs CRDs based on [API types](operator/api) |
-| install      | Install CRDs                                         |
-| run          | Run operator controller locally                      |
+   | Make command | Description                                          |
+   |--------------|------------------------------------------------------|
+   | build        | Run fmt, vet and DeepCopy method implementations     |
+   | manifests    | Create RBACs CRDs based on [API types](operator/api) |
+   | install      | Install CRDs                                         |
+   | run          | Run operator controller locally                      |
 
 ### Remote Cluster setup
 
@@ -221,11 +221,11 @@ return false, err
 2. Set your `KUBECONFIG` environment variable to point towards the desired cluster.
 3. Run the following commands with `IMG` environment variable pointing to the image name
 
-| Make command | Description                                           |
-|--------------|-------------------------------------------------------|
-| docker-build | Build operator image                                  |
-| docker-push  | Push docker image to your repo                        |
-| deploy       | Deploys the operator resources to the desired cluster |
+   | Make command | Description                                           |
+   |--------------|-------------------------------------------------------|
+   | docker-build | Build operator image                                  |
+   | docker-push  | Push docker image to your repo                        |
+   | deploy       | Deploys the operator resources to the desired cluster |
 
 ## Contribution
 If you want to contribute, follow the [Kyma contribution guidelines](https://kyma-project.io/community/contributing/02-contributing/).
