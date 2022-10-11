@@ -20,3 +20,8 @@ patches:
         value: --requeue-failure-interval=5s
     target:
       kind: Deployment
+  - target:
+      version: v1alpha1
+      kind: Watcher
+      name: watcher
+    path: patches/watcher_service_patch.yaml
