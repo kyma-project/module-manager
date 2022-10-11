@@ -1,13 +1,8 @@
 # Module Manager
 
-The [module-manager](#module-manager) plays an important part in the modularization ecosystem to handle installation of resources from control-plane to runtime clusters.
-It is used as a meta-controller for managing the entire installation lifecycle of individual modules from installation, upgrades to clean up.
-For more information, refer to the [architecture summary](https://github.com/kyma-project/lifecycle-manager#architecture).
-This repository offers an **_operator_** (reconciles [Manifest](https://github.com/kyma-project/module-manager/blob/main/operator/api/v1alpha1/manifest_types.go))  and relevant **_library packages_** to perform reconciliation of resources, configurations and custom resource state handling.
-The **_library package_** can be used independently of the **_operator_** and is consumed as a helper library by other modules in the Kyma ecosystem.
+## Contents
 
-### Contents
-
+* [Overview](#overview)
 * [Stability](#stability)
 * [Operator specification](#operator-specification)
   * [Manifest Custom Resource](#manifest-custom-resource)
@@ -20,47 +15,56 @@ The **_library package_** can be used independently of the **_operator_** and is
 * [Contribution](#contribution)
 * [Versioning and releasing](#versioning-and-releasing)
 
+## Overview
+
+[Module Manager](#module-manager) plays an important part in the modularization ecosystem to handle installation of resources from Control Plane to runtime clusters.
+As a meta-controller, it manages the entire installation lifecycle of individual modules from installation, upgrades to cleanup.
+For more information, see the [architecture summary](https://github.com/kyma-project/lifecycle-manager#architecture).
+
+The Module Manager repository contains:
+* An **operator**, which reconciles [Manifest](https://github.com/kyma-project/module-manager/blob/main/operator/api/v1alpha1/manifest_types.go)
+* The relevant **library packages** to perform reconciliation of resources, configurations, and custom resource state handling. 
+  The library packages be used independently of the operator and is consumed as a helper library by other modules in the Kyma ecosystem.
+
 ## Stability
 
-The architecture and implementation are majorly based on proof-of-concept (POC) results and can change rapidly as we work towards providing a stable solution.
-In general, the reconciliation and resource processing framework is considered stable and ready to be used.
+The architecture and implementation are based on proof-of-concept (POC) results and can change rapidly as we work towards providing a stable solution.
+In general, the reconciliation and resource-processing framework is considered stable and ready to be used.
 
-As part of this repository the following components are offered:
+The Module Manager repository offers the following components:
 
 | System Component                                          | Stability                                                                                         |
 |-----------------------------------------------------------|---------------------------------------------------------------------------------------------------|
 | [Manifest](operator/api/v1alpha1/manifest_types.go)       | Alpha-Grade - do not rely on automation and watch upstream as close as possible                   |
-| [Controller](operator/controllers/manifest_controller.go) | In active development - expect bugs and fast paced development                                    |
-| [Library](operator/pkg)                                   | In active development - expect bugs and fast paced development. Detailed documentation to follow. |
+| [Controller](operator/controllers/manifest_controller.go) | In active development - expect bugs and fast-paced development                                    |
+| [Library](operator/pkg)                                   | In active development - expect bugs and fast-paced development. Detailed documentation to follow. |
 
 ## Operator specification
 
-The module-manager reconciles the `Manifest` custom resource.
-As observed in the [Sample Manifest CR](operator/config/samples/operator_v1alpha1_manifest.yaml) and [API definition](operator/api/v1alpha1/manifest_types.go), 
-the `Spec` contains the necessary properties to process installations.
+Module Manager reconciles the `Manifest` custom resource.
+The `Spec` contains the necessary properties to process installations as seen in the example [Sample Manifest CR](operator/config/samples/operator_v1alpha1_manifest.yaml) and [API definition](operator/api/v1alpha1/manifest_types.go) below.
 
-### Manifest Custom Resource
+### Manifest custom resource
 
 | Spec field | Description                                                                                                   |
 |------------|---------------------------------------------------------------------------------------------------------------|
-| Remote     | `false` for single cluster mode, `true`(default) for dual cluster mode                                        |
-| Resource   | Additional unstructured custom resource to be installed, e.g. for implicit reconciliation via Installs        |
-| Installs   | OCI image specification for a list of helm charts                                                             |
-| Config     | Optional: OCI image specification for helm configuration and set flags                                        |
+| Remote     | `false` for single-cluster mode, `true`(default) for dual-cluster mode                                        |
+| Resource   | Additional unstructured custom resource to be installed, used for implicit reconciliation via Installs        |
+| Installs   | OCI image specification for a list of Helm charts                                                             |
+| Config     | Optional: OCI image specification for Helm configuration and set flags                                        |
 | CRDs       | Optional: OCI image specification for additional CRDs that are pre-installed before helm charts are processed |
 
-If `.Spec.Remote.` is set to `true`, the operator will look for a secret with the name specified by Manifest CR's label `operator.kyma-project.io/kyma-name: kyma-sample`.
-Follow the steps in [this guide](https://github.com/kyma-project/lifecycle-manager/blob/main/docs/developer/creating-test-environment.md#install-kyma-and-run-lifecycle-manager-operator) to create the required secret.
+If `.Spec.Remote.` is set to `true`, the operator looks for a secret with the name specified by Manifest CR's label `operator.kyma-project.io/kyma-name: kyma-sample`.
 This secret is used to connect to an existing cluster (target) for `Manifest` resource installations.
+Learn how to create the required secret in [Install Kyma and run lifecycle-manager operator](https://github.com/kyma-project/lifecycle-manager/blob/main/docs/developer/creating-test-environment.md#install-kyma-and-run-lifecycle-manager-operator).
 
-For more details on OCI Image **bundling** and **formats**, refer to our [bundling and installation guide](https://github.com/kyma-project/lifecycle-manager/tree/main/samples/template-operator#bundling-and-installation).
-The component-descriptor generated from this guide could be used to independently build a `Manifest Spec` based on the OCI image specifications.
+For more details on OCI Image **bundling** and **formats**, read our [bundling and installation guide](https://github.com/kyma-project/lifecycle-manager/tree/main/samples/template-operator#bundling-and-installation).
+You can use the component descriptor generated from this guide to independently build a `Manifest Spec` based on the OCI image specifications.
 
->Note: [Lifecycle-Manager](https://github.com/kyma-project/lifecycle-manager#how-it-works) translates these layers from a `ModuleTemplate` resource on the Kyma control-plane and translates them automatically to a subsequent `Manifest` resource.
->Alternatively you could use your own bundled OCI images. Please take care to conform to [.Spec.Config](https://github.com/kyma-project/lifecycle-manager/blob/main/samples/template-operator/config.yaml) format,
-> which corresponds to helm configuration and set value flags for an installation in `.Spec.Installs[].Name`.
+>**NOTE:** [Lifecycle-Manager](https://github.com/kyma-project/lifecycle-manager#how-it-works) translates these layers from a `ModuleTemplate` resource on the Kyma Control Plane (KCP) and translates them automatically to a subsequent `Manifest` resource.
+>Alternatively, you can use your own bundled OCI images. If using additional Helm configuration, you must conform to [.Spec.Config](https://github.com/kyma-project/lifecycle-manager/blob/main/samples/template-operator/config.yaml) format, corresponding to Helm `installation` and `set` value flags, for an installation in `.Spec.Installs[].Name`.
 
-### Sample Resource
+### Sample resource
 <details>
 <summary><b>Example</b></summary>
 
@@ -114,14 +118,14 @@ spec:
 
 The operator uses the [manifest library](https://pkg.go.dev/github.com/kyma-project/module-manager/operator/pkg/manifest) to process deployments on clusters.
 
-It supports helm chart installations from two sources: **_helm repositories_** and **_local paths_**. Additionally, it helps to process additional local installations of CRs, CRDs and custom state checks.
+The manifest library supports Helm chart installations from two sources: **helm repositories** and **local paths**. Additionally, it helps to process local installations of CRs, CRDs and custom state checks.
 
->Note: We plan to offer [Kustomize installation support](https://github.com/kyma-project/module-manager/issues/124), along with the existing helm installation soon. 
+>**NOTE:** We plan to offer [Kustomize installation support](https://github.com/kyma-project/module-manager/issues/124), along with the existing helm installation soon. 
 
-The library could be used to simply process deployments on target clusters or use within your own operator to carry deployment operations. 
-E.g. [template-operator](https://github.com/kyma-project/lifecycle-manager/tree/main/samples/template-operator) uses this library (via the [declarative](operator/pkg/declarative) library) to perform necessary operations on target clusters during reconciliations.
-To get started, simply import package `github.com/kyma-project/module-manager/operator/pkg/manifest` to include the main functionality provided by the library to process helm charts, coupled with additional state handling.
-For more options and information refer to the [InstallInfo](operator/pkg/manifest/operations.go) type definition.
+Use the manifest library to simply process deployments on target clusters, or use it within your own operator to process deployment operations.
+For example, [template-operator](https://github.com/kyma-project/lifecycle-manager/tree/main/samples/template-operator) uses the manifest library (through the [declarative](operator/pkg/declarative) library) to perform necessary operations on target clusters during reconciliations.
+To get started, simply import package `github.com/kyma-project/module-manager/operator/pkg/manifest` to include the main functionality provided by the library to process Helm charts, coupled with additional state handling.
+For more options and information, read the [InstallInfo](operator/pkg/manifest/operations.go) type definition.
 
 ### Sample usage
 <details>
@@ -148,7 +152,7 @@ deployInfo := manifest.InstallInfo{
     ChartInfo: &manifest.ChartInfo{
         ChartPath:   "/chart/path",
         Flags:       types.ChartFlags{
-            ConfigFlags: types.Flags{ // optional: ConfigFlags support string, bool and int types as helm chart flags
+            ConfigFlags: types.Flags{ // optional: ConfigFlags support string, bool and int types as Helm chart flags
                 // check: https://github.com/helm/helm/blob/d7b4c38c42cb0b77f1bcebf9bb4ae7695a10da0b/pkg/action/install.go#L67
                 "Namespace":       chartNs,
                 "CreateNamespace": true,
@@ -173,7 +177,7 @@ deployInfo := manifest.InstallInfo{
     CheckReadyStates: true,
 }
 
-// Based on deployInfo above following operations could be performed 
+// Based on deployInfo, the following operations can be performed 
 
 // Option 1: Install resources
 ready, err := manifest.InstallChart(logger, deployInfo, []types.ObjectTransform{})
@@ -198,11 +202,11 @@ return false, err
 
 ## Run the operator 
 
-### Local setup
+### Local Cluster setup
 
-- Refer to the local cluster and registry setup [documentation](https://github.com/kyma-project/lifecycle-manager/blob/main/docs/developer/provision-cluster-and-registry.md#local-cluster-setup) to create cluster(s) either in a single-cluster or dual-cluster mode.
-- Set your `KUBECONFIG` environment variable to point towards the desired cluster.
-- Run the following `make` file commands:
+1. Set up the local cluster environment according to [local cluster and registry setup](https://github.com/kyma-project/lifecycle-manager/blob/main/docs/developer/provision-cluster-and-registry.md#local-cluster-setup) to create cluster(s) either in a single-cluster or dual-cluster mode.
+2. Set your `KUBECONFIG` environment variable to point towards the desired cluster.
+3. Run the following `make` file commands:
 
 | Make command | Description                                          |
 |--------------|------------------------------------------------------|
@@ -211,11 +215,11 @@ return false, err
 | install      | Install CRDs                                         |
 | run          | Run operator controller locally                      |
 
-### Cluster setup
+### Remote Cluster setup
 
-- Refer to the remote cluster and registry setup [documentation](https://github.com/kyma-project/lifecycle-manager/blob/main/docs/developer/provision-cluster-and-registry.md#remote-cluster-setup) to create cluster(s) either in a single-cluster or dual-cluster mode.
-- Set your `KUBECONFIG` environment variable to point towards the desired cluster.
-- Run the following commands with `IMG` environment variable pointing to the image name
+1. Set up the remote cluster environment according to [remote cluster and registry setup](https://github.com/kyma-project/lifecycle-manager/blob/main/docs/developer/provision-cluster-and-registry.md#remote-cluster-setup) to create cluster(s) either in a single-cluster or dual-cluster mode.
+2. Set your `KUBECONFIG` environment variable to point towards the desired cluster.
+3. Run the following commands with `IMG` environment variable pointing to the image name
 
 | Make command | Description                                           |
 |--------------|-------------------------------------------------------|
@@ -224,8 +228,8 @@ return false, err
 | deploy       | Deploys the operator resources to the desired cluster |
 
 ## Contribution
-Refer to [Kyma contribution guidelines](https://kyma-project.io/community/contributing/02-contributing/).
+If you want to contribute, follow the [Kyma contribution guidelines](https://kyma-project.io/community/contributing/02-contributing/).
 
-## Versioning and Releasing
-Refer to a summary on versioning [here](https://github.com/kyma-project/lifecycle-manager#versioning-and-releasing). 
+## Versioning and releasing
+Learn about [versioning and releasing](https://github.com/kyma-project/lifecycle-manager#versioning-and-releasing). 
 

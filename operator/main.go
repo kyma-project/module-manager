@@ -182,7 +182,7 @@ func defineFlagVar() *FlagVar {
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.DurationVar(&flagVar.requeueSuccessInterval, "requeue-success-interval", requeueSuccessIntervalDefault,
-		"Determines the duration after which an already successfully reconciled Kyma is "+
+		"Determines the duration after which an already successfully reconciled Manifest is "+
 			"enqueued for checking, if it's still in a consistent state.")
 	flag.DurationVar(&flagVar.requeueFailureInterval, "requeue-failure-interval", requeueFailureIntervalDefault,
 		"Determines the duration after which a failing reconciliation is retried and "+
