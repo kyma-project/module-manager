@@ -46,6 +46,17 @@ patches:
         value: --k8s-client-burst=300
     target:
       kind: Deployment
+  - patch: |-
+      - op: replace
+        path: /spec/serviceInfo/name
+        value: kmm-event-service      
+      - op: replace
+        path: /spec/serviceInfo/namespace
+        value: kcp-system
+    target:
+      group: operator.kyma-project.io
+      version: v1alpha1
+      kind: Watcher
 
 components:
   - ../crd

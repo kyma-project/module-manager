@@ -20,12 +20,18 @@ commonLabels:
 resources:
   - ../manager
 
-patchesJson6902:
-  - target:
+patches:
+  - patch: |-
+      - op: replace
+        path: /spec/serviceInfo/name
+        value: module-manager-event-service
+      - op: replace
+        path: /spec/serviceInfo/namespace
+        value: kcp-system
+    target:
+      group: operator.kyma-project.io
       version: v1alpha1
       kind: Watcher
-      name: watcher
-    path: patches/watcher_service_patch.yaml
 
 components:
   - ../crd

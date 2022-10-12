@@ -10,9 +10,9 @@ spec:
     operator.kyma-project.io/watched-by: "module-manager"
   field: "status"
   serviceInfo:
-    name: kmm-event-service
+    name: event-service
     port: 8082
-    namespace: kcp-system
+    namespace: system
 
 ---
 apiVersion: v1

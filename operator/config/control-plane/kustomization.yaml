@@ -51,6 +51,19 @@ patchesJson6902:
       name: kmm-controller-runtime-metrics
     path: patches/namespace_replace.yaml
 
+patches:
+  - patch: |-
+      - op: replace
+        path: /spec/serviceInfo/name
+        value: kmm-event-service
+      - op: replace
+        path: /spec/serviceInfo/namespace
+        value: kcp-system
+    target:
+      group: operator.kyma-project.io
+      version: v1alpha1
+      kind: Watcher
+
 patchesStrategicMerge:
   # We expect a kcp-system namespace to be already present in KCP
   - patches/namespace_delete.yaml
