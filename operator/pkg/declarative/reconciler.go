@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
@@ -321,10 +320,6 @@ func (r *ManifestReconciler) prepareInstallInfo(ctx context.Context, objectInsta
 		ResourceInfo: manifest.ResourceInfo{
 			// base operator resource to be passed for custom checks
 			BaseResource: unstructuredObj,
-		},
-		CheckFn: func(context.Context, *unstructured.Unstructured, *logr.Logger, custom.ClusterInfo) (bool, error) {
-			// your custom logic here to set ready state
-			return true, nil
 		},
 		CheckReadyStates: r.options.verify,
 	}, nil
