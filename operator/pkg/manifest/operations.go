@@ -6,6 +6,7 @@ import (
 
 	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/go-logr/logr"
@@ -327,14 +328,16 @@ func (o *Operations) uninstallResources(resourceLists ResourceLists) error {
 
 func (o *Operations) uninstall(deployInfo InstallInfo) (bool, error) {
 	resourceLists, err := o.getClusterResources(deployInfo, OperationDelete)
-	// delete crs first - proceed only if not found
-	// since there might be a deletion process to be completed by other manifest resources
-	if deleted, err := resource.RemoveCRs(deployInfo.Ctx, deployInfo.CustomResources,
-		deployInfo.ClusterInfo.Client); err != nil || !deleted {
+	if err != nil {
 		return false, err
 	}
 
-	if err != nil {
+	// delete crs first - proceed only if not found
+	// proceed if CR type doesn't exist anymore - since associated CRDs might be deleted from resource uninstallation
+	// since there might be a deletion process to be completed by other manifest resources
+	deleted, err := resource.RemoveCRs(deployInfo.Ctx, deployInfo.CustomResources,
+		deployInfo.ClusterInfo.Client)
+	if !meta.IsNoMatchError(err) && (err != nil || !deleted) {
 		return false, err
 	}
 
