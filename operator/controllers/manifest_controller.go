@@ -65,15 +65,21 @@ type OperationRequest struct {
 	ResponseChan manifest.ResponseChan
 }
 
+type ConsistencyCheckRequest struct {
+	manifestObj    *v1alpha1.Manifest
+	namespacedName client.ObjectKey
+}
+
 // ManifestReconciler reconciles a Manifest object.
 type ManifestReconciler struct {
 	client.Client
-	Scheme           *runtime.Scheme
-	RestConfig       *rest.Config
-	RestMapper       *restmapper.DeferredDiscoveryRESTMapper
-	DeployChan       chan OperationRequest
-	Workers          *ManifestWorkerPool
-	RequeueIntervals RequeueIntervals
+	Scheme               *runtime.Scheme
+	RestConfig           *rest.Config
+	RestMapper           *restmapper.DeferredDiscoveryRESTMapper
+	DeployChan           chan OperationRequest
+	ConsistencyCheckChan chan ConsistencyCheckRequest
+	Workers              *ManifestWorkerPool
+	RequeueIntervals     RequeueIntervals
 	internalTypes.ReconcileFlagConfig
 }
 
@@ -202,16 +208,23 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 	}
 
 	logger.Info("checking consistent state for " + namespacedName.String())
+	r.ConsistencyCheckChan <- ConsistencyCheckRequest{
+		manifestObj:    manifestObj,
+		namespacedName: namespacedName,
+	}
+	return nil
+}
 
+func (r *ManifestReconciler) checkInstallInfo(ctx context.Context, manifestObj *v1alpha1.Manifest, logger *logr.Logger, namespacedName client.ObjectKey) {
 	// send deploy requests
 	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, custom.ClusterInfo{
 		Client: r.Client, Config: r.RestConfig,
 	}, r.ReconcileFlagConfig)
 	if err != nil {
-		return err
+		logger.Error(err, "getting deployInfos")
 	}
-
 	for _, deployInfo := range deployInfos {
+
 		ready, err := manifest.ConsistencyCheck(logger, deployInfo, []types.ObjectTransform{})
 
 		// prepare chart response object
@@ -226,15 +239,16 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 		// update only if resources not ready OR an error occurred during chart verification
 		if !ready {
 			util.AddReadyConditionForResponses([]*manifest.InstallResponse{chartResponse}, logger, manifestObj)
-			return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing,
+			err := r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing,
 				"resources not ready")
+			logger.Error(err, "resources not ready")
 		} else if err != nil {
 			logger.Error(err, fmt.Sprintf("error while performing consistency check on manifest %s", namespacedName))
 			util.AddReadyConditionForResponses([]*manifest.InstallResponse{chartResponse}, logger, manifestObj)
-			return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error())
+			r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error())
 		}
+
 	}
-	return nil
 }
 
 func (r *ManifestReconciler) updateManifest(ctx context.Context, manifestObj *v1alpha1.Manifest) error {
@@ -374,8 +388,9 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 	failureBaseDelay time.Duration, failureMaxDelay time.Duration, frequency int, burst int, listenerAddr string,
 ) error {
 	r.DeployChan = make(chan OperationRequest, r.Workers.GetWorkerPoolSize())
+	r.ConsistencyCheckChan = make(chan ConsistencyCheckRequest, r.Workers.GetWorkerPoolSize())
 	r.Workers.StartWorkers(ctx, r.DeployChan, r.HandleCharts)
-
+	r.Workers.StartConsistencyCheckWorkers(ctx, r.ConsistencyCheckChan, r.checkInstallInfo)
 	// default config from kubebuilder
 	r.RestConfig = mgr.GetConfig()
 

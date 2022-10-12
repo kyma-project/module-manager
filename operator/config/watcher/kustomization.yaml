@@ -11,7 +11,7 @@ patches:
   - patch: |-
       - op: add
         path: /spec/template/spec/containers/0/args/-
-        value: --requeue-success-interval=5m
+        value: --requeue-success-interval=60m
       - op: add
         path: /spec/template/spec/containers/0/args/-
         value: --requeue-waiting-interval=5s

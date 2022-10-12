@@ -6,7 +6,9 @@ import (
 
 	"github.com/go-logr/logr"
 
+	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
 	"github.com/kyma-project/module-manager/operator/pkg/manifest"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type Workers interface {
@@ -43,6 +45,25 @@ func (mw *ManifestWorkerPool) StartWorkers(ctx context.Context, jobChan <-chan O
 					mw.logger.Info(fmt.Sprintf("Processing chart with name %s by worker with id %d",
 						deployChart.Info.ChartName, workerId))
 					deployChart.ResponseChan <- handlerFn(deployChart.Info, deployChart.Mode, mw.logger)
+				case <-ctx.Done():
+					return
+				}
+			}
+		}(ctx, worker, jobChan)
+	}
+}
+
+func (mw *ManifestWorkerPool) StartConsistencyCheckWorkers(ctx context.Context, jobChan <-chan ConsistencyCheckRequest,
+	handlerFn func(context.Context, *v1alpha1.Manifest, *logr.Logger, client.ObjectKey),
+) {
+	for worker := 1; worker <= mw.GetWorkerPoolSize(); worker++ {
+		go func(ctx context.Context, workerId int, consistencyCheckJob <-chan ConsistencyCheckRequest) {
+			mw.logger.Info(fmt.Sprintf("Starting module-manager worker for consistency check with id %d", workerId))
+			for {
+				select {
+				case job := <-consistencyCheckJob:
+					mw.logger.Info("Processing consistency check")
+					handlerFn(ctx, job.manifestObj, mw.logger, job.namespacedName)
 				case <-ctx.Done():
 					return
 				}

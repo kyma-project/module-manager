@@ -28,7 +28,22 @@ patches:
   - patch: |-
       - op: add
         path: /spec/template/spec/containers/0/args/-
-        value: --max-concurrent-reconciles=20
+        value: --max-concurrent-reconciles=20            
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: --rate-limiter-burst=500      
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: --rate-limiter-frequency=200
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: --workers-concurrent-manifest=100
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: --k8s-client-qps=300
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: --k8s-client-burst=300
     target:
       kind: Deployment
 
