@@ -31,7 +31,7 @@ const (
 	DeletionMode
 )
 
-// ChartInfo defines helm chart information
+// ChartInfo defines helm chart information.
 type ChartInfo struct {
 	ChartPath   string
 	RepoName    string
@@ -51,7 +51,7 @@ func (r ResourceLists) getWaitForResources() kube.ResourceList {
 	return append(r.Target, r.Namespace...)
 }
 
-// InstallInfo represents deployment information artifacts to be processed
+// InstallInfo represents deployment information artifacts to be processed.
 type InstallInfo struct {
 	// ChartInfo represents chart information to be processed
 	*ChartInfo
@@ -67,7 +67,7 @@ type InstallInfo struct {
 	CheckReadyStates bool
 }
 
-// ResourceInfo represents additional resources
+// ResourceInfo represents additional resources.
 type ResourceInfo struct {
 	// BaseResource represents base custom resource that is being reconciled
 	BaseResource *unstructured.Unstructured
@@ -356,9 +356,9 @@ func (o *Operations) uninstall(deployInfo InstallInfo) (bool, error) {
 	}
 
 	// delete crds first - if not present ignore!
-	if err := resource.RemoveCRDs(deployInfo.Ctx, deployInfo.Crds, deployInfo.ClusterInfo.Client); err != nil {
-		return false, err
-	}
+	// if err := resource.RemoveCRDs(deployInfo.Ctx, deployInfo.Crds, deployInfo.ClusterInfo.Client); err != nil {
+	//	return false, err
+	//}
 
 	// custom states check
 	if deployInfo.CheckFn != nil {
@@ -368,7 +368,8 @@ func (o *Operations) uninstall(deployInfo InstallInfo) (bool, error) {
 }
 
 func (o *Operations) getManifestForChartPath(chartPath, chartName string, actionClient *action.Install,
-	flags types.ChartFlags) (string, error) {
+	flags types.ChartFlags,
+) (string, error) {
 	var err error
 	if chartPath == "" {
 		chartPath, err = o.helmClient.DownloadChart(actionClient, chartName)

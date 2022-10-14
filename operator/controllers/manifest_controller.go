@@ -216,7 +216,9 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 	return nil
 }
 
-func (r *ManifestReconciler) checkInstallInfo(ctx context.Context, manifestObj *v1alpha1.Manifest, logger *logr.Logger, namespacedName client.ObjectKey) {
+func (r *ManifestReconciler) checkInstallInfo(ctx context.Context, manifestObj *v1alpha1.Manifest,
+	logger *logr.Logger, namespacedName client.ObjectKey,
+) {
 	// send deploy requests
 	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, custom.ClusterInfo{
 		Client: r.Client, Config: r.RestConfig,
@@ -225,7 +227,6 @@ func (r *ManifestReconciler) checkInstallInfo(ctx context.Context, manifestObj *
 		logger.Error(err, "getting deployInfos")
 	}
 	for _, deployInfo := range deployInfos {
-
 		ready, err := manifest.ConsistencyCheck(logger, deployInfo, []types.ObjectTransform{})
 
 		// prepare chart response object
@@ -240,15 +241,17 @@ func (r *ManifestReconciler) checkInstallInfo(ctx context.Context, manifestObj *
 		// update only if resources not ready OR an error occurred during chart verification
 		if !ready {
 			util.AddReadyConditionForResponses([]*manifest.InstallResponse{chartResponse}, logger, manifestObj)
-			err := r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing,
-				"resources not ready")
-			logger.Error(err, "resources not ready")
+			if err := r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing,
+				"resources not ready"); err != nil {
+				logger.Error(err, "failed to update manifest status")
+			}
 		} else if err != nil {
 			logger.Error(err, fmt.Sprintf("error while performing consistency check on manifest %s", namespacedName))
 			util.AddReadyConditionForResponses([]*manifest.InstallResponse{chartResponse}, logger, manifestObj)
-			r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error())
+			if err := r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error()); err != nil {
+				logger.Error(err, "failed to update manifest status")
+			}
 		}
-
 	}
 }
 
@@ -277,7 +280,8 @@ func (r *ManifestReconciler) updateManifestStatus(ctx context.Context, manifestO
 }
 
 func (r *ManifestReconciler) HandleCharts(deployInfo manifest.InstallInfo, mode manifest.Mode,
-	logger *logr.Logger) *manifest.InstallResponse {
+	logger *logr.Logger,
+) *manifest.InstallResponse {
 	// evaluate create or delete chart
 	create := mode == manifest.CreateMode
 

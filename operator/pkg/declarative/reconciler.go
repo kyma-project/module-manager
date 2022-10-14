@@ -346,7 +346,8 @@ func (r *ManifestReconciler) applyOptions(opts ...ReconcilerOption) error {
 }
 
 func (r *ManifestReconciler) setStatusForObjectInstance(ctx context.Context, objectInstance types.BaseCustomObject,
-	status types.Status) error {
+	status types.Status,
+) error {
 	var err error
 	var unstructStatus map[string]interface{}
 
