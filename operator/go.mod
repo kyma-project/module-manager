@@ -4,6 +4,7 @@ go 1.19
 
 require (
 	github.com/go-logr/logr v1.2.3
+	github.com/go-logr/zerologr v1.2.2
 	github.com/gofrs/flock v0.8.1
 	github.com/google/go-containerregistry v0.10.0
 	github.com/invopop/jsonschema v0.5.0
@@ -11,6 +12,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.1.4
 	github.com/onsi/gomega v1.20.0
 	github.com/pkg/errors v0.9.1
+	github.com/rs/zerolog v1.28.0
 	github.com/stretchr/testify v1.8.0
 	github.com/xeipuuv/gojsonschema v1.2.0
 	golang.org/x/time v0.0.0-20220722155302-e5dcc9cfc0b9

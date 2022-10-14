@@ -22,8 +22,8 @@ type BaseCustomObject interface {
 
 type BaseCustomObjectWithSpec struct {
 	BaseCustomObject
-	Spec   InstallationSpec
-	Status Status
+	//Spec   InstallationSpec
+	//Status Status
 }
 
 // ObjectTransform is an operation that transforms the manifest objects before applying it.

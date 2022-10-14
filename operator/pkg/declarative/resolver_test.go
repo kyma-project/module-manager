@@ -1,17 +1,27 @@
 package declarative
 
 import (
+	"errors"
 	"github.com/go-logr/logr"
+	"github.com/go-logr/zerologr"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"os"
 	"testing"
 )
 
 func TestGet(t *testing.T) {
+	zl := zerolog.New(os.Stderr)
+	zl = zl.With().Caller().Timestamp().Logger()
+	var logger logr.Logger = zerologr.New(&zl)
+
 	type test struct {
+		testName                 string
 		name                     string
+		namespace                string
 		object                   types.BaseCustomObject
 		expectedInstallationSpec types.InstallationSpec
 		expectedErr              error
@@ -19,7 +29,9 @@ func TestGet(t *testing.T) {
 
 	tests := []test{
 		{
-			name: "",
+			testName:  "Resolve object with valid values",
+			name:      "testCR",
+			namespace: "default",
 			object: &TestCRD{
 				Spec: types.InstallationSpec{
 					ChartPath:   "path/to/chart",
@@ -27,13 +39,34 @@ func TestGet(t *testing.T) {
 					ChartFlags:  types.ChartFlags{},
 				},
 			},
-			expectedInstallationSpec: types.InstallationSpec{},
+			expectedInstallationSpec: types.InstallationSpec{ChartPath: "path/to/chart", ReleaseName: "test-release", ChartFlags: types.ChartFlags{}},
 			expectedErr:              nil,
 		},
 		{
-			name:                     "",
-			object:                   nil,
+			testName:  "`chartPath` not given",
+			name:      "testCR",
+			namespace: "default",
+			object: &TestCRD{
+				Spec: types.InstallationSpec{
+					ChartFlags: types.ChartFlags{},
+				},
+			},
 			expectedInstallationSpec: types.InstallationSpec{},
+			expectedErr: &ResolveError{
+				objectName: "default/testCR",
+				Err:        errors.New(errMsgMandatory),
+			},
+		},
+		{
+			testName:  "Resolve object with minimal valid input",
+			name:      "testCR",
+			namespace: "default",
+			object: &TestCRD{
+				Spec: types.InstallationSpec{
+					ChartPath: "path/to/chart",
+				},
+			},
+			expectedInstallationSpec: types.InstallationSpec{ChartPath: "path/to/chart", ReleaseName: ""},
 			expectedErr:              nil,
 		},
 		{
@@ -46,8 +79,9 @@ func TestGet(t *testing.T) {
 
 	for _, tc := range tests {
 		resolver := DefaultManifestResolver{}
-		logger := logr.Logger{}
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(tc.testName, func(t *testing.T) {
+			tc.object.SetName(tc.name)
+			tc.object.SetNamespace(tc.namespace)
 			installationSpec, err := resolver.Get(tc.object, logger)
 			assert.Equal(t, tc.expectedInstallationSpec, installationSpec)
 			assert.Equal(t, tc.expectedErr, err)
