@@ -164,7 +164,7 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, objectIn
 	logger := log.FromContext(ctx)
 
 	// fetch install information
-	installSpec, err := r.options.manifestResolver.Get(objectInstance)
+	installSpec, err := r.options.manifestResolver.Get(objectInstance, logger)
 	if err != nil {
 		return err
 	}
@@ -200,7 +200,7 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInst
 	logger := log.FromContext(ctx)
 
 	// fetch uninstall information
-	installSpec, err := r.options.manifestResolver.Get(objectInstance)
+	installSpec, err := r.options.manifestResolver.Get(objectInstance, logger)
 	if err != nil {
 		return err
 	}
@@ -259,7 +259,7 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, objectInstanc
 	}
 
 	// fetch install information
-	installSpec, err := r.options.manifestResolver.Get(objectInstance)
+	installSpec, err := r.options.manifestResolver.Get(objectInstance, logger)
 	if err != nil {
 		return err
 	}

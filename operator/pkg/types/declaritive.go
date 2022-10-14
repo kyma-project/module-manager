@@ -20,6 +20,12 @@ type BaseCustomObject interface {
 	metav1.Object
 }
 
+type BaseCustomObjectWithSpec struct {
+	BaseCustomObject
+	Spec   InstallationSpec
+	Status Status
+}
+
 // ObjectTransform is an operation that transforms the manifest objects before applying it.
 type ObjectTransform = func(context.Context, BaseCustomObject, *ManifestResources) error
 

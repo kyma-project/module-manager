@@ -29,6 +29,14 @@ func WithManifestResolver(resolver types.ManifestResolver) ReconcilerOption {
 	}
 }
 
+// WithDefaultResolver resolves manifest object using the default resolver.
+func WithDefaultResolver() ReconcilerOption {
+	return func(allOptions manifestOptions) manifestOptions {
+		allOptions.manifestResolver = DefaultManifestResolver{}
+		return allOptions
+	}
+}
+
 // WithResourcesReady verifies if native resources are in their respective ready states.
 func WithResourcesReady(verify bool) ReconcilerOption {
 	return func(allOptions manifestOptions) manifestOptions {
