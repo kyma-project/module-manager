@@ -356,9 +356,9 @@ func (o *Operations) uninstall(deployInfo InstallInfo) (bool, error) {
 	}
 
 	// delete crds first - if not present ignore!
-	// if err := resource.RemoveCRDs(deployInfo.Ctx, deployInfo.Crds, deployInfo.ClusterInfo.Client); err != nil {
-	//	return false, err
-	//}
+	if err := resource.RemoveCRDs(deployInfo.Ctx, deployInfo.Crds, deployInfo.ClusterInfo.Client); err != nil {
+		return false, err
+	}
 
 	// custom states check
 	if deployInfo.CheckFn != nil {
