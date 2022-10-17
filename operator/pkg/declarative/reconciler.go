@@ -25,8 +25,7 @@ import (
 var _ reconcile.Reconciler = &ManifestReconciler{}
 
 const (
-	deletionFinalizer = "custom-deletion-finalizer"
-	requeueInterval   = time.Second * 3
+	requeueInterval = time.Second * 3
 )
 
 type ManifestReconciler struct {
@@ -47,7 +46,13 @@ type manifestOptions struct {
 	resourceLabels   map[string]string
 	objectTransforms []types.ObjectTransform
 	manifestResolver types.ManifestResolver
+	finalizer        string
 }
+
+func (m *manifestOptions) isFinalizerSet() bool {
+	return m.finalizer != ""
+}
+
 type ReconcilerOption func(manifestOptions) manifestOptions
 
 func (r *ManifestReconciler) Inject(mgr manager.Manager, customObject types.BaseCustomObject,
@@ -97,8 +102,8 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, r.setStatusForObjectInstance(ctx, objectInstance, status.WithState(types.StateDeleting))
 	}
 
-	// add deletion finalizer
-	if controllerutil.AddFinalizer(objectInstance, deletionFinalizer) {
+	// add finalizer
+	if r.options.isFinalizerSet() && controllerutil.AddFinalizer(objectInstance, r.options.finalizer) {
 		return ctrl.Result{}, r.nativeClient.Update(ctx, objectInstance)
 	}
 
@@ -233,11 +238,10 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInst
 		status.State = types.StateError
 		return r.setStatusForObjectInstance(ctx, objectInstance, status.WithState(types.StateError))
 	}
-	if readyToBeDeleted {
-		// Example: If Deleting state, remove Finalizers
-		if controllerutil.RemoveFinalizer(objectInstance, deletionFinalizer) {
-			return r.nativeClient.Update(ctx, objectInstance)
-		}
+	// if resources are ready to be deleted, remove finalizer
+	if readyToBeDeleted && r.options.isFinalizerSet() &&
+		controllerutil.RemoveFinalizer(objectInstance, r.options.finalizer) {
+		return r.nativeClient.Update(ctx, objectInstance)
 	}
 	return nil
 }

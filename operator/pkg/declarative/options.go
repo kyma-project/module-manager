@@ -36,3 +36,11 @@ func WithResourcesReady(verify bool) ReconcilerOption {
 		return allOptions
 	}
 }
+
+// WithFinalizer adds a finalizer to the reconciled resource.
+func WithFinalizer(finalizer string) ReconcilerOption {
+	return func(allOptions manifestOptions) manifestOptions {
+		allOptions.finalizer = finalizer
+		return allOptions
+	}
+}
