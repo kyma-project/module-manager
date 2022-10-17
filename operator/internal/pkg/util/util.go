@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/kyma-project/module-manager/operator/pkg/util"
+
 	"github.com/go-logr/logr"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -78,13 +80,13 @@ func AddReadyConditionForResponses(responses []*manifest.InstallResponse, logger
 
 		configBytes, err := json.Marshal(response.Flags.ConfigFlags)
 		if err != nil {
-			logger.V(2).Error(err, "error marshalling chart config for",
+			logger.V(util.DebugLogLevel).Error(err, "error marshalling chart config for",
 				"resource", namespacedName)
 		}
 
 		overrideBytes, err := json.Marshal(response.Flags.SetFlags)
 		if err != nil {
-			logger.V(2).Error(err, "error marshalling chart values for",
+			logger.V(util.DebugLogLevel).Error(err, "error marshalling chart values for",
 				"resource", namespacedName)
 		}
 

@@ -345,7 +345,8 @@ func (o *Operations) uninstall(deployInfo InstallInfo) (bool, error) {
 }
 
 func (o *Operations) getManifestForChartPath(chartPath, chartName string, actionClient *action.Install,
-	flags types.ChartFlags) (string, error) {
+	flags types.ChartFlags,
+) (string, error) {
 	var err error
 	if chartPath == "" {
 		chartPath, err = o.helmClient.DownloadChart(actionClient, chartName)
@@ -353,7 +354,7 @@ func (o *Operations) getManifestForChartPath(chartPath, chartName string, action
 			return "", err
 		}
 	}
-	o.logger.V(2).Info("chart located", "path", chartPath)
+	o.logger.V(util.DebugLogLevel).Info("chart located", "path", chartPath)
 
 	chartRequested, err := o.repoHandler.LoadChart(chartPath, actionClient)
 	if err != nil {

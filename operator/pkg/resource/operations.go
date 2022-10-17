@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/kyma-project/module-manager/operator/pkg/util"
+
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -80,7 +82,7 @@ func readCRDs(ctx context.Context, basePath string, files []os.DirEntry,
 			return nil, err
 		}
 
-		logger.V(2).Info("read CRDs from", "file", file.Name())
+		logger.V(util.DebugLogLevel).Info("read CRDs from", "file", file.Name())
 	}
 
 	return crds, nil

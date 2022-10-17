@@ -115,15 +115,10 @@ func (h *HelmClient) NewUninstallActionClient(namespace string) (*action.Uninsta
 }
 
 func (h *HelmClient) SetDefaultClientConfig(actionClient *action.Install, releaseName string) {
-	actionClient.DryRun = false
+	actionClient.DryRun = true
 	actionClient.Atomic = false
 
-	// Wait until all Pods, Services, etc. of the Deployment, StatefulSet, or ReplicaSet are in a
-	// ready state before marking the release as successful
-	// It will wait for as long as timeout is set
-	actionClient.Wait = true
 	actionClient.WaitForJobs = false
-	actionClient.Timeout = 5 * time.Minute
 
 	actionClient.Replace = true     // Skip the name check
 	actionClient.IncludeCRDs = true // include CRDs in the templated output
@@ -155,8 +150,7 @@ func (h *HelmClient) SetFlags(flags types.ChartFlags, actionClient *action.Insta
 
 		validConversion := true
 
-		//nolint:exhaustive
-		switch value.Kind() {
+		switch value.Kind() { //nolint:exhaustive
 		case reflect.Bool:
 			var valueToBeSet bool
 			valueToBeSet, validConversion = flagValue.(bool)

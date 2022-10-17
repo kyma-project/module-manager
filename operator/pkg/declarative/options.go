@@ -30,6 +30,7 @@ func WithManifestResolver(resolver types.ManifestResolver) ReconcilerOption {
 }
 
 // WithDefaultResolver resolves manifest object using the default resolver.
+// This resolver parses the `spec` of the given object into an InstallationSpec.
 func WithDefaultResolver() ReconcilerOption {
 	return func(allOptions manifestOptions) manifestOptions {
 		allOptions.manifestResolver = DefaultManifestResolver{}
