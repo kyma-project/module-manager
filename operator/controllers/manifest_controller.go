@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/ratelimiter"
 
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -315,6 +316,11 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 
 	latestManifestObj := &v1alpha1.Manifest{}
 	if err := r.Get(ctx, namespacedName, latestManifestObj); err != nil {
+		// if manifest CR is not found at this point return with no errors,
+		// as finalizer could be removed by a parallel worker
+		if apierrors.IsNotFound(err) {
+			return
+		}
 		logger.V(util.DebugLogLevel).Error(err, "error while locating", "resource", namespacedName)
 		return
 	}
@@ -383,7 +389,7 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 
 	// register listener component
 	runnableListener, eventChannel := listener.RegisterListenerComponent(
-		listenerAddr, strings.ToLower(v1alpha1.ManifestKind))
+		listenerAddr, strings.ToLower(labels.OperatorName))
 
 	// start listener as a manager runnable
 	if err := mgr.Add(runnableListener); err != nil {

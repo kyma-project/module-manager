@@ -5,9 +5,10 @@ configurations:
 - commonlabels_override.yaml
 
 resources:
-- gateway.yaml
-- virtual_service.yaml
 - ap.yaml
 
 generatorOptions:
   disableNameSuffixHash: true
+
+patchesStrategicMerge:
+  - patches/istio_namespace_labels.yaml

@@ -20,6 +20,13 @@ commonLabels:
 resources:
   - ../manager
 
+patchesJson6902:
+  - target:
+      version: v1alpha1
+      kind: Watcher
+      name: watcher
+    path: patches/watcher_service_patch.yaml
+
 components:
   - ../crd
   - ../rbac

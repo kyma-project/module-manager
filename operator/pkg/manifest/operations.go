@@ -6,10 +6,8 @@ import (
 
 	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-
-	"github.com/kyma-project/module-manager/operator/pkg/resource"
-	"github.com/kyma-project/module-manager/operator/pkg/types"
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
@@ -20,7 +18,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kyma-project/module-manager/operator/pkg/custom"
+	"github.com/kyma-project/module-manager/operator/pkg/resource"
 	manifestRest "github.com/kyma-project/module-manager/operator/pkg/rest"
+	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
 )
 
@@ -31,7 +31,7 @@ const (
 	DeletionMode
 )
 
-// ChartInfo defines chart information.
+// ChartInfo defines helm chart information
 type ChartInfo struct {
 	ChartPath   string
 	RepoName    string
@@ -51,20 +51,30 @@ func (r ResourceLists) getWaitForResources() kube.ResourceList {
 	return append(r.Target, r.Namespace...)
 }
 
-// TODO: move Ctx out of struct.
+// InstallInfo represents deployment information artifacts to be processed
 type InstallInfo struct {
+	// ChartInfo represents chart information to be processed
 	*ChartInfo
+	// ResourceInfo represents additional resources to be processed
 	ResourceInfo
+	// ClusterInfo represents target cluster information
 	custom.ClusterInfo
-	Ctx              context.Context //nolint:containedctx
-	CheckFn          custom.CheckFnType
+	// Ctx hold the current context
+	Ctx context.Context //nolint:containedctx
+	// CheckFn returns a boolean indicating ready state based on custom checks
+	CheckFn custom.CheckFnType
+	// CheckReadyStates indicates if native resources should be checked for ready states
 	CheckReadyStates bool
 }
 
+// ResourceInfo represents additional resources
 type ResourceInfo struct {
-	BaseResource    *unstructured.Unstructured
+	// BaseResource represents base custom resource that is being reconciled
+	BaseResource *unstructured.Unstructured
+	// CustomResources represents a set of additional custom resources to be installed
 	CustomResources []*unstructured.Unstructured
-	Crds            []*apiextensions.CustomResourceDefinition
+	// Crds represents a set of additional custom resource definitions to be installed
+	Crds []*apiextensions.CustomResourceDefinition
 }
 
 type ResponseChan chan *InstallResponse
@@ -214,7 +224,12 @@ func (o *Operations) consistencyCheck(deployInfo InstallInfo) (bool, error) {
 	if len(resourceLists.Target) > len(resourceLists.Installed) {
 		return false, nil
 	}
-	return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.BaseResource, o.logger, deployInfo.ClusterInfo)
+
+	// custom states check
+	if deployInfo.CheckFn != nil {
+		return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.BaseResource, o.logger, deployInfo.ClusterInfo)
+	}
+	return true, nil
 }
 
 func (o *Operations) install(deployInfo InstallInfo) (bool, error) {
@@ -253,7 +268,10 @@ func (o *Operations) install(deployInfo InstallInfo) (bool, error) {
 	}
 
 	// custom states check
-	return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.BaseResource, o.logger, deployInfo.ClusterInfo)
+	if deployInfo.CheckFn != nil {
+		return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.BaseResource, o.logger, deployInfo.ClusterInfo)
+	}
+	return true, nil
 }
 
 func (o *Operations) installResources(resourceLists ResourceLists) (*kube.Result, error) {
@@ -310,14 +328,16 @@ func (o *Operations) uninstallResources(resourceLists ResourceLists) error {
 
 func (o *Operations) uninstall(deployInfo InstallInfo) (bool, error) {
 	resourceLists, err := o.getClusterResources(deployInfo, OperationDelete)
-	// delete crs first - proceed only if not found
-	// since there might be a deletion process to be completed by other manifest resources
-	if deleted, err := resource.RemoveCRs(deployInfo.Ctx, deployInfo.CustomResources,
-		deployInfo.ClusterInfo.Client); err != nil || !deleted {
+	if err != nil {
 		return false, err
 	}
 
-	if err != nil {
+	// delete crs first - proceed only if not found
+	// proceed if CR type doesn't exist anymore - since associated CRDs might be deleted from resource uninstallation
+	// since there might be a deletion process to be completed by other manifest resources
+	deleted, err := resource.RemoveCRs(deployInfo.Ctx, deployInfo.CustomResources,
+		deployInfo.ClusterInfo.Client)
+	if !meta.IsNoMatchError(err) && (err != nil || !deleted) {
 		return false, err
 	}
 
@@ -341,7 +361,10 @@ func (o *Operations) uninstall(deployInfo InstallInfo) (bool, error) {
 	}
 
 	// custom states check
-	return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.BaseResource, o.logger, deployInfo.ClusterInfo)
+	if deployInfo.CheckFn != nil {
+		return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.BaseResource, o.logger, deployInfo.ClusterInfo)
+	}
+	return true, err
 }
 
 func (o *Operations) getManifestForChartPath(chartPath, chartName string, actionClient *action.Install,

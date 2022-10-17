@@ -182,7 +182,7 @@ func defineFlagVar() *FlagVar {
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.DurationVar(&flagVar.requeueSuccessInterval, "requeue-success-interval", requeueSuccessIntervalDefault,
-		"Determines the duration after which an already successfully reconciled Kyma is "+
+		"Determines the duration after which an already successfully reconciled Manifest is "+
 			"enqueued for checking, if it's still in a consistent state.")
 	flag.DurationVar(&flagVar.requeueFailureInterval, "requeue-failure-interval", requeueFailureIntervalDefault,
 		"Determines the duration after which a failing reconciliation is retried and "+
@@ -191,7 +191,7 @@ func defineFlagVar() *FlagVar {
 		"Determines the duration after which a pending reconciliation is requeued, "+
 			"if the operator decides that it needs to wait for a certain state to update before it can proceed "+
 			"(e.g. because of pending finalizers in the deletion process).")
-	flag.IntVar(&flagVar.concurrentReconciles, "concurrent-reconciles", 1,
+	flag.IntVar(&flagVar.concurrentReconciles, "max-concurrent-reconciles", 1,
 		"Determines the number of concurrent reconciliations by the operator.")
 	flag.IntVar(&flagVar.workersConcurrentManifests, "workers-concurrent-manifest", workersCountDefault,
 		"Determines the number of concurrent manifest operations for a single resource by the operator.")

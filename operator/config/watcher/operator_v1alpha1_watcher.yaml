@@ -1,18 +1,18 @@
 apiVersion: operator.kyma-project.io/v1alpha1
 kind: Watcher
 metadata:
-  name: controller-manager-watcher
+  name: watcher
   namespace: system
   labels:
     operator.kyma-project.io/managed-by: "module-manager"
 spec:
   labelsToWatch:
-    watched-by: "module-manager"
+    operator.kyma-project.io/watched-by: "module-manager"
   field: "status"
   serviceInfo:
     name: event-service
     port: 8082
-    namespace: system
+    namespace: kcp-system
 
 ---
 apiVersion: v1
@@ -22,7 +22,7 @@ metadata:
   namespace: system
 spec:
   selector:
-    app.kubernetes.io/component: module-manager.kyma-project.io
+    app.kubernetes.io/name: module-manager
   ports:
     - protocol: TCP
       port: 8082
