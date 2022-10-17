@@ -3,18 +3,18 @@ package manifest
 import (
 	"context"
 	"fmt"
-
-	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"os"
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/kube"
+	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kyma-project/module-manager/operator/pkg/custom"
@@ -370,14 +370,25 @@ func (o *Operations) uninstall(deployInfo InstallInfo) (bool, error) {
 func (o *Operations) getManifestForChartPath(chartPath, chartName string, actionClient *action.Install,
 	flags types.ChartFlags) (string, error) {
 	var err error
+	helmRepo := false
+
+	// 1. legacy case - helm repo
 	if chartPath == "" {
+		helmRepo = true
 		chartPath, err = o.helmClient.DownloadChart(actionClient, chartName)
 		if err != nil {
 			return "", err
 		}
+	} else {
+		// 2. OCI Image
+		if renderedManifest, err := o.handleRenderedManifestForStaticChart(chartName, chartPath); err != nil {
+			return "", err
+		} else if renderedManifest != "" {
+			return renderedManifest, nil
+		}
 	}
-	o.logger.Info("chart located", "path", chartPath)
 
+	// if rendered manifest doesn't exist
 	chartRequested, err := o.repoHandler.LoadChart(chartPath, actionClient)
 	if err != nil {
 		return "", err
@@ -388,7 +399,34 @@ func (o *Operations) getManifestForChartPath(chartPath, chartName string, action
 	if err != nil {
 		return "", err
 	}
-	// TODO: Uncomment below to print manifest
+
+	// optional: Uncomment below to print manifest
 	// fmt.Println(release.Manifest)
-	return release.Manifest, nil
+
+	// write rendered manifest file
+	if !helmRepo {
+		err = util.WriteToFile(util.GetFsManifestChartPath(chartPath), []byte(release.Manifest))
+	}
+	return release.Manifest, err
+}
+
+func (o *Operations) handleRenderedManifestForStaticChart(chartName, chartPath string) (string, error) {
+	// verify chart path exists
+	if _, err := os.Stat(chartPath); err != nil {
+		return "", fmt.Errorf("locating chart %s at path %s resulted in an error: %w", chartName, chartPath, err)
+	}
+	o.logger.Info(fmt.Sprintf("chart dir %s found at path %s", chartName, chartPath))
+
+	// check if rendered manifest already exists
+	stringifiedManifest, err := util.GetStringifiedYamlFromFilePath(util.GetFsManifestChartPath(chartPath))
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return "", fmt.Errorf("locating chart rendered manifest %s at path %s resulted in an error: %w",
+				chartName, chartPath, err)
+		}
+		return "", nil
+	}
+
+	// return already rendered manifest here
+	return stringifiedManifest, nil
 }
