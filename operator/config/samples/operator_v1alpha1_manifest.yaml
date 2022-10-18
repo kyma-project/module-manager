@@ -8,6 +8,7 @@ metadata:
   name: manifestkyma-sample
   namespace: default
 spec:
+  remote: false
   resource:
     kind: SampleCRD
     resource: samplecrds
@@ -17,25 +18,15 @@ spec:
       namespace: default
     spec:
       randomkey: samplevalue
-  crds:
-    ref: sha256:71cf4f1fee1a2f51296cc805aa9b24bc14fd5c2b4aee1e24aadc2996b067bb3d
-    name: kyma-project.io/module/example-module-name
-    repo: kcp-registry.localhost:8888/component-descriptors
-    type: oci-ref
-  config:
-    ref: sha256:61be4f1fee1a2f51296cc805aa9b24bc14fd5c2b4aee1e24aadc2996b067ccec
-    name: kyma-project.io/module/example-module-name
-    repo: kcp-registry.localhost:8888/component-descriptors
-    type: oci-ref
   installs:
     - source:
-        name: kyma-project.io/module/example-module-name
-        repo: kcp-registry.localhost:8888/component-descriptors
-        ref: sha256:c64f0580a74259712f24243528881a76b5e1c9cd254fa58197de93a6347f99b9
+        name: kyma.project.io/module/kyma-redis
+        repo: europe-west3-docker.pkg.dev/sap-kyma-jellyfish-dev/operator-demo
+        ref: sha256:cd98ce9b440fef2e1d11fe382ccf6fab971f516efa9ee174d73209777ed318b5
         type: oci-ref
-      name: redis
+      name: kyma-redis-operator
     - source:
-        chartName: mysql
-        url: https://charts.bitnami.com/bitnami
-        type: helm-chart
-      name: bitnami
+        chartName: nginx-ingress
+        url:       https://helm.nginx.com/stable
+        type:      helm-chart
+      name: nginx-stable

@@ -10,61 +10,58 @@ import (
 	"path/filepath"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 
 	"github.com/google/go-containerregistry/pkg/crane"
-	"github.com/kyma-project/module-manager/operator/pkg/util"
 	"k8s.io/apimachinery/pkg/util/yaml"
+
+	"github.com/kyma-project/module-manager/operator/pkg/util"
 
 	yaml2 "sigs.k8s.io/yaml"
 )
 
-const (
-	ownerFilePermission             = 0o770
-	othersReadExecuteFilePermission = 0o755
-	yamlDecodeBufferSize            = 2048
-)
-
 func GetPathFromExtractedTarGz(imageSpec types.ImageSpec, insecureRegistry bool) (string, error) {
-	reference := fmt.Sprintf("%s/%s@%s", imageSpec.Repo, imageSpec.Name, imageSpec.Ref)
-	var layer v1.Layer
-	var err error
-	if insecureRegistry {
-		layer, err = crane.PullLayer(reference, crane.Insecure)
-	} else {
-		layer, err = crane.PullLayer(reference)
-	}
-
-	if err != nil {
-		return "", err
-	}
+	imageRef := fmt.Sprintf("%s/%s@%s", imageSpec.Repo, imageSpec.Name, imageSpec.Ref)
 
 	// check existing dir
-	installPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s-%s", imageSpec.Name, imageSpec.Ref))
+	// if dir exists return existing dir
+	installPath := util.GetFsChartPath(imageSpec)
 	dir, err := os.Open(installPath)
 	if err != nil && !os.IsNotExist(err) {
-		return "", fmt.Errorf("opening dir for installs caused an error %s: %w", reference, err)
+		return "", fmt.Errorf("opening dir for installs caused an error %s: %w", imageRef, err)
 	}
 	if dir != nil {
 		return installPath, nil
 	}
-	blobReadCloser, err := layer.Compressed()
-	if err != nil {
-		return "", fmt.Errorf("fetching blob resulted in an error %s: %w", reference, err)
+
+	// pull image layer
+	var layer v1.Layer
+	if insecureRegistry {
+		layer, err = crane.PullLayer(imageRef, crane.Insecure)
+	} else {
+		layer, err = crane.PullLayer(imageRef)
 	}
-	uncompressedStream, err := gzip.NewReader(blobReadCloser)
 	if err != nil {
-		return "", fmt.Errorf("failure in NewReader() while extracting TarGz %s: %w", reference, err)
+		return "", err
 	}
 
-	// create base dir
-	if err = os.MkdirAll(installPath, ownerFilePermission); err != nil {
+	// create dir for uncompressed chart
+	if err = os.MkdirAll(installPath, util.OwnerFilePermission); err != nil {
 		return "", fmt.Errorf("failure in MkdirAll() while extracting TarGz %s: %w", layer, err)
 	}
 
-	// extract content to install path
+	// uncompress chart to install path
+	blobReadCloser, err := layer.Compressed()
+	if err != nil {
+		return "", fmt.Errorf("fetching blob resulted in an error %s: %w", imageRef, err)
+	}
+	uncompressedStream, err := gzip.NewReader(blobReadCloser)
+	if err != nil {
+		return "", fmt.Errorf("failure in NewReader() while extracting TarGz %s: %w", imageRef, err)
+	}
 	tarReader := tar.NewReader(uncompressedStream)
-	return installPath, writeTarGzContent(installPath, tarReader, reference)
+	return installPath, writeTarGzContent(installPath, tarReader, imageRef)
 }
 
 func writeTarGzContent(installPath string, tarReader *tar.Reader, layerReference string) error {
@@ -92,7 +89,7 @@ func handleExtractedHeaderFile(header *tar.Header, reader io.Reader, destination
 ) error {
 	switch header.Typeflag {
 	case tar.TypeDir:
-		if err := os.Mkdir(destinationPath, othersReadExecuteFilePermission); err != nil {
+		if err := os.Mkdir(destinationPath, util.OthersReadExecuteFilePermission); err != nil {
 			return fmt.Errorf("failure in Mkdir() storage while extracting TarGz %s: %w", layerReference, err)
 		}
 	case tar.TypeReg:
@@ -113,51 +110,34 @@ func handleExtractedHeaderFile(header *tar.Header, reader io.Reader, destination
 }
 
 func DecodeYamlFromDigest(repo string, module string, digest string, pathPattern string) (interface{}, error) {
-	reference := fmt.Sprintf("%s/%s@%s", repo, module, digest)
-	layer, err := crane.PullLayer(reference)
-	if err != nil {
-		return nil, err
-	}
-
 	filePath := filepath.Join(os.TempDir(), pathPattern)
+	imageRef := fmt.Sprintf("%s/%s@%s", repo, module, digest)
 
 	// check existing file
-	decodedConfig, err := checkExistingYamlFile(filePath, reference)
-	if err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("opening file for install config caused an error %s: %w", reference, err)
-	} else if err == nil {
+	decodedConfig, err := util.GetYamlFileContent(filePath)
+	if err == nil {
 		return decodedConfig, nil
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("opening file for install config caused an error %s: %w", imageRef, err)
 	}
 
 	// proceed only if file was not found
 	// yaml is not compressed
+	layer, err := crane.PullLayer(imageRef)
+	if err != nil {
+		return nil, err
+	}
 	blob, err := layer.Uncompressed()
 	if err != nil {
 		return nil, fmt.Errorf("fetching blob resulted in an error %s: %w", layer, err)
 	}
 
-	return writeYamlContent(blob, reference, filePath)
-}
-
-func checkExistingYamlFile(filePath string, layerReference string) (interface{}, error) {
-	var decodedConfig interface{}
-	file, err := os.Open(filePath)
-	if err != nil {
-		return nil, err
-	}
-	if file != nil {
-		if err = yaml.NewYAMLOrJSONDecoder(file, yamlDecodeBufferSize).Decode(&decodedConfig); err != nil {
-			return nil, fmt.Errorf("reading content for install config caused an error %s: %w", layerReference, err)
-		}
-		err = file.Close()
-	}
-
-	return decodedConfig, err
+	return writeYamlContent(blob, imageRef, filePath)
 }
 
 func writeYamlContent(blob io.ReadCloser, layerReference string, filePath string) (interface{}, error) {
 	var decodedConfig interface{}
-	err := yaml.NewYAMLOrJSONDecoder(blob, yamlDecodeBufferSize).Decode(&decodedConfig)
+	err := yaml.NewYAMLOrJSONDecoder(blob, util.YamlDecodeBufferSize).Decode(&decodedConfig)
 	if err != nil {
 		return nil, fmt.Errorf("yaml blob decoding resulted in an error %s: %w", layerReference, err)
 	}
@@ -167,22 +147,6 @@ func writeYamlContent(blob io.ReadCloser, layerReference string, filePath string
 		return nil, fmt.Errorf("yaml marshal for install config caused an error %s: %w", layerReference, err)
 	}
 
-	// create directory
-	if err := os.MkdirAll(filepath.Dir(filePath), ownerFilePermission); err != nil {
-		return nil, err
-	}
-
-	// create file
-	file, err := os.Create(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("file creation for install config caused an error %s: %w", layerReference, err)
-	}
-
-	// write to file
-	if _, err = file.Write(bytes); err != nil {
-		return nil, fmt.Errorf("writing file for install config caused an error %s: %w", layerReference, err)
-	}
-
 	// close file
-	return decodedConfig, file.Close()
+	return decodedConfig, util.WriteToFile(filePath, bytes)
 }
