@@ -37,13 +37,19 @@ patches:
         value: --rate-limiter-frequency=200
       - op: add
         path: /spec/template/spec/containers/0/args/-
-        value: --workers-concurrent-manifest=100
+        value: --workers-concurrent-manifest=100      
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: --workers-consistency-check=100
       - op: add
         path: /spec/template/spec/containers/0/args/-
         value: --k8s-client-qps=300
       - op: add
         path: /spec/template/spec/containers/0/args/-
-        value: --k8s-client-burst=300
+        value: --k8s-client-burst=300      
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: --enable-pprof=true
     target:
       kind: Deployment
   - patch: |-

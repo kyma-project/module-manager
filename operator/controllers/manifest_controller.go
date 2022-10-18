@@ -82,6 +82,7 @@ type ManifestReconciler struct {
 	Workers              *ManifestWorkerPool
 	RequeueIntervals     RequeueIntervals
 	internalTypes.ReconcileFlagConfig
+	ConsistencyCheckWorkers *ConsistencyCheckWorkerPool
 }
 
 //+kubebuilder:rbac:groups=operator.kyma-project.io,resources=manifests,verbs=get;list;watch;create;update;patch;delete
@@ -400,7 +401,7 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 	r.DeployChan = make(chan OperationRequest, r.Workers.GetWorkerPoolSize())
 	r.ConsistencyCheckChan = make(chan ConsistencyCheckRequest, r.Workers.GetWorkerPoolSize())
 	r.Workers.StartWorkers(ctx, r.DeployChan, r.HandleCharts)
-	r.Workers.StartConsistencyCheckWorkers(ctx, r.ConsistencyCheckChan, r.checkInstallInfo)
+	r.ConsistencyCheckWorkers.StartWorkers(ctx, r.ConsistencyCheckChan, r.checkInstallInfo)
 	// default config from kubebuilder
 	r.RestConfig = mgr.GetConfig()
 

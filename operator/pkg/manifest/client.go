@@ -204,7 +204,7 @@ func (h *HelmClient) GetNsResource(actionClient *action.Install, operationType H
 	if err != nil {
 		return nil, err
 	}
-	return h.kubeClient.Build(bytes.NewBuffer(nsBuf), true)
+	return h.kubeClient.Build(bytes.NewBuffer(nsBuf), false)
 }
 
 func (h *HelmClient) CreateNamespace(namespace kube.ResourceList) error {
@@ -299,7 +299,7 @@ func (h *HelmClient) GetTargetResources(ctx context.Context, manifest string, ta
 	var err error
 
 	if len(transforms) == 0 {
-		resourceList, err = h.kubeClient.Build(bytes.NewBufferString(manifest), true)
+		resourceList, err = h.kubeClient.Build(bytes.NewBufferString(manifest), false)
 	} else {
 		resourceList, err = h.transformManifestResources(ctx, manifest, transforms, object)
 	}

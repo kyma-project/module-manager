@@ -43,7 +43,10 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	//+kubebuilder:scaffold:imports
+
+	"log"
+	"net/http"
+	_ "net/http/pprof"
 )
 
 var (
@@ -76,15 +79,16 @@ func init() {
 }
 
 type FlagVar struct {
-	metricsAddr                                                                                string
-	enableLeaderElection, checkReadyStates, customStateCheck, insecureRegistry, enableWebhooks bool
-	probeAddr                                                                                  string
-	requeueSuccessInterval, requeueFailureInterval, requeueWaitingInterval                     time.Duration
-	failureBaseDelay, failureMaxDelay                                                          time.Duration
-	concurrentReconciles, workersConcurrentManifests, rateLimiterBurst, rateLimiterFrequency   int
-	clientQPS                                                                                  float64
-	clientBurst                                                                                int
-	listenerAddr                                                                               string
+	metricsAddr, listenerAddr                                                 string
+	enableLeaderElection, enablePProf, enableWebhooks                         bool
+	checkReadyStates, customStateCheck, insecureRegistry                      bool
+	probeAddr                                                                 string
+	requeueSuccessInterval, requeueFailureInterval, requeueWaitingInterval    time.Duration
+	failureBaseDelay, failureMaxDelay                                         time.Duration
+	concurrentReconciles, workersConcurrentManifests, workersConsistencyCheck int
+	rateLimiterBurst, rateLimiterFrequency                                    int
+	clientQPS                                                                 float64
+	clientBurst                                                               int
 }
 
 func main() {
@@ -100,7 +104,11 @@ func main() {
 	config := ctrl.GetConfigOrDie()
 	config.QPS = float32(flagVar.clientQPS)
 	config.Burst = flagVar.clientBurst
-
+	if flagVar.enablePProf {
+		go func() {
+			log.Println(http.ListenAndServe(":8083", nil))
+		}()
+	}
 	setupWithManager(flagVar, util.GetCacheFunc(), scheme, config)
 }
 
@@ -121,15 +129,19 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 	context := ctrl.SetupSignalHandler()
 	workersLogger := ctrl.Log.WithName("workers")
 	manifestWorkers := controllers.NewManifestWorkers(&workersLogger, flagVar.workersConcurrentManifests)
+	ccWorkersLogger := ctrl.Log.WithName("consistency-check-workers")
+	consistencyCheckWorkers := controllers.
+		NewConsistencyCheckWorkers(&ccWorkersLogger, flagVar.workersConsistencyCheck)
 	codec, err := types.NewCodec()
 	if err != nil {
 		setupLog.Error(err, "unable to initialize codec")
 		os.Exit(1)
 	}
 	if err = (&controllers.ManifestReconciler{
-		Client:  mgr.GetClient(),
-		Scheme:  mgr.GetScheme(),
-		Workers: manifestWorkers,
+		Client:                  mgr.GetClient(),
+		Scheme:                  mgr.GetScheme(),
+		Workers:                 manifestWorkers,
+		ConsistencyCheckWorkers: consistencyCheckWorkers,
 		ReconcileFlagConfig: internalTypes.ReconcileFlagConfig{
 			Codec:                   codec,
 			MaxConcurrentReconciles: flagVar.concurrentReconciles,
@@ -195,6 +207,8 @@ func defineFlagVar() *FlagVar {
 		"Determines the number of concurrent reconciliations by the operator.")
 	flag.IntVar(&flagVar.workersConcurrentManifests, "workers-concurrent-manifest", workersCountDefault,
 		"Determines the number of concurrent manifest operations for a single resource by the operator.")
+	flag.IntVar(&flagVar.workersConsistencyCheck, "workers-consistency-check", workersCountDefault,
+		"Determines the number of concurrent manifest operations for a single resource by the operator.")
 	flag.BoolVar(&flagVar.checkReadyStates, "check-ready-states", false,
 		"Indicates if installed resources should be verified after installation, "+
 			"before marking the resource state to a consistent state.")
@@ -214,5 +228,7 @@ func defineFlagVar() *FlagVar {
 		"indicates if insecure (http) response is expected from image registry")
 	flag.BoolVar(&flagVar.enableWebhooks, "enable-webhooks", false,
 		"indicates if webhooks should be enabled")
+	flag.BoolVar(&flagVar.enablePProf, "enable-pprof", false,
+		"indicates if pprof should be enabled")
 	return flagVar
 }
