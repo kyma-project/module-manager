@@ -368,8 +368,7 @@ func (o *Operations) uninstall(deployInfo InstallInfo) (bool, error) {
 }
 
 func (o *Operations) getManifestForChartPath(chartPath, chartName string, actionClient *action.Install,
-	flags types.ChartFlags,
-) (string, error) {
+	flags types.ChartFlags) (string, error) {
 	var err error
 	helmRepo := false
 
@@ -388,6 +387,7 @@ func (o *Operations) getManifestForChartPath(chartPath, chartName string, action
 			return renderedManifest, nil
 		}
 	}
+	o.logger.V(util.DebugLogLevel).Info("chart located", "path", chartPath)
 
 	// if rendered manifest doesn't exist
 	chartRequested, err := o.repoHandler.LoadChart(chartPath, actionClient)

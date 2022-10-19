@@ -45,12 +45,13 @@ import (
 	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
 	"github.com/kyma-project/module-manager/operator/internal/pkg/prepare"
 	internalTypes "github.com/kyma-project/module-manager/operator/internal/pkg/types"
-	"github.com/kyma-project/module-manager/operator/internal/pkg/util"
+	internalUtil "github.com/kyma-project/module-manager/operator/internal/pkg/util"
 	"github.com/kyma-project/module-manager/operator/pkg/custom"
 	"github.com/kyma-project/module-manager/operator/pkg/labels"
 	"github.com/kyma-project/module-manager/operator/pkg/manifest"
 	"github.com/kyma-project/module-manager/operator/pkg/ratelimit"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
+	"github.com/kyma-project/module-manager/operator/pkg/util"
 	listener "github.com/kyma-project/runtime-watcher/listener/pkg/event"
 )
 
@@ -211,7 +212,7 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 			"observed generation change")
 	}
 
-	logger.Info("checking consistent state for " + namespacedName.String())
+	logger.V(1).Info("checking consistent state for " + namespacedName.String())
 
 	// send deploy requests
 	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, custom.ClusterInfo{
@@ -235,12 +236,12 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 
 		// update only if resources not ready OR an error occurred during chart verification
 		if !ready {
-			util.AddReadyConditionForResponses([]*manifest.InstallResponse{chartResponse}, logger, manifestObj)
+			internalUtil.AddReadyConditionForResponses([]*manifest.InstallResponse{chartResponse}, logger, manifestObj)
 			return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing,
 				"resources not ready")
 		} else if err != nil {
 			logger.Error(err, fmt.Sprintf("error while performing consistency check on manifest %s", namespacedName))
-			util.AddReadyConditionForResponses([]*manifest.InstallResponse{chartResponse}, logger, manifestObj)
+			internalUtil.AddReadyConditionForResponses([]*manifest.InstallResponse{chartResponse}, logger, manifestObj)
 			return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error())
 		}
 	}
@@ -257,22 +258,23 @@ func (r *ManifestReconciler) updateManifestStatus(ctx context.Context, manifestO
 	manifestObj.Status.State = state
 	switch state {
 	case v1alpha1.ManifestStateReady:
-		util.AddReadyConditionForObjects(manifestObj, []v1alpha1.InstallItem{{ChartName: v1alpha1.ManifestKind}},
+		internalUtil.AddReadyConditionForObjects(manifestObj, []v1alpha1.InstallItem{{ChartName: v1alpha1.ManifestKind}},
 			v1alpha1.ConditionStatusTrue, message)
 	case "":
-		util.AddReadyConditionForObjects(manifestObj, []v1alpha1.InstallItem{{ChartName: v1alpha1.ManifestKind}},
+		internalUtil.AddReadyConditionForObjects(manifestObj, []v1alpha1.InstallItem{{ChartName: v1alpha1.ManifestKind}},
 			v1alpha1.ConditionStatusUnknown, message)
 	case v1alpha1.ManifestStateError,
 		v1alpha1.ManifestStateDeleting,
 		v1alpha1.ManifestStateProcessing:
-		util.AddReadyConditionForObjects(manifestObj, []v1alpha1.InstallItem{{ChartName: v1alpha1.ManifestKind}},
+		internalUtil.AddReadyConditionForObjects(manifestObj, []v1alpha1.InstallItem{{ChartName: v1alpha1.ManifestKind}},
 			v1alpha1.ConditionStatusFalse, message)
 	}
 	return r.Status().Update(ctx, manifestObj.SetObservedGeneration())
 }
 
 func (r *ManifestReconciler) HandleCharts(deployInfo manifest.InstallInfo, mode manifest.Mode,
-	logger *logr.Logger) *manifest.InstallResponse {
+	logger *logr.Logger,
+) *manifest.InstallResponse {
 	// evaluate create or delete chart
 	create := mode == manifest.CreateMode
 
@@ -310,11 +312,11 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 		case response := <-responseChan:
 			responses = append(responses, response)
 			if response.Err != nil {
-				logger.Error(fmt.Errorf("chart installation failure for %s!!! : %w",
+				logger.Error(fmt.Errorf("chart installation failure for '%s': %w",
 					response.ResNamespacedName.String(), response.Err), "")
 				errorState = true
 			} else if !response.Ready {
-				logger.Info(fmt.Sprintf("chart checks still processing %s!!!",
+				logger.Info(fmt.Sprintf("chart checks still processing '%s'",
 					response.ResNamespacedName.String()))
 				processing = true
 			}
@@ -328,11 +330,11 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 		if apierrors.IsNotFound(err) {
 			return
 		}
-		logger.Error(err, "error while locating", "resource", namespacedName)
+		logger.V(util.DebugLogLevel).Error(err, "error while locating", "resource", namespacedName)
 		return
 	}
 
-	util.AddReadyConditionForResponses(responses, logger, latestManifestObj)
+	internalUtil.AddReadyConditionForResponses(responses, logger, latestManifestObj)
 
 	// handle deletion if no previous error occurred
 	if !errorState && !latestManifestObj.DeletionTimestamp.IsZero() && !processing {
@@ -345,7 +347,7 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 		}
 
 		// finalizer removal failure - set error state
-		logger.Error(err, "unexpected error while removing finalizer from",
+		logger.V(util.DebugLogLevel).Error(err, "unexpected error while removing finalizer from",
 			"resource", namespacedName)
 		errorState = true
 	}

@@ -22,6 +22,7 @@ import (
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/kube"
+
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -116,8 +117,9 @@ func (h *HelmClient) NewUninstallActionClient(namespace string) (*action.Uninsta
 func (h *HelmClient) SetDefaultClientConfig(actionClient *action.Install, releaseName string) {
 	actionClient.DryRun = true
 	actionClient.Atomic = false
-	actionClient.Wait = false
+
 	actionClient.WaitForJobs = false
+
 	actionClient.Replace = true     // Skip the name check
 	actionClient.IncludeCRDs = true // include CRDs in the templated output
 	actionClient.UseReleaseName = false
@@ -149,8 +151,7 @@ func (h *HelmClient) SetFlags(flags types.ChartFlags, actionClient *action.Insta
 
 		validConversion := true
 
-		//nolint:exhaustive
-		switch value.Kind() {
+		switch value.Kind() { //nolint:exhaustive
 		case reflect.Bool:
 			var valueToBeSet bool
 			valueToBeSet, validConversion = flagValue.(bool)
