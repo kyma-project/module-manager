@@ -23,6 +23,10 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+const (
+	DebugLogLevel = 2
+)
+
 func GetNamespaceObjBytes(clientNs string) ([]byte, error) {
 	namespace := v1.Namespace{
 		TypeMeta: metav1.TypeMeta{
