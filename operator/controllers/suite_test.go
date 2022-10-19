@@ -47,12 +47,14 @@ import (
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
 var (
-	k8sClient  client.Client        //nolint:gochecknoglobals
-	testEnv    *envtest.Environment //nolint:gochecknoglobals
-	k8sManager ctrl.Manager         //nolint:gochecknoglobals
-	ctx        context.Context      //nolint:gochecknoglobals
-	cancel     context.CancelFunc   //nolint:gochecknoglobals
-	server     *httptest.Server     //nolint:gochecknoglobals
+	k8sClient     client.Client                                       //nolint:gochecknoglobals
+	testEnv       *envtest.Environment                                //nolint:gochecknoglobals
+	k8sManager    ctrl.Manager                                        //nolint:gochecknoglobals
+	ctx           context.Context                                     //nolint:gochecknoglobals
+	cancel        context.CancelFunc                                  //nolint:gochecknoglobals
+	server        *httptest.Server                                    //nolint:gochecknoglobals
+	helmCacheRepo = filepath.Join(helmCacheHome, "repository")        //nolint:gochecknoglobals
+	helmRepoFile  = filepath.Join(helmCacheHome, "repositories.yaml") //nolint:gochecknoglobals
 )
 
 const (
@@ -60,11 +62,6 @@ const (
 	helmCacheHome    = "/tmp/caches"
 	helmCacheRepoEnv = "HELM_REPOSITORY_CACHE"
 	helmRepoEnv      = "HELM_REPOSITORY_CONFIG"
-)
-
-var (
-	helmCacheRepo = filepath.Join(helmCacheHome, "repository")
-	helmRepoFile  = filepath.Join(helmCacheHome, "repositories.yaml")
 )
 
 func TestAPIs(t *testing.T) {

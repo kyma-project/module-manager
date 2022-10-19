@@ -368,7 +368,8 @@ func (o *Operations) uninstall(deployInfo InstallInfo) (bool, error) {
 }
 
 func (o *Operations) getManifestForChartPath(chartPath, chartName string, actionClient *action.Install,
-	flags types.ChartFlags) (string, error) {
+	flags types.ChartFlags,
+) (string, error) {
 	var err error
 	helmRepo := false
 

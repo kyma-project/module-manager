@@ -36,7 +36,7 @@ func (m mockLayer) MediaType() (types.MediaType, error) {
 
 func (m mockLayer) Size() (int64, error) { return 137438691328, nil }
 func (m mockLayer) Compressed() (io.ReadCloser, error) {
-	f, err := os.Open("./compressed.tgz")
+	f, err := os.Open("./test_samples/compressed.tgz")
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +63,9 @@ func CreateFakeOCIRegistry() string {
 
 	got, err := remote.Layer(ref)
 	Expect(err).ToNot(HaveOccurred())
-	fmt.Println(got.Digest())
+	gotHash, err := got.Digest()
+	Expect(err).ToNot(HaveOccurred())
+	Expect(gotHash).To(Equal(digest))
 	hash, err := layer.Digest()
 	Expect(err).ToNot(HaveOccurred())
 
