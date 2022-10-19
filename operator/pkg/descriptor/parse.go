@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 
@@ -109,9 +108,9 @@ func handleExtractedHeaderFile(header *tar.Header, reader io.Reader, destination
 	return nil
 }
 
-func DecodeYamlFromDigest(repo string, module string, digest string, pathPattern string) (interface{}, error) {
-	filePath := filepath.Join(os.TempDir(), pathPattern)
-	imageRef := fmt.Sprintf("%s/%s@%s", repo, module, digest)
+func DecodeYamlFromDigest(config types.ImageSpec) (interface{}, error) {
+	filePath := util.GetConfigFilePath(config)
+	imageRef := fmt.Sprintf("%s/%s@%s", config.Repo, config.Name, config.Ref)
 
 	// check existing file
 	decodedConfig, err := util.GetYamlFileContent(filePath)

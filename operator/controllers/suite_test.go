@@ -62,6 +62,7 @@ const (
 	helmCacheHome    = "/tmp/caches"
 	helmCacheRepoEnv = "HELM_REPOSITORY_CACHE"
 	helmRepoEnv      = "HELM_REPOSITORY_CONFIG"
+	layerNameRef     = "some/name"
 )
 
 func TestAPIs(t *testing.T) {

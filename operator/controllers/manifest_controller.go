@@ -175,11 +175,13 @@ func (r *ManifestReconciler) sendJobToInstallChannel(ctx context.Context, logger
 		Client: r.Client, Config: r.RestConfig,
 	}, r.ReconcileFlagConfig)
 	if err != nil {
+
 		logger.Error(err, fmt.Sprintf("cannot prepare install information for %s resource %s",
 			v1alpha1.ManifestKind, namespacedName))
 		if mode == manifest.DeletionMode {
-			// since installation path for manifest could not be determined
-			// the manifest resource could be deleted with force
+			// when installation info cannot not be determined in deletion mode
+			// reconciling this resource again will not fix itself
+			// so remove finalizer in this case, to process with Manifest deletion
 			if controllerutil.RemoveFinalizer(manifestObj, labels.ManifestFinalizer) {
 				return r.updateManifest(ctx, manifestObj)
 			}

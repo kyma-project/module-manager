@@ -27,6 +27,7 @@ import (
 const (
 	manifestDir                     = "manifest"
 	manifestFile                    = "manifest.yaml"
+	configFileName                  = "installConfig.yaml"
 	YamlDecodeBufferSize            = 2048
 	OwnerFilePermission             = 0o770
 	OthersReadExecuteFilePermission = 0o755
@@ -133,6 +134,10 @@ func ParseManifestStringToObjects(manifest string) (*types.ManifestResources, er
 
 func GetFsChartPath(imageSpec types.ImageSpec) string {
 	return filepath.Join(os.TempDir(), fmt.Sprintf("%s-%s", imageSpec.Name, imageSpec.Ref))
+}
+
+func GetConfigFilePath(config types.ImageSpec) string {
+	return filepath.Join(os.TempDir(), filepath.Join(config.Ref, configFileName))
 }
 
 func GetFsManifestChartPath(imageChartPath string) string {

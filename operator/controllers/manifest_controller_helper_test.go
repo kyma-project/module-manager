@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -14,8 +16,11 @@ import (
 	_ "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
+	manifestTypes "github.com/kyma-project/module-manager/operator/pkg/types"
+	"github.com/kyma-project/module-manager/operator/pkg/util"
 )
 
 type mockLayer struct{}
@@ -43,7 +48,7 @@ func (m mockLayer) Compressed() (io.ReadCloser, error) {
 	return io.NopCloser(f), nil
 }
 
-func CreateFakeOCIRegistry() string {
+func GetImageSpecFromMockOCIRegistry() manifestTypes.ImageSpec {
 	// create registry and server
 	layer, err := partial.CompressedToLayer(mockLayer{})
 	Expect(err).ToNot(HaveOccurred())
@@ -54,7 +59,7 @@ func CreateFakeOCIRegistry() string {
 	u, err := url.Parse(server.URL)
 	Expect(err).NotTo(HaveOccurred())
 
-	dst := fmt.Sprintf("%s/some/name@%s", u.Host, digest)
+	dst := fmt.Sprintf("%s/%s@%s", u.Host, layerNameRef, digest)
 	ref, err := name.NewDigest(dst)
 	Expect(err).ToNot(HaveOccurred())
 
@@ -69,7 +74,16 @@ func CreateFakeOCIRegistry() string {
 	hash, err := layer.Digest()
 	Expect(err).ToNot(HaveOccurred())
 
-	return hash.String()
+	return getImageSpec(hash.String())
+}
+
+func getImageSpec(digest string) manifestTypes.ImageSpec {
+	return manifestTypes.ImageSpec{
+		Name: layerNameRef,
+		Repo: server.Listener.Addr().String(),
+		Ref:  digest,
+		Type: "oci-ref",
+	}
 }
 
 func createManifestObj(name string, spec v1alpha1.ManifestSpec) *v1alpha1.Manifest {
@@ -84,4 +98,28 @@ func createManifestObj(name string, spec v1alpha1.ManifestSpec) *v1alpha1.Manife
 		},
 		Spec: spec,
 	}
+}
+
+func deleteHelmChartResources(imageSpec manifestTypes.ImageSpec) {
+	chartYamlPath := filepath.Join(util.GetFsChartPath(imageSpec), "Chart.yaml")
+	Expect(os.RemoveAll(chartYamlPath)).Should(Succeed())
+	valuesYamlPath := filepath.Join(util.GetFsChartPath(imageSpec), "values.yaml")
+	Expect(os.RemoveAll(valuesYamlPath)).Should(Succeed())
+	templatesPath := filepath.Join(util.GetFsChartPath(imageSpec), "templates")
+	Expect(os.RemoveAll(templatesPath)).Should(Succeed())
+}
+
+func verifyHelmResourcesDeletion(imageSpec manifestTypes.ImageSpec) {
+	_, err := os.Stat(filepath.Join(util.GetFsChartPath(imageSpec), "Chart.yaml"))
+	Expect(os.IsNotExist(err)).To(BeTrue())
+	_, err = os.Stat(filepath.Join(util.GetFsChartPath(imageSpec), "values.yaml"))
+	Expect(os.IsNotExist(err)).To(BeTrue())
+	_, err = os.Stat(filepath.Join(util.GetFsChartPath(imageSpec), "templates"))
+	Expect(os.IsNotExist(err)).To(BeTrue())
+}
+
+func deleteManifestResource(manifestObj *v1alpha1.Manifest) {
+	Expect(k8sClient.Delete(ctx, manifestObj)).Should(Succeed())
+	Eventually(getManifest(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
+		Should(BeTrue())
 }

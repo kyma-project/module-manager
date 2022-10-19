@@ -3,7 +3,6 @@ package controllers_test
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -19,7 +18,7 @@ import (
 
 func createManifestWithHelmRepo() func() bool {
 	return func() bool {
-		By("having transitioned the CR State to Ready")
+		By("having transitioned the CR State to Ready with a Helm Chart")
 		helmChartSpec := types.HelmChartSpec{
 			ChartName: "nginx-ingress",
 			URL:       "https://helm.nginx.com/stable",
@@ -49,14 +48,9 @@ func createManifestWithHelmRepo() func() bool {
 
 func createManifestWithOCI() func() bool {
 	return func() bool {
-		By("having transitioned the CR State to Ready")
-		digest := CreateFakeOCIRegistry()
-		imageSpec := types.ImageSpec{
-			Name: "some/name",
-			Repo: server.Listener.Addr().String(),
-			Ref:  digest,
-			Type: "oci-ref",
-		}
+		By("having transitioned the CR State to Ready with an OCI specification")
+		imageSpec := GetImageSpecFromMockOCIRegistry()
+
 		specBytes, err := json.Marshal(imageSpec)
 		Expect(err).ToNot(HaveOccurred())
 		manifestObj := createManifestObj("manifest-sample", v1alpha1.ManifestSpec{
@@ -72,16 +66,9 @@ func createManifestWithOCI() func() bool {
 		Expect(k8sClient.Create(ctx, manifestObj)).Should(Succeed())
 		Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
 			Should(BeEquivalentTo(v1alpha1.ManifestStateReady))
-		Expect(k8sClient.Delete(ctx, manifestObj)).Should(Succeed())
-		Eventually(getManifest(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
-			Should(BeTrue())
 
-		// delete Chart.yaml and values.yaml from rendered helm chart
-		// to check if only fs cached rendered manifest is used to reconcile manifest
-		chartYamlPath := filepath.Join(util.GetFsChartPath(imageSpec), "Chart.yaml")
-		valuesYamlPath := filepath.Join(util.GetFsChartPath(imageSpec), "values.yaml")
-		Expect(os.RemoveAll(chartYamlPath)).Should(Succeed())
-		Expect(os.RemoveAll(valuesYamlPath)).Should(Succeed())
+		deleteManifestResource(manifestObj)
+		deleteHelmChartResources(imageSpec)
 
 		// create another manifest with same image specification
 		manifestObj2 := createManifestObj("manifest-sample-2", v1alpha1.ManifestSpec{
@@ -99,15 +86,10 @@ func createManifestWithOCI() func() bool {
 		Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj2)), 5*time.Minute, 250*time.Millisecond).
 			Should(BeEquivalentTo(v1alpha1.ManifestStateReady))
 
-		// verify deletes files were still not created
-		_, err = os.Stat(chartYamlPath)
-		Expect(os.IsNotExist(err)).To(BeTrue())
-		_, err = os.Stat(valuesYamlPath)
-		Expect(os.IsNotExist(err)).To(BeTrue())
+		verifyHelmResourcesDeletion(imageSpec)
+		deleteManifestResource(manifestObj2)
+		deleteHelmChartResources(imageSpec)
 
-		Expect(k8sClient.Delete(ctx, manifestObj2)).Should(Succeed())
-		Eventually(getManifest(client.ObjectKeyFromObject(manifestObj2)), 5*time.Minute, 250*time.Millisecond).
-			Should(BeTrue())
 		Expect(os.RemoveAll(util.GetFsChartPath(imageSpec))).Should(Succeed())
 		return true
 	}
@@ -115,14 +97,10 @@ func createManifestWithOCI() func() bool {
 
 func createManifestWithInvalidOCI() func() bool {
 	return func() bool {
-		By("having transitioned the CR State to Ready")
-		digest := CreateFakeOCIRegistry()
-		imageSpec := types.ImageSpec{
-			Name: "some/name",
-			Repo: "invalid.com",
-			Ref:  digest,
-			Type: "oci-ref",
-		}
+		By("having transitioned the CR State to Error with invalid OCI Specification")
+		imageSpec := GetImageSpecFromMockOCIRegistry()
+		imageSpec.Repo = "invalid.com"
+
 		specBytes, err := json.Marshal(imageSpec)
 		Expect(err).ToNot(HaveOccurred())
 		manifestObj := createManifestObj("manifest-sample", v1alpha1.ManifestSpec{
@@ -138,9 +116,9 @@ func createManifestWithInvalidOCI() func() bool {
 		Expect(k8sClient.Create(ctx, manifestObj)).Should(Succeed())
 		Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
 			Should(BeEquivalentTo(v1alpha1.ManifestStateError))
-		Expect(k8sClient.Delete(ctx, manifestObj)).Should(Succeed())
-		Eventually(getManifest(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
-			Should(BeTrue())
+
+		deleteManifestResource(manifestObj)
+
 		Expect(os.RemoveAll(util.GetFsChartPath(imageSpec))).Should(Succeed())
 		return true
 	}

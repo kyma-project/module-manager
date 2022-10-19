@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path/filepath"
 
 	"helm.sh/helm/v3/pkg/strvals"
 	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -27,7 +26,6 @@ import (
 
 const (
 	configReadError = "reading install %s resulted in an error for " + v1alpha1.ManifestKind
-	configFileName  = "installConfig.yaml"
 )
 
 func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClusterInfo custom.ClusterInfo,
@@ -40,8 +38,7 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 
 	var configs []any
 	if config.Type.NotEmpty() { //nolint:nestif
-		decodedConfig, err := descriptor.DecodeYamlFromDigest(config.Repo, config.Name, config.Ref,
-			filepath.Join(config.Ref, configFileName))
+		decodedConfig, err := descriptor.DecodeYamlFromDigest(config)
 		if err != nil {
 			// if EOF error proceed without config
 			if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
