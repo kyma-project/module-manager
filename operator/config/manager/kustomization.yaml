@@ -14,5 +14,5 @@ configMapGenerator:
 
 images:
 - name: controller
-  newName: eu.gcr.io/kyma-project/module-manager
-  newTag: latest
+  newName: ghcr.io/ruanxin/module-manager
+  newTag: 6.8.0

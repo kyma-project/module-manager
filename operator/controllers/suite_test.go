@@ -96,15 +96,13 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).ToNot(HaveOccurred())
 	manifestWorkers := controllers.NewManifestWorkers(&logger, 1)
-	consistencyCheckWorkers := controllers.NewConsistencyCheckWorkers(&logger, 1)
 	codec, err := types.NewCodec()
 	Expect(err).ToNot(HaveOccurred())
 
 	err = (&controllers.ManifestReconciler{
-		Client:                  k8sManager.GetClient(),
-		Scheme:                  scheme.Scheme,
-		Workers:                 manifestWorkers,
-		ConsistencyCheckWorkers: consistencyCheckWorkers,
+		Client:  k8sManager.GetClient(),
+		Scheme:  scheme.Scheme,
+		Workers: manifestWorkers,
 		ReconcileFlagConfig: internalTypes.ReconcileFlagConfig{
 			Codec:                   codec,
 			MaxConcurrentReconciles: 1,

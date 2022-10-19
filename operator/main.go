@@ -79,16 +79,16 @@ func init() {
 }
 
 type FlagVar struct {
-	metricsAddr, listenerAddr                                                 string
-	enableLeaderElection, enablePProf, enableWebhooks                         bool
-	checkReadyStates, customStateCheck, insecureRegistry                      bool
-	probeAddr                                                                 string
-	requeueSuccessInterval, requeueFailureInterval, requeueWaitingInterval    time.Duration
-	failureBaseDelay, failureMaxDelay                                         time.Duration
-	concurrentReconciles, workersConcurrentManifests, workersConsistencyCheck int
-	rateLimiterBurst, rateLimiterFrequency                                    int
-	clientQPS                                                                 float64
-	clientBurst                                                               int
+	metricsAddr, listenerAddr                                              string
+	enableLeaderElection, enablePProf, enableWebhooks                      bool
+	checkReadyStates, customStateCheck, insecureRegistry                   bool
+	probeAddr                                                              string
+	requeueSuccessInterval, requeueFailureInterval, requeueWaitingInterval time.Duration
+	failureBaseDelay, failureMaxDelay                                      time.Duration
+	concurrentReconciles, workersConcurrentManifests                       int
+	rateLimiterBurst, rateLimiterFrequency                                 int
+	clientQPS                                                              float64
+	clientBurst                                                            int
 }
 
 func main() {
@@ -129,19 +129,15 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 	context := ctrl.SetupSignalHandler()
 	workersLogger := ctrl.Log.WithName("workers")
 	manifestWorkers := controllers.NewManifestWorkers(&workersLogger, flagVar.workersConcurrentManifests)
-	ccWorkersLogger := ctrl.Log.WithName("consistency-check-workers")
-	consistencyCheckWorkers := controllers.
-		NewConsistencyCheckWorkers(&ccWorkersLogger, flagVar.workersConsistencyCheck)
 	codec, err := types.NewCodec()
 	if err != nil {
 		setupLog.Error(err, "unable to initialize codec")
 		os.Exit(1)
 	}
 	if err = (&controllers.ManifestReconciler{
-		Client:                  mgr.GetClient(),
-		Scheme:                  mgr.GetScheme(),
-		Workers:                 manifestWorkers,
-		ConsistencyCheckWorkers: consistencyCheckWorkers,
+		Client:  mgr.GetClient(),
+		Scheme:  mgr.GetScheme(),
+		Workers: manifestWorkers,
 		ReconcileFlagConfig: internalTypes.ReconcileFlagConfig{
 			Codec:                   codec,
 			MaxConcurrentReconciles: flagVar.concurrentReconciles,
@@ -206,8 +202,6 @@ func defineFlagVar() *FlagVar {
 	flag.IntVar(&flagVar.concurrentReconciles, "max-concurrent-reconciles", 1,
 		"Determines the number of concurrent reconciliations by the operator.")
 	flag.IntVar(&flagVar.workersConcurrentManifests, "workers-concurrent-manifest", workersCountDefault,
-		"Determines the number of concurrent manifest operations for a single resource by the operator.")
-	flag.IntVar(&flagVar.workersConsistencyCheck, "workers-consistency-check", workersCountDefault,
 		"Determines the number of concurrent manifest operations for a single resource by the operator.")
 	flag.BoolVar(&flagVar.checkReadyStates, "check-ready-states", false,
 		"Indicates if installed resources should be verified after installation, "+
