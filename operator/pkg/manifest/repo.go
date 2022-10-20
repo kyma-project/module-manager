@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kyma-project/module-manager/operator/pkg/util"
+
 	"github.com/go-logr/logr"
 	"github.com/gofrs/flock"
 	"github.com/pkg/errors"
@@ -88,13 +90,13 @@ func (r *RepoHandler) Update(ctx context.Context) error {
 
 	// if helm was never used to deploy remote helm charts, repo file would not exist
 	if os.IsNotExist(errors.Cause(err)) {
-		logger.Info(fmt.Sprintf("repository file %s doesn't exist", repoFile))
+		logger.V(util.DebugLogLevel).Info(fmt.Sprintf("repository file %s doesn't exist", repoFile))
 		return nil
 	}
 
 	// for local helm charts there will be no repositories
 	if len(file.Repositories) == 0 {
-		logger.Info(fmt.Sprintf("no repositories found in repository file %s", repoFile))
+		logger.V(util.DebugLogLevel).Info(fmt.Sprintf("no repositories found in repository file %s", repoFile))
 		return nil
 	}
 
@@ -106,9 +108,9 @@ func (r *RepoHandler) Update(ctx context.Context) error {
 		repos = append(repos, chartRepo)
 	}
 
-	r.logger.Info("Pulling the latest version from your repositories")
+	r.logger.V(util.DebugLogLevel).Info("Pulling the latest version from your repositories")
 	r.updateRepos(repos)
-	r.logger.Info("Update Complete!! Happy Manifesting!")
+	r.logger.V(util.DebugLogLevel).Info("Update Complete!! Happy Manifesting!")
 	return nil
 }
 
@@ -119,10 +121,10 @@ func (r *RepoHandler) updateRepos(repos []*repo.ChartRepository) {
 		go func(repository *repo.ChartRepository) {
 			defer waitGroup.Done()
 			if _, err := repository.DownloadIndexFile(); err != nil {
-				r.logger.Error(err, "Unable to get an update from the chart repository", "name",
+				r.logger.V(util.DebugLogLevel).Error(err, "Unable to get an update from the chart repository", "name",
 					repository.Config.Name, "url", repository.Config.URL)
 			} else {
-				r.logger.Info("Successfully received an update for the chart repository", "name",
+				r.logger.V(util.DebugLogLevel).Info("Successfully received an update for the chart repository", "name",
 					repository.Config.Name)
 			}
 		}(repository)
@@ -157,7 +159,7 @@ func (r *RepoHandler) Add(repoName string, url string, logger *logr.Logger) erro
 	}
 
 	if file.Has(repoName) {
-		r.logger.Info("manifest repo already exists", "name", repoName)
+		r.logger.V(util.DebugLogLevel).Info("manifest repo already exists", "name", repoName)
 	}
 
 	repoEntry := repo.Entry{
@@ -179,6 +181,6 @@ func (r *RepoHandler) Add(repoName string, url string, logger *logr.Logger) erro
 	if err := file.WriteFile(repoConfig, ownerWriteUniversalRead); err != nil {
 		return err
 	}
-	logger.Info(fmt.Sprintf("%s has been added to your repositories\n", repoName))
+	logger.V(util.DebugLogLevel).Info(fmt.Sprintf("%s has been added to your repositories\n", repoName))
 	return nil
 }
