@@ -50,7 +50,9 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/args/-
         value: --check-ready-states=true  
-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Always
     target:
       kind: Deployment
   - patch: |-
