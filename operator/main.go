@@ -44,9 +44,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	"log"
 	"net/http"
-	_ "net/http/pprof"
+	"net/http/pprof"
 )
 
 var (
@@ -66,6 +65,7 @@ const (
 	port                          = 9443
 	clientQPSDefault              = 150
 	clientBurstDefault            = 150
+	defaultPprofServerTimeout     = 90 * time.Second
 )
 
 //nolint:gochecknoinits
@@ -89,6 +89,8 @@ type FlagVar struct {
 	rateLimiterBurst, rateLimiterFrequency                                 int
 	clientQPS                                                              float64
 	clientBurst                                                            int
+	pprofAddr                                                              string
+	pprofServerTimeout                                                     time.Duration
 }
 
 func main() {
@@ -105,11 +107,29 @@ func main() {
 	config.QPS = float32(flagVar.clientQPS)
 	config.Burst = flagVar.clientBurst
 	if flagVar.enablePProf {
-		go func() {
-			log.Println(http.ListenAndServe(":8083", nil))
-		}()
+		go pprofStartServer(flagVar.pprofAddr, flagVar.pprofServerTimeout)
 	}
 	setupWithManager(flagVar, util.GetCacheFunc(), scheme, config)
+}
+
+func pprofStartServer(addr string, timeout time.Duration) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+
+	server := &http.Server{
+		Addr:         addr,
+		Handler:      mux,
+		ReadTimeout:  timeout,
+		WriteTimeout: timeout,
+	}
+
+	if err := server.ListenAndServe(); err != nil {
+		setupLog.Error(err, "error starting pprof server")
+	}
 }
 
 func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme *runtime.Scheme, config *rest.Config) {
@@ -186,6 +206,8 @@ func defineFlagVar() *FlagVar {
 		"The address the probe endpoint binds to.")
 	flag.StringVar(&flagVar.listenerAddr, "listener-address", ":8082",
 		"The address the probe endpoint binds to.")
+	flag.StringVar(&flagVar.pprofAddr, "pprof-bind-address", ":8083",
+		"The address the pprof endpoint binds to.")
 	flag.BoolVar(&flagVar.enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
@@ -224,5 +246,7 @@ func defineFlagVar() *FlagVar {
 		"indicates if webhooks should be enabled")
 	flag.BoolVar(&flagVar.enablePProf, "enable-pprof", false,
 		"indicates if pprof should be enabled")
+	flag.DurationVar(&flagVar.pprofServerTimeout, "pprof-server-timeout", defaultPprofServerTimeout,
+		"Timeout of Read / Write for the pprof server.")
 	return flagVar
 }
