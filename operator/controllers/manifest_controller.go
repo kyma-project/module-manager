@@ -175,7 +175,18 @@ func (r *ManifestReconciler) sendJobToInstallChannel(ctx context.Context, logger
 		Client: r.Client, Config: r.RestConfig,
 	}, r.ReconcileFlagConfig)
 	if err != nil {
-		return err
+
+		logger.Error(err, fmt.Sprintf("cannot prepare install information for %s resource %s",
+			v1alpha1.ManifestKind, namespacedName))
+		if mode == manifest.DeletionMode {
+			// when installation info cannot not be determined in deletion mode
+			// reconciling this resource again will not fix itself
+			// so remove finalizer in this case, to process with Manifest deletion
+			if controllerutil.RemoveFinalizer(manifestObj, labels.ManifestFinalizer) {
+				return r.updateManifest(ctx, manifestObj)
+			}
+		}
+		return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error())
 	}
 
 	// send install requests to deployment channel

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 
@@ -46,11 +45,6 @@ func GetPathFromExtractedTarGz(imageSpec types.ImageSpec, insecureRegistry bool)
 		return "", err
 	}
 
-	// create dir for uncompressed chart
-	if err = os.MkdirAll(installPath, util.OwnerFilePermission); err != nil {
-		return "", fmt.Errorf("failure in MkdirAll() while extracting TarGz %s: %w", layer, err)
-	}
-
 	// uncompress chart to install path
 	blobReadCloser, err := layer.Compressed()
 	if err != nil {
@@ -65,6 +59,11 @@ func GetPathFromExtractedTarGz(imageSpec types.ImageSpec, insecureRegistry bool)
 }
 
 func writeTarGzContent(installPath string, tarReader *tar.Reader, layerReference string) error {
+	// create dir for uncompressed chart
+	if err := os.MkdirAll(installPath, util.OwnerFilePermission); err != nil {
+		return fmt.Errorf("failure in MkdirAll() while extracting TarGz %s: %w", layerReference, err)
+	}
+
 	for {
 		header, err := tarReader.Next()
 		if errors.Is(err, io.EOF) {
@@ -89,7 +88,7 @@ func handleExtractedHeaderFile(header *tar.Header, reader io.Reader, destination
 ) error {
 	switch header.Typeflag {
 	case tar.TypeDir:
-		if err := os.Mkdir(destinationPath, util.OthersReadExecuteFilePermission); err != nil {
+		if err := os.MkdirAll(destinationPath, util.OthersReadExecuteFilePermission); err != nil {
 			return fmt.Errorf("failure in Mkdir() storage while extracting TarGz %s: %w", layerReference, err)
 		}
 	case tar.TypeReg:
@@ -109,9 +108,9 @@ func handleExtractedHeaderFile(header *tar.Header, reader io.Reader, destination
 	return nil
 }
 
-func DecodeYamlFromDigest(repo string, module string, digest string, pathPattern string) (interface{}, error) {
-	filePath := filepath.Join(os.TempDir(), pathPattern)
-	imageRef := fmt.Sprintf("%s/%s@%s", repo, module, digest)
+func DecodeYamlFromDigest(config types.ImageSpec) (interface{}, error) {
+	filePath := util.GetConfigFilePath(config)
+	imageRef := fmt.Sprintf("%s/%s@%s", config.Repo, config.Name, config.Ref)
 
 	// check existing file
 	decodedConfig, err := util.GetYamlFileContent(filePath)
