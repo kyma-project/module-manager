@@ -18,11 +18,13 @@ package controllers_test
 
 import (
 	"context"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/google/go-containerregistry/pkg/registry"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -45,18 +47,22 @@ import (
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
 var (
-	k8sClient  client.Client        //nolint:gochecknoglobals
-	testEnv    *envtest.Environment //nolint:gochecknoglobals
-	k8sManager ctrl.Manager         //nolint:gochecknoglobals
-	ctx        context.Context      //nolint:gochecknoglobals
-	cancel     context.CancelFunc   //nolint:gochecknoglobals
+	k8sClient     client.Client                                       //nolint:gochecknoglobals
+	testEnv       *envtest.Environment                                //nolint:gochecknoglobals
+	k8sManager    ctrl.Manager                                        //nolint:gochecknoglobals
+	ctx           context.Context                                     //nolint:gochecknoglobals
+	cancel        context.CancelFunc                                  //nolint:gochecknoglobals
+	server        *httptest.Server                                    //nolint:gochecknoglobals
+	helmCacheRepo = filepath.Join(helmCacheHome, "repository")        //nolint:gochecknoglobals
+	helmRepoFile  = filepath.Join(helmCacheHome, "repositories.yaml") //nolint:gochecknoglobals
 )
 
 const (
 	helmCacheHomeEnv = "HELM_CACHE_HOME"
 	helmCacheHome    = "/tmp/caches"
 	helmCacheRepoEnv = "HELM_REPOSITORY_CACHE"
-	helmCacheRepo    = "/tmp/caches/repository"
+	helmRepoEnv      = "HELM_REPOSITORY_CONFIG"
+	layerNameRef     = "some/name"
 )
 
 func TestAPIs(t *testing.T) {
@@ -67,9 +73,17 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
+	err := os.RemoveAll(helmCacheHome)
+	Expect(err != nil && !os.IsExist(err)).To(BeFalse())
+	Expect(os.MkdirAll(helmCacheHome, os.ModePerm)).NotTo(HaveOccurred())
+
 	ctx, cancel = context.WithCancel(context.TODO())
 	logger := zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true))
 	logf.SetLogger(logger)
+
+	// create registry and server
+	newReg := registry.New()
+	server = httptest.NewServer(newReg)
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
@@ -133,6 +147,9 @@ var _ = BeforeSuite(func() {
 var _ = AfterSuite(func() {
 	cancel()
 	By("tearing down the test environment")
+	server.Close()
 	err := testEnv.Stop()
+	Expect(err).NotTo(HaveOccurred())
+	err = os.RemoveAll(helmCacheHome)
 	Expect(err).NotTo(HaveOccurred())
 })

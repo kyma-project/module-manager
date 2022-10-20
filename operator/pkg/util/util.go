@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -24,7 +25,13 @@ import (
 )
 
 const (
-	DebugLogLevel = 2
+	manifestDir                     = "manifest"
+	manifestFile                    = "manifest.yaml"
+	configFileName                  = "installConfig.yaml"
+	YamlDecodeBufferSize            = 2048
+	OwnerFilePermission             = 0o770
+	OthersReadExecuteFilePermission = 0o755
+	DebugLogLevel                   = 2
 )
 
 func GetNamespaceObjBytes(clientNs string) ([]byte, error) {
@@ -123,4 +130,60 @@ func ParseManifestStringToObjects(manifest string) (*types.ManifestResources, er
 
 		objects.Items = append(objects.Items, &unstructuredObj)
 	}
+}
+
+func GetFsChartPath(imageSpec types.ImageSpec) string {
+	return filepath.Join(os.TempDir(), fmt.Sprintf("%s-%s", imageSpec.Name, imageSpec.Ref))
+}
+
+func GetConfigFilePath(config types.ImageSpec) string {
+	return filepath.Join(os.TempDir(), filepath.Join(config.Ref, configFileName))
+}
+
+func GetFsManifestChartPath(imageChartPath string) string {
+	return filepath.Join(imageChartPath, manifestDir, manifestFile)
+}
+
+func GetYamlFileContent(filePath string) (interface{}, error) {
+	var fileContent interface{}
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	if file != nil {
+		if err = yamlUtil.NewYAMLOrJSONDecoder(file, YamlDecodeBufferSize).Decode(&fileContent); err != nil {
+			return nil, fmt.Errorf("reading content from file path %s: %w", filePath, err)
+		}
+		err = file.Close()
+	}
+
+	return fileContent, err
+}
+
+func GetStringifiedYamlFromFilePath(filePath string) (string, error) {
+	file, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", err
+	}
+
+	return string(file), err
+}
+
+func WriteToFile(filePath string, bytes []byte) error {
+	// create directory
+	if err := os.MkdirAll(filepath.Dir(filePath), OwnerFilePermission); err != nil {
+		return err
+	}
+
+	// create file
+	file, err := os.Create(filePath)
+	if err != nil {
+		return fmt.Errorf("file creation at path %s caused an error: %w", filePath, err)
+	}
+
+	// write to file
+	if _, err = file.Write(bytes); err != nil {
+		return fmt.Errorf("writing file to path %s caused an error: %w", filePath, err)
+	}
+	return file.Close()
 }

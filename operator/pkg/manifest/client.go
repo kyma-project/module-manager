@@ -151,7 +151,8 @@ func (h *HelmClient) SetFlags(flags types.ChartFlags, actionClient *action.Insta
 
 		validConversion := true
 
-		switch value.Kind() { //nolint:exhaustive
+		//nolint:exhaustive
+		switch value.Kind() {
 		case reflect.Bool:
 			var valueToBeSet bool
 			valueToBeSet, validConversion = flagValue.(bool)
