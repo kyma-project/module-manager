@@ -43,7 +43,9 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	//+kubebuilder:scaffold:imports
+
+	"net/http"
+	"net/http/pprof"
 )
 
 var (
@@ -63,6 +65,7 @@ const (
 	port                          = 9443
 	clientQPSDefault              = 150
 	clientBurstDefault            = 150
+	defaultPprofServerTimeout     = 90 * time.Second
 )
 
 //nolint:gochecknoinits
@@ -76,15 +79,18 @@ func init() {
 }
 
 type FlagVar struct {
-	metricsAddr                                                                                string
-	enableLeaderElection, checkReadyStates, customStateCheck, insecureRegistry, enableWebhooks bool
-	probeAddr                                                                                  string
-	requeueSuccessInterval, requeueFailureInterval, requeueWaitingInterval                     time.Duration
-	failureBaseDelay, failureMaxDelay                                                          time.Duration
-	concurrentReconciles, workersConcurrentManifests, rateLimiterBurst, rateLimiterFrequency   int
-	clientQPS                                                                                  float64
-	clientBurst                                                                                int
-	listenerAddr                                                                               string
+	metricsAddr, listenerAddr                                              string
+	enableLeaderElection, enablePProf, enableWebhooks                      bool
+	checkReadyStates, customStateCheck, insecureRegistry                   bool
+	probeAddr                                                              string
+	requeueSuccessInterval, requeueFailureInterval, requeueWaitingInterval time.Duration
+	failureBaseDelay, failureMaxDelay                                      time.Duration
+	concurrentReconciles, workersConcurrentManifests                       int
+	rateLimiterBurst, rateLimiterFrequency                                 int
+	clientQPS                                                              float64
+	clientBurst                                                            int
+	pprofAddr                                                              string
+	pprofServerTimeout                                                     time.Duration
 }
 
 func main() {
@@ -100,8 +106,30 @@ func main() {
 	config := ctrl.GetConfigOrDie()
 	config.QPS = float32(flagVar.clientQPS)
 	config.Burst = flagVar.clientBurst
-
+	if flagVar.enablePProf {
+		go pprofStartServer(flagVar.pprofAddr, flagVar.pprofServerTimeout)
+	}
 	setupWithManager(flagVar, util.GetCacheFunc(), scheme, config)
+}
+
+func pprofStartServer(addr string, timeout time.Duration) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+
+	server := &http.Server{
+		Addr:         addr,
+		Handler:      mux,
+		ReadTimeout:  timeout,
+		WriteTimeout: timeout,
+	}
+
+	if err := server.ListenAndServe(); err != nil {
+		setupLog.Error(err, "error starting pprof server")
+	}
 }
 
 func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme *runtime.Scheme, config *rest.Config) {
@@ -178,6 +206,8 @@ func defineFlagVar() *FlagVar {
 		"The address the probe endpoint binds to.")
 	flag.StringVar(&flagVar.listenerAddr, "listener-address", ":8082",
 		"The address the probe endpoint binds to.")
+	flag.StringVar(&flagVar.pprofAddr, "pprof-bind-address", ":8083",
+		"The address the pprof endpoint binds to.")
 	flag.BoolVar(&flagVar.enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
@@ -214,5 +244,9 @@ func defineFlagVar() *FlagVar {
 		"indicates if insecure (http) response is expected from image registry")
 	flag.BoolVar(&flagVar.enableWebhooks, "enable-webhooks", false,
 		"indicates if webhooks should be enabled")
+	flag.BoolVar(&flagVar.enablePProf, "enable-pprof", false,
+		"indicates if pprof should be enabled")
+	flag.DurationVar(&flagVar.pprofServerTimeout, "pprof-server-timeout", defaultPprofServerTimeout,
+		"Timeout of Read / Write for the pprof server.")
 	return flagVar
 }
