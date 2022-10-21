@@ -160,15 +160,6 @@ func GetYamlFileContent(filePath string) (interface{}, error) {
 	return fileContent, err
 }
 
-func GetStringifiedYamlFromFilePath(filePath string) (string, error) {
-	file, err := os.ReadFile(filePath)
-	if err != nil {
-		return "", err
-	}
-
-	return string(file), err
-}
-
 func WriteToFile(filePath string, bytes []byte) error {
 	// create directory
 	if err := os.MkdirAll(filepath.Dir(filePath), OwnerFilePermission); err != nil {

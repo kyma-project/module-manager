@@ -23,6 +23,7 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/ratelimiter"
 
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -32,7 +33,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -62,9 +62,9 @@ type RequeueIntervals struct {
 }
 
 type OperationRequest struct {
-	Info         manifest.InstallInfo
+	Info         types.InstallInfo
 	Mode         manifest.Mode
-	ResponseChan manifest.ResponseChan
+	ResponseChan types.ResponseChan
 }
 
 // ManifestReconciler reconciles a Manifest object.
@@ -72,7 +72,7 @@ type ManifestReconciler struct {
 	client.Client
 	Scheme           *runtime.Scheme
 	RestConfig       *rest.Config
-	RestMapper       *restmapper.DeferredDiscoveryRESTMapper
+	RestMapper       meta.RESTMapper
 	DeployChan       chan OperationRequest
 	Workers          *ManifestWorkerPool
 	RequeueIntervals RequeueIntervals
@@ -163,7 +163,7 @@ func (r *ManifestReconciler) sendJobToInstallChannel(ctx context.Context, logger
 	manifestObj *v1alpha1.Manifest, mode manifest.Mode,
 ) error {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
-	responseChan := make(manifest.ResponseChan)
+	responseChan := make(types.ResponseChan)
 
 	chartCount := len(manifestObj.Spec.Installs)
 
@@ -172,7 +172,9 @@ func (r *ManifestReconciler) sendJobToInstallChannel(ctx context.Context, logger
 
 	// send deploy requests
 	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, custom.ClusterInfo{
-		Client: r.Client, Config: r.RestConfig,
+		Client:     r.Client,
+		Config:     r.RestConfig,
+		RestMapper: r.RestMapper,
 	}, r.ReconcileFlagConfig)
 	if err != nil {
 
@@ -218,7 +220,9 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 
 	// send deploy requests
 	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, custom.ClusterInfo{
-		Client: r.Client, Config: r.RestConfig,
+		Client:     r.Client,
+		Config:     r.RestConfig,
+		RestMapper: r.RestMapper,
 	}, r.ReconcileFlagConfig)
 	if err != nil {
 		return err
@@ -228,7 +232,7 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 		ready, err := manifest.ConsistencyCheck(logger, deployInfo, []types.ObjectTransform{})
 
 		// prepare chart response object
-		chartResponse := &manifest.InstallResponse{
+		chartResponse := &types.InstallResponse{
 			Ready:             ready,
 			ResNamespacedName: client.ObjectKeyFromObject(manifestObj),
 			Err:               err,
@@ -238,12 +242,12 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 
 		// update only if resources not ready OR an error occurred during chart verification
 		if !ready {
-			internalUtil.AddReadyConditionForResponses([]*manifest.InstallResponse{chartResponse}, logger, manifestObj)
+			internalUtil.AddReadyConditionForResponses([]*types.InstallResponse{chartResponse}, logger, manifestObj)
 			return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing,
 				"resources not ready")
 		} else if err != nil {
 			logger.Error(err, fmt.Sprintf("error while performing consistency check on manifest %s", namespacedName))
-			internalUtil.AddReadyConditionForResponses([]*manifest.InstallResponse{chartResponse}, logger, manifestObj)
+			internalUtil.AddReadyConditionForResponses([]*types.InstallResponse{chartResponse}, logger, manifestObj)
 			return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error())
 		}
 	}
@@ -274,9 +278,9 @@ func (r *ManifestReconciler) updateManifestStatus(ctx context.Context, manifestO
 	return r.Status().Update(ctx, manifestObj.SetObservedGeneration())
 }
 
-func (r *ManifestReconciler) HandleCharts(deployInfo manifest.InstallInfo, mode manifest.Mode,
+func (r *ManifestReconciler) HandleCharts(deployInfo types.InstallInfo, mode manifest.Mode,
 	logger *logr.Logger,
-) *manifest.InstallResponse {
+) *types.InstallResponse {
 	// evaluate create or delete chart
 	create := mode == manifest.CreateMode
 
@@ -288,7 +292,7 @@ func (r *ManifestReconciler) HandleCharts(deployInfo manifest.InstallInfo, mode 
 		ready, err = manifest.UninstallChart(logger, deployInfo, []types.ObjectTransform{})
 	}
 
-	return &manifest.InstallResponse{
+	return &types.InstallResponse{
 		Ready:             ready,
 		ResNamespacedName: client.ObjectKeyFromObject(deployInfo.BaseResource),
 		Err:               err,
@@ -298,12 +302,12 @@ func (r *ManifestReconciler) HandleCharts(deployInfo manifest.InstallInfo, mode 
 }
 
 func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *logr.Logger, chartCount int,
-	responseChan manifest.ResponseChan, namespacedName client.ObjectKey,
+	responseChan types.ResponseChan, namespacedName client.ObjectKey,
 ) {
 	// errorState takes precedence over processing
 	errorState := false
 	processing := false
-	responses := make([]*manifest.InstallResponse, 0)
+	responses := make([]*types.InstallResponse, 0)
 
 	for a := 1; a <= chartCount; a++ {
 		select {
@@ -397,6 +401,9 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 
 	// default config from kubebuilder
 	r.RestConfig = mgr.GetConfig()
+
+	// assign REST mapper from manager
+	r.RestMapper = mgr.GetRESTMapper()
 
 	// register listener component
 	runnableListener, eventChannel := listener.RegisterListenerComponent(

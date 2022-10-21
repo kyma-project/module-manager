@@ -39,9 +39,9 @@ func createManifestWithHelmRepo() func() bool {
 		Expect(k8sClient.Create(ctx, manifestObj)).Should(Succeed())
 		Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
 			Should(BeEquivalentTo(v1alpha1.ManifestStateReady))
-		Expect(k8sClient.Delete(ctx, manifestObj)).Should(Succeed())
-		Eventually(getManifest(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
-			Should(BeTrue())
+
+		deleteManifestResource(manifestObj)
+
 		return true
 	}
 }
@@ -124,6 +124,35 @@ func createManifestWithInvalidOCI() func() bool {
 	}
 }
 
+func createManifestWithKustomize() func() bool {
+	return func() bool {
+		kustomizeSpec := types.KustomizeSpec{
+			Path: "https://github.com/kyma-project/module-manager//operator/config/default?ref=main",
+			Type: "kustomize",
+		}
+		specBytes, err := json.Marshal(kustomizeSpec)
+		Expect(err).ToNot(HaveOccurred())
+
+		manifestObj := createManifestObj("manifest-sample", v1alpha1.ManifestSpec{
+			Installs: []v1alpha1.InstallInfo{
+				{
+					Source: runtime.RawExtension{
+						Raw: specBytes,
+					},
+					Name: "kustomize-test",
+				},
+			},
+		})
+		Expect(k8sClient.Create(ctx, manifestObj)).Should(Succeed())
+		Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
+			Should(BeEquivalentTo(v1alpha1.ManifestStateError))
+
+		deleteManifestResource(manifestObj)
+
+		return true
+	}
+}
+
 func getManifestState(key client.ObjectKey) func() v1alpha1.ManifestState {
 	return func() v1alpha1.ManifestState {
 		manifest := v1alpha1.Manifest{}
@@ -167,9 +196,10 @@ var _ = Describe("given manifest with a helm repo", Ordered, func() {
 			Expect(testCaseFn()).To(BeTrue())
 		},
 		[]TableEntry{
-			Entry("when manifestCR contains a valid helm repo", createManifestWithHelmRepo()),
-			Entry("when manifestCRs contain valid OCI Image specification", createManifestWithOCI()),
-			Entry("when manifestCR contains invalid OCI Image specification", createManifestWithInvalidOCI()),
+			//Entry("when manifestCR contains a valid helm repo", createManifestWithHelmRepo()),
+			//Entry("when manifestCR contains valid OCI Image specification", createManifestWithOCI()),
+			//Entry("when manifestCR contains invalid OCI Image specification", createManifestWithInvalidOCI()),
+			Entry("when manifestCR contains a valid Kustomize specification", createManifestWithKustomize()),
 		})
 
 	AfterAll(func() {

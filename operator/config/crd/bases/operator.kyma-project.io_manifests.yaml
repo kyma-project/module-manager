@@ -59,6 +59,7 @@ spec:
                     enum:
                     - helm-chart
                     - oci-ref
+                    - kustomize
                     - ""
                     type: string
                 type: object
@@ -79,6 +80,7 @@ spec:
                     enum:
                     - helm-chart
                     - oci-ref
+                    - kustomize
                     - ""
                     type: string
                 type: object

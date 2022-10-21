@@ -317,12 +317,12 @@ func (h *HelmClient) GetTargetResources(ctx context.Context, manifest string, ta
 	return resourceList, nil
 }
 
-func (h *HelmClient) PerformUpdate(resourceLists ResourceLists, force bool,
+func (h *HelmClient) PerformUpdate(resourceLists types.ResourceLists, force bool,
 ) (*kube.Result, error) {
 	return h.kubeClient.Update(resourceLists.Installed, resourceLists.Target, force)
 }
 
-func (h *HelmClient) PerformCreate(resourceLists ResourceLists) (*kube.Result, error) {
+func (h *HelmClient) PerformCreate(resourceLists types.ResourceLists) (*kube.Result, error) {
 	return h.kubeClient.Create(resourceLists.Target)
 }
 

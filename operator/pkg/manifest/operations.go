@@ -10,14 +10,11 @@ import (
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/kube"
-	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/kyma-project/module-manager/operator/pkg/custom"
+	"github.com/kyma-project/module-manager/operator/pkg/applier"
 	"github.com/kyma-project/module-manager/operator/pkg/resource"
 	manifestRest "github.com/kyma-project/module-manager/operator/pkg/rest"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
@@ -31,65 +28,9 @@ const (
 	DeletionMode
 )
 
-// ChartInfo defines helm chart information.
-type ChartInfo struct {
-	ChartPath   string
-	RepoName    string
-	URL         string
-	ChartName   string
-	ReleaseName string
-	Flags       types.ChartFlags
-}
-
-type ResourceLists struct {
-	Target    kube.ResourceList
-	Installed kube.ResourceList
-	Namespace kube.ResourceList
-}
-
-func (r ResourceLists) getWaitForResources() kube.ResourceList {
-	return append(r.Target, r.Namespace...)
-}
-
-// InstallInfo represents deployment information artifacts to be processed.
-type InstallInfo struct {
-	// ChartInfo represents chart information to be processed
-	*ChartInfo
-	// ResourceInfo represents additional resources to be processed
-	ResourceInfo
-	// ClusterInfo represents target cluster information
-	custom.ClusterInfo
-	// Ctx hold the current context
-	Ctx context.Context //nolint:containedctx
-	// CheckFn returns a boolean indicating ready state based on custom checks
-	CheckFn custom.CheckFnType
-	// CheckReadyStates indicates if native resources should be checked for ready states
-	CheckReadyStates bool
-}
-
-// ResourceInfo represents additional resources.
-type ResourceInfo struct {
-	// BaseResource represents base custom resource that is being reconciled
-	BaseResource *unstructured.Unstructured
-	// CustomResources represents a set of additional custom resources to be installed
-	CustomResources []*unstructured.Unstructured
-	// Crds represents a set of additional custom resource definitions to be installed
-	Crds []*apiextensions.CustomResourceDefinition
-}
-
-type ResponseChan chan *InstallResponse
-
-//nolint:errname
-type InstallResponse struct {
-	Ready             bool
-	ChartName         string
-	Flags             types.ChartFlags
-	ResNamespacedName client.ObjectKey
-	Err               error
-}
-
-func (r *InstallResponse) Error() string {
-	return r.Err.Error()
+type renderSrc interface {
+	processManifest([]types.ObjectTransform) (string, error)
+	transform(context.Context, string, types.BaseCustomObject, []types.ObjectTransform) error
 }
 
 type Operations struct {
@@ -101,9 +42,10 @@ type Operations struct {
 	actionClient       *action.Install
 	flags              types.ChartFlags
 	resourceTransforms []types.ObjectTransform
+	renderSrc          renderSrc
 }
 
-func InstallChart(logger *logr.Logger, deployInfo InstallInfo, resourceTransforms []types.ObjectTransform,
+func InstallChart(logger *logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
 ) (bool, error) {
 	operations, err := newOperations(logger, deployInfo, resourceTransforms)
 	if err != nil {
@@ -113,7 +55,7 @@ func InstallChart(logger *logr.Logger, deployInfo InstallInfo, resourceTransform
 	return operations.install(deployInfo)
 }
 
-func UninstallChart(logger *logr.Logger, deployInfo InstallInfo, resourceTransforms []types.ObjectTransform,
+func UninstallChart(logger *logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
 ) (bool, error) {
 	operations, err := newOperations(logger, deployInfo, resourceTransforms)
 	if err != nil {
@@ -123,7 +65,7 @@ func UninstallChart(logger *logr.Logger, deployInfo InstallInfo, resourceTransfo
 	return operations.uninstall(deployInfo)
 }
 
-func ConsistencyCheck(logger *logr.Logger, deployInfo InstallInfo, resourceTransforms []types.ObjectTransform,
+func ConsistencyCheck(logger *logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
 ) (bool, error) {
 	operations, err := newOperations(logger, deployInfo, resourceTransforms)
 	if err != nil {
@@ -133,7 +75,7 @@ func ConsistencyCheck(logger *logr.Logger, deployInfo InstallInfo, resourceTrans
 	return operations.consistencyCheck(deployInfo)
 }
 
-func newOperations(logger *logr.Logger, deployInfo InstallInfo, resourceTransforms []types.ObjectTransform,
+func newOperations(logger *logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
 ) (*Operations, error) {
 	settings := cli.New()
 	restGetter := manifestRest.NewRESTClientGetter(deployInfo.Config)
@@ -158,45 +100,47 @@ func newOperations(logger *logr.Logger, deployInfo InstallInfo, resourceTransfor
 	if err != nil {
 		return nil, err
 	}
+
+	operations.renderSrc, err = NewHelmProcessor(deployInfo, logger, operations.actionClient)
+	if err != nil {
+		return nil, err
+	}
+	if deployInfo.Kustomize {
+		operations.renderSrc = NewKustomizeProcessor(deployInfo, logger)
+	}
 	return operations, nil
 }
 
-func (o *Operations) getClusterResources(deployInfo InstallInfo, operation HelmOperation) (ResourceLists, error) {
-	if deployInfo.ChartPath == "" {
-		if err := o.repoHandler.Add(deployInfo.RepoName, deployInfo.URL, o.logger); err != nil {
-			return ResourceLists{}, err
-		}
-	}
-
-	manifest, err := o.getManifestForChartPath(deployInfo.ChartPath, deployInfo.ChartName, o.actionClient, o.flags)
+func (o *Operations) getClusterResources(deployInfo types.InstallInfo, operation HelmOperation) (types.ResourceLists, error) {
+	manifest, err := o.getManifestForChartPath(deployInfo)
 	if err != nil {
-		return ResourceLists{}, err
+		return types.ResourceLists{}, err
 	}
 
 	NsResourceList, err := o.helmClient.GetNsResource(o.actionClient, operation)
 	if err != nil {
-		return ResourceLists{}, err
+		return types.ResourceLists{}, err
 	}
 
 	targetResourceList, err := o.helmClient.GetTargetResources(deployInfo.Ctx, manifest,
 		o.actionClient.Namespace, o.resourceTransforms, deployInfo.BaseResource)
 	if err != nil {
-		return ResourceLists{}, fmt.Errorf("could not render resources from manifest: %w", err)
+		return types.ResourceLists{}, fmt.Errorf("could not render resources from manifest: %w", err)
 	}
 
 	existingResourceList, err := util.FilterExistingResources(targetResourceList)
 	if err != nil {
-		return ResourceLists{}, fmt.Errorf("could not render existing resources from manifest: %w", err)
+		return types.ResourceLists{}, fmt.Errorf("could not render existing resources from manifest: %w", err)
 	}
 
-	return ResourceLists{
+	return types.ResourceLists{
 		Target:    targetResourceList,
 		Installed: existingResourceList,
 		Namespace: NsResourceList,
 	}, nil
 }
 
-func (o *Operations) consistencyCheck(deployInfo InstallInfo) (bool, error) {
+func (o *Operations) consistencyCheck(deployInfo types.InstallInfo) (bool, error) {
 	// verify CRDs
 	if err := resource.CheckCRDs(deployInfo.Ctx, deployInfo.Crds, deployInfo.ClusterInfo.Client,
 		false); err != nil {
@@ -232,13 +176,30 @@ func (o *Operations) consistencyCheck(deployInfo InstallInfo) (bool, error) {
 	return true, nil
 }
 
-func (o *Operations) install(deployInfo InstallInfo) (bool, error) {
+func (o *Operations) install(deployInfo types.InstallInfo) (bool, error) {
 	// install crds first - if present do not update!
 	if err := resource.CheckCRDs(deployInfo.Ctx, deployInfo.Crds, deployInfo.ClusterInfo.Client,
 		true); err != nil {
 		return false, err
 	}
 
+	// Kustomize
+	if deployInfo.Kustomize {
+		stringifiedManifest, err := o.renderSrc.processManifest(o.resourceTransforms)
+		if err != nil {
+			return false, err
+		}
+		ssaApplier := &applier.SetApplier{
+			PatchOptions: v1.PatchOptions{FieldManager: "manifest-lib"},
+		}
+		objects, err := util.ParseManifestStringToObjects(stringifiedManifest)
+		if err != nil {
+			return false, err
+		}
+		return true, ssaApplier.Apply(deployInfo, objects, "")
+	}
+
+	// Helm - default
 	resourceLists, err := o.getClusterResources(deployInfo, OperationCreate)
 	if err != nil {
 		return false, err
@@ -274,7 +235,7 @@ func (o *Operations) install(deployInfo InstallInfo) (bool, error) {
 	return true, nil
 }
 
-func (o *Operations) installResources(resourceLists ResourceLists) (*kube.Result, error) {
+func (o *Operations) installResources(resourceLists types.ResourceLists) (*kube.Result, error) {
 	// create namespace resource first
 	if len(resourceLists.Namespace) > 0 {
 		if err := o.helmClient.CreateNamespace(resourceLists.Namespace); err != nil {
@@ -289,24 +250,24 @@ func (o *Operations) installResources(resourceLists ResourceLists) (*kube.Result
 	return o.helmClient.PerformUpdate(resourceLists, true)
 }
 
-func (o *Operations) verifyResources(ctx context.Context, resourceLists ResourceLists, verifyReadyStates bool,
+func (o *Operations) verifyResources(ctx context.Context, resourceLists types.ResourceLists, verifyReadyStates bool,
 	operationType HelmOperation,
 ) (bool, error) {
 	// if Wait or WaitForJobs is enabled, wait for resources to be ready with a timeout
-	if err := o.helmClient.CheckWaitForResources(resourceLists.getWaitForResources(), o.actionClient,
+	if err := o.helmClient.CheckWaitForResources(resourceLists.GetWaitForResources(), o.actionClient,
 		operationType); err != nil {
 		return false, err
 	}
 
 	if verifyReadyStates {
 		// check target resources are ready or deleted without waiting
-		return o.helmClient.CheckDesiredState(ctx, resourceLists.getWaitForResources(), operationType)
+		return o.helmClient.CheckDesiredState(ctx, resourceLists.GetWaitForResources(), operationType)
 	}
 
 	return true, nil
 }
 
-func (o *Operations) uninstallResources(resourceLists ResourceLists) error {
+func (o *Operations) uninstallResources(resourceLists types.ResourceLists) error {
 	if resourceLists.Installed != nil {
 		response, delErrors := o.kubeClient.Delete(resourceLists.Installed)
 		if len(delErrors) > 0 {
@@ -326,7 +287,7 @@ func (o *Operations) uninstallResources(resourceLists ResourceLists) error {
 	return nil
 }
 
-func (o *Operations) uninstall(deployInfo InstallInfo) (bool, error) {
+func (o *Operations) uninstall(deployInfo types.InstallInfo) (bool, error) {
 	resourceLists, err := o.getClusterResources(deployInfo, OperationDelete)
 	if err != nil {
 		return false, err
@@ -367,68 +328,54 @@ func (o *Operations) uninstall(deployInfo InstallInfo) (bool, error) {
 	return true, err
 }
 
-func (o *Operations) getManifestForChartPath(chartPath, chartName string, actionClient *action.Install,
-	flags types.ChartFlags,
-) (string, error) {
-	var err error
-	helmRepo := false
-
-	if chartPath == "" {
-		// 1. legacy case - helm repo
-		helmRepo = true
-		chartPath, err = o.helmClient.DownloadChart(actionClient, chartName)
-		if err != nil {
-			return "", err
-		}
-	} else {
-		// 2. OCI Image
-		if renderedManifest, err := o.handleRenderedManifestForStaticChart(chartName, chartPath); err != nil {
-			return "", err
-		} else if renderedManifest != "" {
-			return renderedManifest, nil
-		}
+func (o *Operations) getManifestForChartPath(deployInfo types.InstallInfo) (string, error) {
+	// 1. check pre-rendered manifests
+	renderedManifest, err := o.handleRenderedManifestForStaticChart(deployInfo.ChartName, deployInfo.ChartPath)
+	if err != nil {
+		return "", err
+	} else if renderedManifest != "" {
+		return renderedManifest, nil
 	}
-	o.logger.V(util.DebugLogLevel).Info("chart located", "path", chartPath)
 
-	// if rendered manifest doesn't exist
-	chartRequested, err := o.repoHandler.LoadChart(chartPath, actionClient)
+	// 2. render manifests
+	renderedManifest, err = o.renderSrc.processManifest(o.resourceTransforms)
 	if err != nil {
 		return "", err
 	}
 
-	// retrieve manifest
-	release, err := actionClient.Run(chartRequested, flags.SetFlags)
-	if err != nil {
-		return "", err
+	// 3. persist only if static chart path was passed
+	if deployInfo.ChartPath != "" {
+		err = util.WriteToFile(util.GetFsManifestChartPath(deployInfo.ChartPath), []byte(renderedManifest))
 	}
 
 	// optional: Uncomment below to print manifest
 	// fmt.Println(release.Manifest)
 
-	// write rendered manifest file
-	if !helmRepo {
-		err = util.WriteToFile(util.GetFsManifestChartPath(chartPath), []byte(release.Manifest))
-	}
-	return release.Manifest, err
+	return renderedManifest, err
 }
 
 func (o *Operations) handleRenderedManifestForStaticChart(chartName, chartPath string) (string, error) {
+	if chartPath == "" {
+		return "", nil
+	}
+
 	// verify chart path exists
 	if _, err := os.Stat(chartPath); err != nil {
 		return "", fmt.Errorf("locating chart %s at path %s resulted in an error: %w", chartName, chartPath, err)
 	}
 	o.logger.Info(fmt.Sprintf("chart dir %s found at path %s", chartName, chartPath))
 
-	// check if rendered manifest already exists
-	stringifiedManifest, err := util.GetStringifiedYamlFromFilePath(util.GetFsManifestChartPath(chartPath))
+	// 1. check for cached manifest
+	stringifiedManifest, err := resource.GetStringifiedYamlFromFilePath(util.GetFsManifestChartPath(chartPath))
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return "", fmt.Errorf("locating chart rendered manifest %s at path %s resulted in an error: %w",
 				chartName, chartPath, err)
 		}
-		return "", nil
+	} else if stringifiedManifest != "" {
+		return stringifiedManifest, nil
 	}
 
-	// return already rendered manifest here
-	return stringifiedManifest, nil
+	// 2. Read arbitrary manifest yaml file
+	return resource.GetStringifiedYamlFromDirPath(chartPath, o.logger)
 }

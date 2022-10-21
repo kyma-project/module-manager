@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/go-logr/logr"
+
 	"github.com/kyma-project/module-manager/operator/pkg/util"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -22,9 +24,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-func GetCRDsFromPath(ctx context.Context, filePath string) ([]*apiextensionsv1.CustomResourceDefinition, error) {
+func getDirContent(filePath string) ([]fs.DirEntry, error) {
 	dirEntries := make([]fs.DirEntry, 0)
-	if err := filepath.WalkDir(filePath, func(path string, info fs.DirEntry, err error) error {
+	err := filepath.WalkDir(filePath, func(path string, info fs.DirEntry, err error) error {
 		// initial error
 		if err != nil {
 			return err
@@ -34,7 +36,41 @@ func GetCRDsFromPath(ctx context.Context, filePath string) ([]*apiextensionsv1.C
 		}
 		dirEntries, err = os.ReadDir(filePath)
 		return err
-	}); err != nil {
+	})
+
+	return dirEntries, err
+}
+
+func GetStringifiedYamlFromDirPath(dirPath string, logger *logr.Logger) (string, error) {
+	dirEntries, err := getDirContent(dirPath)
+	if err != nil {
+		return "", err
+	}
+
+	childCount := len(dirEntries)
+	if childCount == 0 {
+		logger.V(util.DebugLogLevel).Info(fmt.Sprintf("no yaml file found at file path %s", dirPath))
+		return "", nil
+	} else if childCount > 1 {
+		logger.V(util.DebugLogLevel).Info(fmt.Sprintf("more than onw yaml file found at file path %s", dirPath))
+		return "", nil
+	}
+	file := dirEntries[0]
+	allowedExtns := sets.NewString(".yaml", ".yml")
+	if !allowedExtns.Has(filepath.Ext(file.Name())) {
+		return "", fmt.Errorf("file extension unsupported %s in dir %s", file.Name(), dirPath)
+	}
+
+	stringifiedYaml, err := GetStringifiedYamlFromFilePath(filepath.Join(dirPath, file.Name()))
+	if err != nil {
+		return "", fmt.Errorf("yaml file could not be read %s in dir %s: %w", file.Name(), dirPath, err)
+	}
+	return stringifiedYaml, nil
+}
+
+func GetCRDsFromPath(ctx context.Context, filePath string) ([]*apiextensionsv1.CustomResourceDefinition, error) {
+	dirEntries, err := getDirContent(filePath)
+	if err != nil {
 		return nil, err
 	}
 
@@ -198,4 +234,13 @@ func RemoveCRs(ctx context.Context, crs []*unstructured.Unstructured,
 		}
 	}
 	return deleted, nil
+}
+
+func GetStringifiedYamlFromFilePath(filePath string) (string, error) {
+	file, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", err
+	}
+
+	return string(file), err
 }

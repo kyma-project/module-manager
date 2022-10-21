@@ -19,7 +19,6 @@ import (
 	"github.com/kyma-project/module-manager/operator/pkg/custom"
 	"github.com/kyma-project/module-manager/operator/pkg/descriptor"
 	"github.com/kyma-project/module-manager/operator/pkg/labels"
-	"github.com/kyma-project/module-manager/operator/pkg/manifest"
 	"github.com/kyma-project/module-manager/operator/pkg/resource"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 )
@@ -28,9 +27,10 @@ const (
 	configReadError = "reading install %s resulted in an error for " + v1alpha1.ManifestKind
 )
 
+// GetInstallInfos prepares the installation information for the passed Manifest
 func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClusterInfo custom.ClusterInfo,
 	flags internalTypes.ReconcileFlagConfig,
-) ([]manifest.InstallInfo, error) {
+) ([]types.InstallInfo, error) {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 
 	// extract config
@@ -77,9 +77,9 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 	InsertWatcherLabels(manifestObj)
 
 	// parse installs
-	baseDeployInfo := manifest.InstallInfo{
+	baseDeployInfo := types.InstallInfo{
 		ClusterInfo: clusterInfo,
-		ResourceInfo: manifest.ResourceInfo{
+		ResourceInfo: types.ResourceInfo{
 			Crds:            crds,
 			BaseResource:    &unstructured.Unstructured{Object: manifestObjMetadata},
 			CustomResources: []*unstructured.Unstructured{},
@@ -117,21 +117,22 @@ func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo custo
 			labels.ComponentOwner, namespacedName)
 	}
 
-	// evaluate rest config
+	// evaluate destination config and client
 	clusterClient := &custom.ClusterClient{DefaultClient: defaultClusterInfo.Client}
-	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, manifestObj.Namespace)
+	destinationRestConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, manifestObj.Namespace)
 	if err != nil {
 		return custom.ClusterInfo{}, err
 	}
 
-	destinationClient, err := clusterClient.GetNewClient(restConfig, client.Options{})
+	destinationClient, err := clusterClient.GetNewClient(destinationRestConfig, client.Options{})
 	if err != nil {
 		return custom.ClusterInfo{}, err
 	}
 
 	return custom.ClusterInfo{
-		Config: restConfig,
-		Client: destinationClient,
+		Config:     destinationRestConfig,
+		Client:     destinationClient,
+		RestMapper: defaultClusterInfo.RestMapper,
 	}, nil
 }
 
@@ -152,10 +153,10 @@ func parseInstallConfigs(decodedConfig interface{}) ([]interface{}, error) {
 }
 
 func parseInstallations(manifestObj *v1alpha1.Manifest, codec *types.Codec,
-	configs []interface{}, baseDeployInfo manifest.InstallInfo, insecureRegistry bool,
-) ([]manifest.InstallInfo, error) {
+	configs []interface{}, baseDeployInfo types.InstallInfo, insecureRegistry bool,
+) ([]types.InstallInfo, error) {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
-	deployInfos := make([]manifest.InstallInfo, 0)
+	deployInfos := make([]types.InstallInfo, 0)
 
 	for _, install := range manifestObj.Spec.Installs {
 		deployInfo := baseDeployInfo
@@ -203,7 +204,7 @@ func parseCrds(ctx context.Context, crdImage types.ImageSpec, insecureRegistry b
 
 func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *types.Codec,
 	manifestObj *v1alpha1.Manifest, insecureRegistry bool,
-) (*manifest.ChartInfo, error) {
+) (*types.ChartInfo, error) {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 	specType, err := types.GetSpecType(install.Source.Raw)
 	if err != nil {
@@ -217,7 +218,7 @@ func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *types.Codec,
 			return nil, err
 		}
 
-		return &manifest.ChartInfo{
+		return &types.ChartInfo{
 			ChartName: fmt.Sprintf("%s/%s", install.Name, helmChartSpec.ChartName),
 			RepoName:  install.Name,
 			URL:       helmChartSpec.URL,
@@ -235,10 +236,23 @@ func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *types.Codec,
 			return nil, err
 		}
 
-		return &manifest.ChartInfo{
+		return &types.ChartInfo{
 			ChartName: install.Name,
 			ChartPath: chartPath,
 		}, nil
+
+	case types.KustomizeType:
+		var kustomizeSpec types.KustomizeSpec
+		if err = codec.Decode(install.Source.Raw, &kustomizeSpec, specType); err != nil {
+			return nil, err
+		}
+
+		return &types.ChartInfo{
+			Kustomize: true,
+			ChartName: install.Name,
+			ChartPath: kustomizeSpec.Path,
+		}, nil
+		
 	case types.NilRefType:
 		return nil, fmt.Errorf("empty image type for %s resource chart installation", namespacedName.String())
 	}

@@ -6,6 +6,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	k8slabels "k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -15,8 +16,9 @@ import (
 )
 
 type ClusterInfo struct {
-	Config *rest.Config
-	Client client.Client
+	Config     *rest.Config
+	Client     client.Client
+	RestMapper meta.RESTMapper
 }
 
 func (r ClusterInfo) IsEmpty() bool {

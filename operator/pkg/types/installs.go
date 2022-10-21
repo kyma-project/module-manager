@@ -1,7 +1,17 @@
 package types
 
-import "k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+import (
+	"context"
 
+	"helm.sh/helm/v3/pkg/kube"
+	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/kyma-project/module-manager/operator/pkg/custom"
+)
+
+// +kubebuilder:validation:Enum=helm-chart;oci-ref;"kustomize";""
 type RefTypeMetadata string
 
 func (r RefTypeMetadata) NotEmpty() bool {
@@ -11,6 +21,7 @@ func (r RefTypeMetadata) NotEmpty() bool {
 const (
 	HelmChartType RefTypeMetadata = "helm-chart"
 	OciRefType    RefTypeMetadata = "oci-ref"
+	KustomizeType RefTypeMetadata = "kustomize"
 	NilRefType    RefTypeMetadata = ""
 )
 
@@ -42,7 +53,6 @@ type ImageSpec struct {
 	Ref string `json:"ref"`
 
 	// Type defines the chart as "oci-ref"
-	// +kubebuilder:validation:Enum=helm-chart;oci-ref;""
 	// +kubebuilder:validation:Optional
 	Type RefTypeMetadata `json:"type"`
 }
@@ -57,14 +67,86 @@ type HelmChartSpec struct {
 	// +kubebuilder:validation:Optional
 	ChartName string `json:"chartName"`
 
-	// Type defines the chart as "oci-ref"
-	// +kubebuilder:validation:Enum=helm-chart;oci-ref
+	// Type defines the chart as "helm-chart"
 	// +kubebuilder:validation:Optional
 	Type RefTypeMetadata `json:"type"`
 }
 
-// Objects holds a collection of objects, so that we can filter / sequence them.
+// KustomizeSpec defines the specification for a Kustomize specification.
+type KustomizeSpec struct {
+	// Path defines the Kustomize path
+	Path string `json:"path"`
+
+	// Type defines the chart as "kustomize"
+	// +kubebuilder:validation:Optional
+	Type RefTypeMetadata `json:"type"`
+}
+
+// ManifestResources holds a collection of objects, so that we can filter / sequence them.
 type ManifestResources struct {
 	Items []*unstructured.Unstructured
 	Blobs [][]byte
+}
+
+// InstallInfo represents deployment information artifacts to be processed
+type InstallInfo struct {
+	// ChartInfo represents chart information to be processed
+	*ChartInfo
+	// ResourceInfo represents additional resources to be processed
+	ResourceInfo
+	// ClusterInfo represents target cluster information
+	custom.ClusterInfo
+	// Ctx hold the current context
+	Ctx context.Context //nolint:containedctx
+	// CheckFn returns a boolean indicating ready state based on custom checks
+	CheckFn custom.CheckFnType
+	// CheckReadyStates indicates if native resources should be checked for ready states
+	CheckReadyStates bool
+}
+
+// ChartInfo defines helm chart information
+type ChartInfo struct {
+	ChartPath   string
+	RepoName    string
+	URL         string
+	ChartName   string
+	ReleaseName string
+	Flags       ChartFlags
+	// Kustomize installation
+	Kustomize bool
+}
+
+type ResourceLists struct {
+	Target    kube.ResourceList
+	Installed kube.ResourceList
+	Namespace kube.ResourceList
+}
+
+func (r ResourceLists) GetWaitForResources() kube.ResourceList {
+	return append(r.Target, r.Namespace...)
+}
+
+// ResourceInfo represents additional resources
+type ResourceInfo struct {
+	// BaseResource represents base custom resource that is being reconciled
+	BaseResource *unstructured.Unstructured
+	// CustomResources represents a set of additional custom resources to be installed
+	CustomResources []*unstructured.Unstructured
+	// Crds represents a set of additional custom resource definitions to be installed
+	Crds []*v1.CustomResourceDefinition
+}
+
+type ResponseChan chan *InstallResponse
+
+//nolint:errname
+type InstallResponse struct {
+	Ready             bool
+	ChartName         string
+	Flags             ChartFlags
+	ResNamespacedName client.ObjectKey
+	Err               error
+}
+
+func (r *InstallResponse) Error() string {
+	return r.Err.Error()
 }
