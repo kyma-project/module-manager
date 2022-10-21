@@ -8,10 +8,12 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/api/errors"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
+	"github.com/kyma-project/module-manager/operator/pkg/custom"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
 )
@@ -39,9 +41,9 @@ func createManifestWithHelmRepo() func() bool {
 		Expect(k8sClient.Create(ctx, manifestObj)).Should(Succeed())
 		Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
 			Should(BeEquivalentTo(v1alpha1.ManifestStateReady))
-		Expect(k8sClient.Delete(ctx, manifestObj)).Should(Succeed())
-		Eventually(getManifest(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
-			Should(BeTrue())
+
+		deleteManifestResource(manifestObj, nil)
+
 		return true
 	}
 }
@@ -67,8 +69,8 @@ func createManifestWithOCI() func() bool {
 		Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
 			Should(BeEquivalentTo(v1alpha1.ManifestStateReady))
 
-		deleteManifestResource(manifestObj)
 		deleteHelmChartResources(imageSpec)
+		deleteManifestResource(manifestObj, nil)
 
 		// create another manifest with same image specification
 		manifestObj2 := createManifestObj("manifest-sample-2", v1alpha1.ManifestSpec{
@@ -87,10 +89,55 @@ func createManifestWithOCI() func() bool {
 			Should(BeEquivalentTo(v1alpha1.ManifestStateReady))
 
 		verifyHelmResourcesDeletion(imageSpec)
-		deleteManifestResource(manifestObj2)
-		deleteHelmChartResources(imageSpec)
+
+		deleteManifestResource(manifestObj2, nil)
 
 		Expect(os.RemoveAll(util.GetFsChartPath(imageSpec))).Should(Succeed())
+		return true
+	}
+}
+
+func createTwoRemoteManifestsWithNoInstalls() func() bool {
+	return func() bool {
+		By("having transitioned the CR State to Ready with an OCI specification")
+		imageSpec := GetImageSpecFromMockOCIRegistry()
+		kymaNsName := client.ObjectKey{Name: secretName, Namespace: v1.NamespaceDefault}
+
+		// creating cluster cache entry
+		reconciler.ClusterCache.Set(kymaNsName, custom.ClusterInfo{Config: cfg})
+
+		kymaSecret := createKymaSecret()
+		manifestObj := createManifestObj("manifest-sample", v1alpha1.ManifestSpec{
+			Remote:   true,
+			Installs: []v1alpha1.InstallInfo{},
+		})
+		Expect(k8sClient.Create(ctx, manifestObj)).Should(Succeed())
+		Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
+			Should(BeEquivalentTo(v1alpha1.ManifestStateReady))
+
+		// check cluster cache entry
+		Expect(reconciler.ClusterCache.Get(kymaNsName).Config).To(BeEquivalentTo(cfg))
+
+		// create another manifest with same image specification
+		manifestObj2 := createManifestObj("manifest-sample-2", v1alpha1.ManifestSpec{
+			Remote:   true,
+			Installs: []v1alpha1.InstallInfo{},
+		})
+
+		Expect(k8sClient.Create(ctx, manifestObj2)).Should(Succeed())
+		Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj2)), 5*time.Minute, 250*time.Millisecond).
+			Should(BeEquivalentTo(v1alpha1.ManifestStateReady))
+
+		verifyHelmResourcesDeletion(imageSpec)
+		deleteManifestResource(manifestObj, nil)
+
+		// check cluster cache entry
+		Expect(reconciler.ClusterCache.Get(kymaNsName).Config).To(BeEquivalentTo(cfg))
+
+		deleteManifestResource(manifestObj2, kymaSecret)
+
+		// verify cluster cache deleted
+		Expect(reconciler.ClusterCache.Get(kymaNsName).IsEmpty()).To(BeTrue())
 		return true
 	}
 }
@@ -117,7 +164,7 @@ func createManifestWithInvalidOCI() func() bool {
 		Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
 			Should(BeEquivalentTo(v1alpha1.ManifestStateError))
 
-		deleteManifestResource(manifestObj)
+		deleteManifestResource(manifestObj, nil)
 
 		Expect(os.RemoveAll(util.GetFsChartPath(imageSpec))).Should(Succeed())
 		return true
@@ -168,8 +215,9 @@ var _ = Describe("given manifest with a helm repo", Ordered, func() {
 		},
 		[]TableEntry{
 			Entry("when manifestCR contains a valid helm repo", createManifestWithHelmRepo()),
-			Entry("when manifestCRs contain valid OCI Image specification", createManifestWithOCI()),
+			Entry("when two manifestCRs contain valid OCI Image specification", createManifestWithOCI()),
 			Entry("when manifestCR contains invalid OCI Image specification", createManifestWithInvalidOCI()),
+			Entry("when two remote manifestCRs contain no install specification", createTwoRemoteManifestsWithNoInstalls()),
 		})
 
 	AfterAll(func() {

@@ -19,10 +19,13 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/fields"
+	k8slabels "k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/ratelimiter"
 
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -76,7 +79,7 @@ type ManifestReconciler struct {
 	DeployChan       chan OperationRequest
 	Workers          *ManifestWorkerPool
 	RequeueIntervals RequeueIntervals
-	clusterCache     *custom.RemoteClusterCache
+	ClusterCache     *custom.RemoteClusterCache
 	internalTypes.ReconcileFlagConfig
 }
 
@@ -174,7 +177,7 @@ func (r *ManifestReconciler) sendJobToInstallChannel(ctx context.Context, logger
 	// send deploy requests
 	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, custom.ClusterInfo{
 		Client: r.Client, Config: r.RestConfig,
-	}, r.ReconcileFlagConfig, r.clusterCache)
+	}, r.ReconcileFlagConfig, r.ClusterCache)
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("cannot prepare install information for %s resource %s",
 			v1alpha1.ManifestKind, namespacedName))
@@ -217,7 +220,7 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 	// send deploy requests
 	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, custom.ClusterInfo{
 		Client: r.Client, Config: r.RestConfig,
-	}, r.ReconcileFlagConfig, r.clusterCache)
+	}, r.ReconcileFlagConfig, r.ClusterCache)
 	if err != nil {
 		return err
 	}
@@ -394,7 +397,7 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 	r.RestConfig = mgr.GetConfig()
 
 	// initialize new cluster cache
-	r.clusterCache = custom.NewRemoteClusterCache()
+	r.ClusterCache = custom.NewRemoteClusterCache()
 
 	// register listener component
 	runnableListener, eventChannel := listener.RegisterListenerComponent(
@@ -402,6 +405,14 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 
 	// start listener as a manager runnable
 	if err := mgr.Add(runnableListener); err != nil {
+		return err
+	}
+
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &v1alpha1.Manifest{}, "spec.remote",
+		func(rawObj client.Object) []string {
+			manifest := rawObj.(*v1alpha1.Manifest)
+			return []string{strconv.FormatBool(manifest.Spec.Remote)}
+		}); err != nil {
 		return err
 	}
 
@@ -432,18 +443,36 @@ func (r *ManifestReconciler) finalizeDeletion(ctx context.Context, manifestObj *
 	finalizerRemoved := controllerutil.RemoveFinalizer(manifestObj, labels.ManifestFinalizer)
 
 	// finally update Manifest, if finalizer was removed
-	if finalizerRemoved {
-		// delete remote cluster information if present
-		if manifestObj.Spec.Remote {
-			kymaOwnerLabel, err := internalUtil.GetKymaLabel(manifestObj)
-			if err != nil {
-				return err
-			}
-			r.clusterCache.Delete(client.ObjectKey{Name: kymaOwnerLabel, Namespace: manifestObj.Namespace})
-		}
-
-		return r.updateManifest(ctx, manifestObj)
+	if !finalizerRemoved {
+		return nil
 	}
 
-	return nil
+	// delete remote cluster information if present
+	if manifestObj.Spec.Remote {
+		kymaOwnerLabel, err := internalUtil.GetKymaLabel(manifestObj)
+		if err != nil {
+			return err
+		}
+
+		manifestList := &v1alpha1.ManifestList{}
+		selector, err := fields.ParseSelector("spec.remote=true")
+		if err != nil {
+			return err
+		}
+		err = r.Client.List(ctx, manifestList, &client.ListOptions{
+			LabelSelector: k8slabels.SelectorFromSet(k8slabels.Set{labels.ComponentOwner: kymaOwnerLabel}),
+			FieldSelector: selector,
+			Namespace:     manifestObj.Namespace,
+		})
+		if err != nil {
+			return err
+		}
+		// delete cluster cache entry only if the Manifest being deleted is the only one
+		// with the corresponding Kyma name
+		if len(manifestList.Items) == 1 {
+			r.ClusterCache.Delete(client.ObjectKey{Name: kymaOwnerLabel, Namespace: manifestObj.Namespace})
+		}
+	}
+
+	return r.updateManifest(ctx, manifestObj)
 }
