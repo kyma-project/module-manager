@@ -76,6 +76,7 @@ type ManifestReconciler struct {
 	DeployChan       chan OperationRequest
 	Workers          *ManifestWorkerPool
 	RequeueIntervals RequeueIntervals
+	clusterCache     *custom.RemoteClusterCache
 	internalTypes.ReconcileFlagConfig
 }
 
@@ -173,18 +174,15 @@ func (r *ManifestReconciler) sendJobToInstallChannel(ctx context.Context, logger
 	// send deploy requests
 	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, custom.ClusterInfo{
 		Client: r.Client, Config: r.RestConfig,
-	}, r.ReconcileFlagConfig)
+	}, r.ReconcileFlagConfig, r.clusterCache)
 	if err != nil {
-
 		logger.Error(err, fmt.Sprintf("cannot prepare install information for %s resource %s",
 			v1alpha1.ManifestKind, namespacedName))
 		if mode == manifest.DeletionMode {
 			// when installation info cannot not be determined in deletion mode
 			// reconciling this resource again will not fix itself
 			// so remove finalizer in this case, to process with Manifest deletion
-			if controllerutil.RemoveFinalizer(manifestObj, labels.ManifestFinalizer) {
-				return r.updateManifest(ctx, manifestObj)
-			}
+			return r.finalizeDeletion(ctx, manifestObj)
 		}
 		return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error())
 	}
@@ -219,7 +217,7 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 	// send deploy requests
 	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, custom.ClusterInfo{
 		Client: r.Client, Config: r.RestConfig,
-	}, r.ReconcileFlagConfig)
+	}, r.ReconcileFlagConfig, r.clusterCache)
 	if err != nil {
 		return err
 	}
@@ -340,11 +338,8 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 
 	// handle deletion if no previous error occurred
 	if !errorState && !latestManifestObj.DeletionTimestamp.IsZero() && !processing {
-		// remove finalizer
-		controllerutil.RemoveFinalizer(latestManifestObj, labels.ManifestFinalizer)
-		err := r.updateManifest(ctx, latestManifestObj)
+		err := r.finalizeDeletion(ctx, latestManifestObj)
 		if err == nil {
-			// finalizer successfully removed
 			return
 		}
 
@@ -398,6 +393,9 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 	// default config from kubebuilder
 	r.RestConfig = mgr.GetConfig()
 
+	// initialize new cluster cache
+	r.clusterCache = custom.NewRemoteClusterCache()
+
 	// register listener component
 	runnableListener, eventChannel := listener.RegisterListenerComponent(
 		listenerAddr, strings.ToLower(labels.OperatorName))
@@ -427,4 +425,25 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 			MaxConcurrentReconciles: r.MaxConcurrentReconciles,
 		}).
 		Complete(r)
+}
+
+func (r *ManifestReconciler) finalizeDeletion(ctx context.Context, manifestObj *v1alpha1.Manifest) error {
+	// remove finalizer
+	finalizerRemoved := controllerutil.RemoveFinalizer(manifestObj, labels.ManifestFinalizer)
+
+	// finally update Manifest, if finalizer was removed
+	if finalizerRemoved {
+		// delete remote cluster information if present
+		if manifestObj.Spec.Remote {
+			kymaOwnerLabel, err := internalUtil.GetKymaLabel(manifestObj)
+			if err != nil {
+				return err
+			}
+			r.clusterCache.Delete(client.ObjectKey{Name: kymaOwnerLabel, Namespace: manifestObj.Namespace})
+		}
+
+		return r.updateManifest(ctx, manifestObj)
+	}
+
+	return nil
 }

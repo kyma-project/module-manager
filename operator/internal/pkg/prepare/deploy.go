@@ -16,6 +16,7 @@ import (
 	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
 	manifestCustom "github.com/kyma-project/module-manager/operator/internal/pkg/custom"
 	internalTypes "github.com/kyma-project/module-manager/operator/internal/pkg/types"
+	"github.com/kyma-project/module-manager/operator/internal/pkg/util"
 	"github.com/kyma-project/module-manager/operator/pkg/custom"
 	"github.com/kyma-project/module-manager/operator/pkg/descriptor"
 	"github.com/kyma-project/module-manager/operator/pkg/labels"
@@ -29,7 +30,7 @@ const (
 )
 
 func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClusterInfo custom.ClusterInfo,
-	flags internalTypes.ReconcileFlagConfig,
+	flags internalTypes.ReconcileFlagConfig, clusterCache *custom.RemoteClusterCache,
 ) ([]manifest.InstallInfo, error) {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 
@@ -68,7 +69,7 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 	}
 
 	// evaluate rest config
-	clusterInfo, err := getDestinationConfigAndClient(ctx, defaultClusterInfo, manifestObj)
+	clusterInfo, err := getDestinationConfigAndClient(ctx, defaultClusterInfo, manifestObj, clusterCache)
 	if err != nil {
 		return nil, err
 	}
@@ -103,36 +104,48 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 }
 
 func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo custom.ClusterInfo,
-	manifestObj *v1alpha1.Manifest,
+	manifestObj *v1alpha1.Manifest, clusterCache *custom.RemoteClusterCache,
 ) (custom.ClusterInfo, error) {
-	// single cluster mode
+	// in single cluster mode return the default cluster info
+	// since the resources need to be installed in the same cluster
 	if !manifestObj.Spec.Remote {
 		return defaultClusterInfo, nil
 	}
 
-	namespacedName := client.ObjectKeyFromObject(manifestObj)
-	kymaOwnerLabel, labelExists := manifestObj.Labels[labels.ComponentOwner]
-	if !labelExists {
-		return custom.ClusterInfo{}, fmt.Errorf("label %s not set for manifest resource %s",
-			labels.ComponentOwner, namespacedName)
+	kymaOwnerLabel, err := util.GetKymaLabel(manifestObj)
+	if err != nil {
+		return custom.ClusterInfo{}, err
 	}
 
-	// evaluate rest config
+	// check if cluster info record exists in the cluster cache
+	kymaNsName := client.ObjectKey{Name: kymaOwnerLabel, Namespace: manifestObj.Namespace}
+	clusterInfo := clusterCache.Get(kymaNsName)
+	if !clusterInfo.IsEmpty() {
+		return clusterInfo, nil
+	}
+
+	// evaluate remote rest config
 	clusterClient := &custom.ClusterClient{DefaultClient: defaultClusterInfo.Client}
 	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, manifestObj.Namespace)
 	if err != nil {
 		return custom.ClusterInfo{}, err
 	}
 
+	// evaluate remote client
 	destinationClient, err := clusterClient.GetNewClient(restConfig, client.Options{})
 	if err != nil {
 		return custom.ClusterInfo{}, err
 	}
 
-	return custom.ClusterInfo{
+	clusterInfo = custom.ClusterInfo{
 		Config: restConfig,
 		Client: destinationClient,
-	}, nil
+	}
+
+	// save remote cluster info to cluster cache
+	clusterCache.Set(kymaNsName, clusterInfo)
+
+	return clusterInfo, nil
 }
 
 func parseInstallConfigs(decodedConfig interface{}) ([]interface{}, error) {
