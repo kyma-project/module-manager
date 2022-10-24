@@ -9,11 +9,8 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/discovery"
-	memory "k8s.io/client-go/discovery/cached"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
 
@@ -52,13 +49,13 @@ func NewHelmClient(kubeClient *kube.Client, restGetter *manifestRest.ManifestRES
 		return nil, err
 	}
 
-	discoveryClient, err := discovery.NewDiscoveryClientForConfig(restConfig)
+	discoveryClient, err := restGetter.ToDiscoveryClient()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new discovery client %w", err)
 	}
 
 	// Use deferred discovery client here as GVs applicable to the client are inconsistent at this moment
-	discoveryMapper := restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(discoveryClient))
+	discoveryMapper := restmapper.NewDeferredDiscoveryRESTMapper(discoveryClient)
 
 	return &HelmClient{
 		kubeClient: kubeClient,

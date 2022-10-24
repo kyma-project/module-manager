@@ -133,7 +133,6 @@ func newOperations(logger *logr.Logger, deployInfo InstallInfo, resourceTransfor
 	var helmClient types.HelmClient
 	var cacheKey client.ObjectKey
 	settings := cli.New()
-	restGetter := manifestRest.NewRESTClientGetter(deployInfo.Config)
 
 	if deployInfo.BaseResource != nil {
 		// cache HelmClient by Kyma name
@@ -146,6 +145,7 @@ func newOperations(logger *logr.Logger, deployInfo InstallInfo, resourceTransfor
 		helmClient = cache.Get(cacheKey)
 	}
 	if helmClient == nil {
+		restGetter := manifestRest.NewRESTClientGetter(deployInfo.Config)
 		helmClient, err = NewHelmClient(kube.New(restGetter), restGetter, deployInfo.Config, settings)
 		if err != nil {
 			return nil, err
@@ -157,7 +157,6 @@ func newOperations(logger *logr.Logger, deployInfo InstallInfo, resourceTransfor
 
 	operations := &Operations{
 		logger:             logger,
-		restGetter:         restGetter,
 		repoHandler:        NewRepoHandler(logger, settings),
 		helmClient:         helmClient,
 		flags:              deployInfo.Flags,

@@ -1,6 +1,8 @@
 package rest
 
 import (
+	"sync"
+
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/discovery"
 	memory "k8s.io/client-go/discovery/cached"
@@ -10,12 +12,15 @@ import (
 )
 
 type ManifestRESTClientGetter struct {
-	config *rest.Config
+	config          *rest.Config
+	client          discovery.CachedDiscoveryInterface
+	clientSyncMutex sync.Mutex
 }
 
 func NewRESTClientGetter(config *rest.Config) *ManifestRESTClientGetter {
 	return &ManifestRESTClientGetter{
-		config: config,
+		config:          config,
+		clientSyncMutex: sync.Mutex{},
 	}
 }
 
@@ -24,6 +29,13 @@ func (c *ManifestRESTClientGetter) ToRESTConfig() (*rest.Config, error) {
 }
 
 func (c *ManifestRESTClientGetter) ToDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
+	c.clientSyncMutex.Lock()
+	defer c.clientSyncMutex.Unlock()
+
+	if c.client != nil {
+		return c.client, nil
+	}
+
 	config, err := c.ToRESTConfig()
 	if err != nil {
 		return nil, err
@@ -38,7 +50,10 @@ func (c *ManifestRESTClientGetter) ToDiscoveryClient() (discovery.CachedDiscover
 	if err != nil {
 		return nil, err
 	}
-	return memory.NewMemCacheClient(discoveryClient), nil
+
+	c.client = memory.NewMemCacheClient(discoveryClient)
+
+	return c.client, nil
 }
 
 func (c *ManifestRESTClientGetter) ToRESTMapper() (meta.RESTMapper, error) {
