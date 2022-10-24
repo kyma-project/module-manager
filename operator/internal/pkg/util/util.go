@@ -2,7 +2,6 @@ package util
 
 import (
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -108,13 +107,4 @@ func GetCacheFunc() cache.NewCacheFunc {
 			},
 		},
 	})
-}
-
-func GetKymaLabel(manifestObj *v1alpha1.Manifest) (string, error) {
-	kymaOwnerLabel, labelExists := manifestObj.Labels[opLabels.ComponentOwner]
-	if !labelExists {
-		return "", fmt.Errorf("kyma owner label %s not set for manifest resource %s",
-			opLabels.ComponentOwner, client.ObjectKeyFromObject(manifestObj).String())
-	}
-	return kymaOwnerLabel, nil
 }

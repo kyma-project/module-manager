@@ -17,7 +17,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/kyma-project/module-manager/operator/pkg/custom"
 	"github.com/kyma-project/module-manager/operator/pkg/manifest"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 )
@@ -188,7 +187,7 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, objectIn
 		return err
 	}
 
-	ready, err := manifest.InstallChart(&logger, installInfo, r.options.objectTransforms)
+	ready, err := manifest.InstallChart(&logger, installInfo, r.options.objectTransforms, nil)
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("error while installing resource %s",
 			client.ObjectKeyFromObject(objectInstance)))
@@ -232,7 +231,7 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInst
 		return err
 	}
 
-	readyToBeDeleted, err := manifest.UninstallChart(&logger, installInfo, r.options.objectTransforms)
+	readyToBeDeleted, err := manifest.UninstallChart(&logger, installInfo, r.options.objectTransforms, nil)
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("error while deleting resource %s", client.ObjectKeyFromObject(objectInstance)))
 		status.State = types.StateError
@@ -278,7 +277,7 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, objectInstanc
 	}
 
 	// verify installed resources
-	ready, err := manifest.ConsistencyCheck(&logger, installInfo, r.options.objectTransforms)
+	ready, err := manifest.ConsistencyCheck(&logger, installInfo, r.options.objectTransforms, nil)
 
 	// update only if resources not ready OR an error occurred during chart verification
 	if err != nil {
@@ -315,7 +314,7 @@ func (r *ManifestReconciler) prepareInstallInfo(ctx context.Context, objectInsta
 			ReleaseName: releaseName,
 			Flags:       installSpec.ChartFlags,
 		},
-		ClusterInfo: custom.ClusterInfo{
+		ClusterInfo: types.ClusterInfo{
 			// destination cluster rest config
 			Config: r.config,
 			// destination cluster rest client

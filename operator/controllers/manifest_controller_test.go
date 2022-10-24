@@ -13,7 +13,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
-	"github.com/kyma-project/module-manager/operator/pkg/custom"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
 )
@@ -104,7 +103,7 @@ func createTwoRemoteManifestsWithNoInstalls() func() bool {
 		kymaNsName := client.ObjectKey{Name: secretName, Namespace: v1.NamespaceDefault}
 
 		// creating cluster cache entry
-		reconciler.ClusterCache.Set(kymaNsName, custom.ClusterInfo{Config: cfg})
+		reconciler.CacheManager.ClusterInfos.Set(kymaNsName, types.ClusterInfo{Config: cfg})
 
 		kymaSecret := createKymaSecret()
 		manifestObj := createManifestObj("manifest-sample", v1alpha1.ManifestSpec{
@@ -116,7 +115,7 @@ func createTwoRemoteManifestsWithNoInstalls() func() bool {
 			Should(BeEquivalentTo(v1alpha1.ManifestStateReady))
 
 		// check cluster cache entry
-		Expect(reconciler.ClusterCache.Get(kymaNsName).Config).To(BeEquivalentTo(cfg))
+		Expect(reconciler.CacheManager.ClusterInfos.Get(kymaNsName).Config).To(BeEquivalentTo(cfg))
 
 		// create another manifest with same image specification
 		manifestObj2 := createManifestObj("manifest-sample-2", v1alpha1.ManifestSpec{
@@ -132,12 +131,12 @@ func createTwoRemoteManifestsWithNoInstalls() func() bool {
 		deleteManifestResource(manifestObj, nil)
 
 		// check cluster cache entry
-		Expect(reconciler.ClusterCache.Get(kymaNsName).Config).To(BeEquivalentTo(cfg))
+		Expect(reconciler.CacheManager.ClusterInfos.Get(kymaNsName).Config).To(BeEquivalentTo(cfg))
 
 		deleteManifestResource(manifestObj2, kymaSecret)
 
 		// verify cluster cache deleted
-		Expect(reconciler.ClusterCache.Get(kymaNsName).IsEmpty()).To(BeTrue())
+		Expect(reconciler.CacheManager.ClusterInfos.Get(kymaNsName).IsEmpty()).To(BeTrue())
 		return true
 	}
 }

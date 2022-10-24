@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -186,4 +188,14 @@ func WriteToFile(filePath string, bytes []byte) error {
 		return fmt.Errorf("writing file to path %s caused an error: %w", filePath, err)
 	}
 	return file.Close()
+}
+
+func GetResourceLabel(resource client.Object, labelName string) (string, error) {
+	labels := resource.GetLabels()
+	label, ok := labels[labelName]
+	if !ok {
+		return "", fmt.Errorf("label %s not found on resource %s", labelName,
+			client.ObjectKeyFromObject(resource).String())
+	}
+	return label, nil
 }

@@ -1,7 +1,13 @@
 package types
 
 import (
+	"context"
+
+	"helm.sh/helm/v3/pkg/action"
+	"helm.sh/helm/v3/pkg/kube"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type RefTypeMetadata string
@@ -65,8 +71,59 @@ type HelmChartSpec struct {
 	Type RefTypeMetadata `json:"type"`
 }
 
-// Objects holds a collection of objects, so that we can filter / sequence them.
+// ManifestResources holds a collection of objects, so that we can filter / sequence them.
 type ManifestResources struct {
 	Items []*unstructured.Unstructured
 	Blobs [][]byte
+}
+
+// ClusterInfo describes client and config for a cluster.
+type ClusterInfo struct {
+	Config *rest.Config
+	Client client.Client
+}
+
+// IsEmpty indicates if ClusterInfo is empty.
+func (r ClusterInfo) IsEmpty() bool {
+	return r.Config == nil
+}
+
+type HelmClient interface {
+	NewInstallActionClient(namespace, releaseName string, flags ChartFlags,
+	) (*action.Install, error)
+	SetFlags(flags ChartFlags, actionClient *action.Install) error
+	DownloadChart(actionClient *action.Install, chartName string) (string, error)
+	GetNsResource(actionClient *action.Install, operationType HelmOperation,
+	) (kube.ResourceList, error)
+	GetTargetResources(ctx context.Context, manifest string, targetNamespace string,
+		transforms []ObjectTransform, object BaseCustomObject,
+	) (kube.ResourceList, error)
+	PerformUpdate(resourceLists ResourceLists, force bool,
+	) (*kube.Result, error)
+	PerformCreate(resourceLists ResourceLists) (*kube.Result, error)
+	PerformDelete(resourceLists ResourceLists) (int, error)
+	CheckWaitForResources(targetResources kube.ResourceList, actionClient *action.Install,
+		operation HelmOperation,
+	) error
+	CheckDesiredState(ctx context.Context, targetResources kube.ResourceList, operation HelmOperation,
+	) (bool, error)
+}
+
+type OperationType string
+
+type HelmOperation OperationType
+
+const (
+	OperationCreate HelmOperation = "create"
+	OperationDelete HelmOperation = "delete"
+)
+
+type ResourceLists struct {
+	Target    kube.ResourceList
+	Installed kube.ResourceList
+	Namespace kube.ResourceList
+}
+
+func (r ResourceLists) GetWaitForResources() kube.ResourceList {
+	return append(r.Target, r.Namespace...)
 }

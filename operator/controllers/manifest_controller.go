@@ -49,7 +49,6 @@ import (
 	"github.com/kyma-project/module-manager/operator/internal/pkg/prepare"
 	internalTypes "github.com/kyma-project/module-manager/operator/internal/pkg/types"
 	internalUtil "github.com/kyma-project/module-manager/operator/internal/pkg/util"
-	"github.com/kyma-project/module-manager/operator/pkg/custom"
 	"github.com/kyma-project/module-manager/operator/pkg/labels"
 	"github.com/kyma-project/module-manager/operator/pkg/manifest"
 	"github.com/kyma-project/module-manager/operator/pkg/ratelimit"
@@ -79,7 +78,7 @@ type ManifestReconciler struct {
 	DeployChan       chan OperationRequest
 	Workers          *ManifestWorkerPool
 	RequeueIntervals RequeueIntervals
-	ClusterCache     *custom.RemoteClusterCache
+	CacheManager     *CacheManager
 	internalTypes.ReconcileFlagConfig
 }
 
@@ -175,9 +174,9 @@ func (r *ManifestReconciler) sendJobToInstallChannel(ctx context.Context, logger
 	go r.ResponseHandlerFunc(ctx, logger, chartCount, responseChan, namespacedName)
 
 	// send deploy requests
-	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, custom.ClusterInfo{
+	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, types.ClusterInfo{
 		Client: r.Client, Config: r.RestConfig,
-	}, r.ReconcileFlagConfig, r.ClusterCache)
+	}, r.ReconcileFlagConfig, r.CacheManager.ClusterInfos)
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("cannot prepare install information for %s resource %s",
 			v1alpha1.ManifestKind, namespacedName))
@@ -218,15 +217,15 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 	logger.V(1).Info("checking consistent state for " + namespacedName.String())
 
 	// send deploy requests
-	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, custom.ClusterInfo{
+	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, types.ClusterInfo{
 		Client: r.Client, Config: r.RestConfig,
-	}, r.ReconcileFlagConfig, r.ClusterCache)
+	}, r.ReconcileFlagConfig, r.CacheManager.ClusterInfos)
 	if err != nil {
 		return err
 	}
 
 	for _, deployInfo := range deployInfos {
-		ready, err := manifest.ConsistencyCheck(logger, deployInfo, []types.ObjectTransform{})
+		ready, err := manifest.ConsistencyCheck(logger, deployInfo, []types.ObjectTransform{}, r.CacheManager.HelmClients)
 
 		// prepare chart response object
 		chartResponse := &manifest.InstallResponse{
@@ -284,9 +283,9 @@ func (r *ManifestReconciler) HandleCharts(deployInfo manifest.InstallInfo, mode 
 	var ready bool
 	var err error
 	if create {
-		ready, err = manifest.InstallChart(logger, deployInfo, []types.ObjectTransform{})
+		ready, err = manifest.InstallChart(logger, deployInfo, []types.ObjectTransform{}, r.CacheManager.HelmClients)
 	} else {
-		ready, err = manifest.UninstallChart(logger, deployInfo, []types.ObjectTransform{})
+		ready, err = manifest.UninstallChart(logger, deployInfo, []types.ObjectTransform{}, r.CacheManager.HelmClients)
 	}
 
 	return &manifest.InstallResponse{
@@ -397,7 +396,7 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 	r.RestConfig = mgr.GetConfig()
 
 	// initialize new cluster cache
-	r.ClusterCache = custom.NewRemoteClusterCache()
+	r.CacheManager = NewCacheManager()
 
 	// register listener component
 	runnableListener, eventChannel := listener.RegisterListenerComponent(
@@ -449,7 +448,7 @@ func (r *ManifestReconciler) finalizeDeletion(ctx context.Context, manifestObj *
 
 	// delete remote cluster information if present
 	if manifestObj.Spec.Remote {
-		kymaOwnerLabel, err := internalUtil.GetKymaLabel(manifestObj)
+		kymaOwnerLabel, err := util.GetResourceLabel(manifestObj, labels.ComponentOwner)
 		if err != nil {
 			return err
 		}
@@ -470,7 +469,7 @@ func (r *ManifestReconciler) finalizeDeletion(ctx context.Context, manifestObj *
 		// delete cluster cache entry only if the Manifest being deleted is the only one
 		// with the corresponding Kyma name
 		if len(manifestList.Items) == 1 {
-			r.ClusterCache.Delete(client.ObjectKey{Name: kymaOwnerLabel, Namespace: manifestObj.Namespace})
+			r.CacheManager.Invalidate(client.ObjectKey{Name: kymaOwnerLabel, Namespace: manifestObj.Namespace})
 		}
 	}
 

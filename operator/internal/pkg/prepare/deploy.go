@@ -16,21 +16,21 @@ import (
 	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
 	manifestCustom "github.com/kyma-project/module-manager/operator/internal/pkg/custom"
 	internalTypes "github.com/kyma-project/module-manager/operator/internal/pkg/types"
-	"github.com/kyma-project/module-manager/operator/internal/pkg/util"
 	"github.com/kyma-project/module-manager/operator/pkg/custom"
 	"github.com/kyma-project/module-manager/operator/pkg/descriptor"
 	"github.com/kyma-project/module-manager/operator/pkg/labels"
 	"github.com/kyma-project/module-manager/operator/pkg/manifest"
 	"github.com/kyma-project/module-manager/operator/pkg/resource"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
+	"github.com/kyma-project/module-manager/operator/pkg/util"
 )
 
 const (
 	configReadError = "reading install %s resulted in an error for " + v1alpha1.ManifestKind
 )
 
-func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClusterInfo custom.ClusterInfo,
-	flags internalTypes.ReconcileFlagConfig, clusterCache *custom.RemoteClusterCache,
+func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClusterInfo types.ClusterInfo,
+	flags internalTypes.ReconcileFlagConfig, clusterCache types.ClusterInfoCache,
 ) ([]manifest.InstallInfo, error) {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 
@@ -103,18 +103,18 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 	return parseInstallations(manifestObj, flags.Codec, configs, baseDeployInfo, flags.InsecureRegistry)
 }
 
-func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo custom.ClusterInfo,
-	manifestObj *v1alpha1.Manifest, clusterCache *custom.RemoteClusterCache,
-) (custom.ClusterInfo, error) {
+func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo types.ClusterInfo,
+	manifestObj *v1alpha1.Manifest, clusterCache types.ClusterInfoCache,
+) (types.ClusterInfo, error) {
 	// in single cluster mode return the default cluster info
 	// since the resources need to be installed in the same cluster
 	if !manifestObj.Spec.Remote {
 		return defaultClusterInfo, nil
 	}
 
-	kymaOwnerLabel, err := util.GetKymaLabel(manifestObj)
+	kymaOwnerLabel, err := util.GetResourceLabel(manifestObj, labels.ComponentOwner)
 	if err != nil {
-		return custom.ClusterInfo{}, err
+		return types.ClusterInfo{}, err
 	}
 
 	// check if cluster info record exists in the cluster cache
@@ -128,16 +128,16 @@ func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo custo
 	clusterClient := &custom.ClusterClient{DefaultClient: defaultClusterInfo.Client}
 	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, manifestObj.Namespace)
 	if err != nil {
-		return custom.ClusterInfo{}, err
+		return types.ClusterInfo{}, err
 	}
 
 	// evaluate remote client
 	destinationClient, err := clusterClient.GetNewClient(restConfig, client.Options{})
 	if err != nil {
-		return custom.ClusterInfo{}, err
+		return types.ClusterInfo{}, err
 	}
 
-	clusterInfo = custom.ClusterInfo{
+	clusterInfo = types.ClusterInfo{
 		Config: restConfig,
 		Client: destinationClient,
 	}

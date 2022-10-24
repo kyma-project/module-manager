@@ -17,8 +17,6 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
 
-	"github.com/kyma-project/module-manager/operator/pkg/types"
-
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/kube"
@@ -30,16 +28,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	manifestRest "github.com/kyma-project/module-manager/operator/pkg/rest"
+	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
-)
-
-type OperationType string
-
-type HelmOperation OperationType
-
-const (
-	OperationCreate HelmOperation = "create"
-	OperationDelete HelmOperation = "delete"
 )
 
 type HelmClient struct {
@@ -59,7 +49,7 @@ func NewHelmClient(kubeClient *kube.Client, restGetter *manifestRest.ManifestRES
 ) (*HelmClient, error) {
 	clientSet, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
-		return &HelmClient{}, err
+		return nil, err
 	}
 
 	discoveryClient, err := discovery.NewDiscoveryClientForConfig(restConfig)
@@ -67,6 +57,7 @@ func NewHelmClient(kubeClient *kube.Client, restGetter *manifestRest.ManifestRES
 		return nil, fmt.Errorf("failed to create new discovery client %w", err)
 	}
 
+	// Use deferred discovery client here as GVs applicable to the client are inconsistent at this moment
 	discoveryMapper := restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(discoveryClient))
 
 	return &HelmClient{
@@ -102,7 +93,7 @@ func (h *HelmClient) NewInstallActionClient(namespace, releaseName string, flags
 		return nil, err
 	}
 	actionClient := action.NewInstall(actionConfig)
-	h.SetDefaultClientConfig(actionClient, releaseName)
+	h.setDefaultClientConfig(actionClient, releaseName)
 	return actionClient, h.SetFlags(flags, actionClient)
 }
 
@@ -114,7 +105,7 @@ func (h *HelmClient) NewUninstallActionClient(namespace string) (*action.Uninsta
 	return action.NewUninstall(actionConfig), nil
 }
 
-func (h *HelmClient) SetDefaultClientConfig(actionClient *action.Install, releaseName string) {
+func (h *HelmClient) setDefaultClientConfig(actionClient *action.Install, releaseName string) {
 	actionClient.DryRun = true
 	actionClient.Atomic = false
 
@@ -190,7 +181,7 @@ func (h *HelmClient) DownloadChart(actionClient *action.Install, chartName strin
 	return actionClient.ChartPathOptions.LocateChart(chartName, h.settings)
 }
 
-func (h *HelmClient) GetNsResource(actionClient *action.Install, operationType HelmOperation,
+func (h *HelmClient) GetNsResource(actionClient *action.Install, operationType types.HelmOperation,
 ) (kube.ResourceList, error) {
 	// set kubeclient namespace for override
 	h.kubeClient.Namespace = actionClient.Namespace
@@ -209,14 +200,14 @@ func (h *HelmClient) GetNsResource(actionClient *action.Install, operationType H
 	return h.kubeClient.Build(bytes.NewBuffer(nsBuf), true)
 }
 
-func (h *HelmClient) CreateNamespace(namespace kube.ResourceList) error {
+func (h *HelmClient) createNamespace(namespace kube.ResourceList) error {
 	if _, err := h.kubeClient.Create(namespace); err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
 	return nil
 }
 
-func (h *HelmClient) DeleteNamespace(namespace kube.ResourceList) error {
+func (h *HelmClient) deleteNamespace(namespace kube.ResourceList) error {
 	if _, delErrors := h.kubeClient.Delete(namespace); len(delErrors) > 0 {
 		var wrappedError error
 		for _, err := range delErrors {
@@ -317,23 +308,59 @@ func (h *HelmClient) GetTargetResources(ctx context.Context, manifest string, ta
 	return resourceList, nil
 }
 
-func (h *HelmClient) PerformUpdate(resourceLists ResourceLists, force bool,
+func (h *HelmClient) PerformUpdate(resourceLists types.ResourceLists, force bool,
 ) (*kube.Result, error) {
+	// create namespace resource first
+	if len(resourceLists.Namespace) > 0 {
+		if err := h.createNamespace(resourceLists.Namespace); err != nil {
+			return nil, err
+		}
+	}
 	return h.kubeClient.Update(resourceLists.Installed, resourceLists.Target, force)
 }
 
-func (h *HelmClient) PerformCreate(resourceLists ResourceLists) (*kube.Result, error) {
+func (h *HelmClient) PerformCreate(resourceLists types.ResourceLists) (*kube.Result, error) {
+	// create namespace resource first
+	if len(resourceLists.Namespace) > 0 {
+		if err := h.createNamespace(resourceLists.Namespace); err != nil {
+			return nil, err
+		}
+	}
 	return h.kubeClient.Create(resourceLists.Target)
 }
 
+func (h *HelmClient) PerformDelete(resourceLists types.ResourceLists) (int, error) {
+	count := 0
+	if resourceLists.Installed != nil {
+		response, delErrors := h.kubeClient.Delete(resourceLists.Installed)
+		if len(delErrors) > 0 {
+			var wrappedError error
+			for _, err := range delErrors {
+				wrappedError = fmt.Errorf("%w", err)
+			}
+			return 0, wrappedError
+		}
+
+		count = len(response.Deleted)
+	}
+
+	if len(resourceLists.Namespace) > 0 {
+		count++
+		if err := h.deleteNamespace(resourceLists.Namespace); err != nil {
+			return 0, err
+		}
+	}
+	return count, nil
+}
+
 func (h *HelmClient) CheckWaitForResources(targetResources kube.ResourceList, actionClient *action.Install,
-	operation HelmOperation,
+	operation types.HelmOperation,
 ) error {
 	if !actionClient.Wait || actionClient.Timeout == 0 {
 		return nil
 	}
 
-	if operation == OperationDelete {
+	if operation == types.OperationDelete {
 		return h.kubeClient.WaitForDelete(targetResources, actionClient.Timeout)
 	}
 
@@ -343,9 +370,10 @@ func (h *HelmClient) CheckWaitForResources(targetResources kube.ResourceList, ac
 	return h.kubeClient.Wait(targetResources, actionClient.Timeout)
 }
 
-func (h *HelmClient) CheckDesiredState(ctx context.Context, targetResources kube.ResourceList, operation HelmOperation,
+func (h *HelmClient) CheckDesiredState(ctx context.Context, targetResources kube.ResourceList,
+	operation types.HelmOperation,
 ) (bool, error) {
-	if operation == OperationDelete {
+	if operation == types.OperationDelete {
 		return h.checkResourcesDeleted(targetResources)
 	}
 
