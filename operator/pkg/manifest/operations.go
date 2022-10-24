@@ -87,7 +87,6 @@ type Operations struct {
 	logger             *logr.Logger
 	helmClient         types.HelmClient
 	repoHandler        *RepoHandler
-	restGetter         *manifestRest.ManifestRESTClientGetter
 	actionClient       *action.Install
 	flags              types.ChartFlags
 	resourceTransforms []types.ObjectTransform
