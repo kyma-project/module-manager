@@ -13,6 +13,10 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/discovery/cached/memory"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/restmapper"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kyma-project/module-manager/operator/pkg/custom"
@@ -126,10 +130,7 @@ func ConsistencyCheck(logger *logr.Logger, deployInfo InstallInfo, resourceTrans
 func newOperations(logger *logr.Logger, deployInfo InstallInfo, resourceTransforms []types.ObjectTransform,
 	cache types.HelmClientCache,
 ) (*Operations, error) {
-	var err error
-	var helmClient types.HelmClient
 	var cacheKey client.ObjectKey
-	settings := cli.New()
 
 	if deployInfo.BaseResource != nil {
 		// cache HelmClient by Kyma name
@@ -139,17 +140,16 @@ func newOperations(logger *logr.Logger, deployInfo InstallInfo, resourceTransfor
 			return nil, err
 		}
 		cacheKey = client.ObjectKey{Name: label, Namespace: deployInfo.BaseResource.GetNamespace()}
-		helmClient = cache.Get(cacheKey)
 	}
+	helmClient := cache.Get(cacheKey)
 	if helmClient == nil {
-		restGetter := manifestRest.NewRESTClientGetter(deployInfo.Config, cache, cacheKey)
-		helmClient, err = NewHelmClient(restGetter, deployInfo.Config, settings, deployInfo.ReleaseName,
-			deployInfo.Flags, logger)
+		memCacheClient, err := getMemCacheClient(deployInfo.Config)
 		if err != nil {
 			return nil, err
 		}
-		if deployInfo.BaseResource != nil {
-			cache.Set(cacheKey, helmClient)
+		helmClient, err = getHelmClient(cacheKey, deployInfo, cache, memCacheClient, logger)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -161,6 +161,43 @@ func newOperations(logger *logr.Logger, deployInfo InstallInfo, resourceTransfor
 	}
 
 	return operations, nil
+}
+
+// getHelmClient returns a new HelmClient instance and caches it in-memory.
+func getHelmClient(cacheKey client.ObjectKey, deployInfo InstallInfo, cache types.HelmClientCache,
+	memCacheClient discovery.CachedDiscoveryInterface, logger *logr.Logger,
+) (types.HelmClient, error) {
+	// create RESTGetter with cached memcached client
+	restGetter := manifestRest.NewRESTClientGetter(deployInfo.Config, memCacheClient)
+
+	// use deferred discovery client here as GVs applicable to the client are inconsistent at this moment
+	discoveryMapper := restmapper.NewDeferredDiscoveryRESTMapper(memCacheClient)
+
+	// create HelmClient instance
+	helmClient, err := NewHelmClient(restGetter, discoveryMapper, deployInfo.Config, cli.New(),
+		deployInfo.ReleaseName, deployInfo.Flags, logger)
+	if err != nil {
+		return nil, err
+	}
+
+	// cache HelmClient by valid kyma name
+	if cacheKey.Name != "" {
+		cache.Set(cacheKey, helmClient)
+	}
+	return helmClient, nil
+}
+
+// getMemCacheClient creates and returns a new instance of MemCacheClient.
+func getMemCacheClient(config *rest.Config) (discovery.CachedDiscoveryInterface, error) {
+	// The more groups you have, the more discovery requests you need to make.
+	// given 25 groups (our groups + a few custom conf) with one-ish version each, discovery needs to make 50 requests
+	// double it just so we don't end up here again for a while.  This config is only used for discovery.
+	config.Burst = 100
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+	return memory.NewMemCacheClient(discoveryClient), nil
 }
 
 func (o *Operations) getClusterResources(deployInfo InstallInfo, operation types.HelmOperation,

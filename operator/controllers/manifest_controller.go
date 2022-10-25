@@ -19,12 +19,10 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/fields"
 	k8slabels "k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/ratelimiter"
 
@@ -408,14 +406,6 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 		return err
 	}
 
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &v1alpha1.Manifest{}, "spec.remote",
-		func(rawObj client.Object) []string {
-			manifest := rawObj.(*v1alpha1.Manifest)
-			return []string{strconv.FormatBool(manifest.Spec.Remote)}
-		}); err != nil {
-		return err
-	}
-
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Manifest{}).
 		Watches(&source.Kind{Type: &v1.Secret{}}, handler.Funcs{}).
@@ -448,30 +438,27 @@ func (r *ManifestReconciler) finalizeDeletion(ctx context.Context, manifestObj *
 	}
 
 	// delete remote cluster information if present
-	if manifestObj.Spec.Remote {
-		kymaOwnerLabel, err := util.GetResourceLabel(manifestObj, labels.ComponentOwner)
-		if err != nil {
-			return err
-		}
 
-		manifestList := &v1alpha1.ManifestList{}
-		selector, err := fields.ParseSelector("spec.remote=true")
-		if err != nil {
-			return err
-		}
-		err = r.Client.List(ctx, manifestList, &client.ListOptions{
-			LabelSelector: k8slabels.SelectorFromSet(k8slabels.Set{labels.ComponentOwner: kymaOwnerLabel}),
-			FieldSelector: selector,
-			Namespace:     manifestObj.Namespace,
-		})
-		if err != nil {
-			return err
-		}
-		// delete cluster cache entry only if the Manifest being deleted is the only one
-		// with the corresponding Kyma name
-		if len(manifestList.Items) == 1 {
-			r.CacheManager.Invalidate(client.ObjectKey{Name: kymaOwnerLabel, Namespace: manifestObj.Namespace})
-		}
+	kymaOwnerLabel, err := util.GetResourceLabel(manifestObj, labels.ComponentOwner)
+	if err != nil {
+		return err
+	}
+
+	manifestList := &v1alpha1.ManifestList{}
+	if err != nil {
+		return err
+	}
+	err = r.Client.List(ctx, manifestList, &client.ListOptions{
+		LabelSelector: k8slabels.SelectorFromSet(k8slabels.Set{labels.ComponentOwner: kymaOwnerLabel}),
+		Namespace:     manifestObj.Namespace,
+	})
+	if err != nil {
+		return err
+	}
+	// delete cluster cache entry only if the Manifest being deleted is the only one
+	// with the corresponding kyma name
+	if len(manifestList.Items) == 1 {
+		r.CacheManager.Invalidate(client.ObjectKey{Name: kymaOwnerLabel, Namespace: manifestObj.Namespace})
 	}
 
 	return r.updateManifest(ctx, manifestObj)

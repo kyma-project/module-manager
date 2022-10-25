@@ -54,6 +54,11 @@ func createManifestWithOCI() func() bool {
 
 		specBytes, err := json.Marshal(imageSpec)
 		Expect(err).ToNot(HaveOccurred())
+
+		// initial HelmClient cache entry
+		kymaNsName := client.ObjectKey{Name: secretName, Namespace: v1.NamespaceDefault}
+		Expect(reconciler.CacheManager.HelmClients.Get(kymaNsName)).Should(BeNil())
+
 		manifestObj := createManifestObj("manifest-sample", v1alpha1.ManifestSpec{
 			Installs: []v1alpha1.InstallInfo{
 				{
@@ -68,6 +73,8 @@ func createManifestWithOCI() func() bool {
 		Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
 			Should(BeEquivalentTo(v1alpha1.ManifestStateReady))
 
+		// intermediate HelmClient cache entry
+		Expect(reconciler.CacheManager.HelmClients.Get(kymaNsName)).ShouldNot(BeNil())
 		deleteHelmChartResources(imageSpec)
 		deleteManifestResource(manifestObj, nil)
 
@@ -91,6 +98,9 @@ func createManifestWithOCI() func() bool {
 
 		deleteManifestResource(manifestObj2, nil)
 
+		// final HelmClient cache entry
+		Expect(reconciler.CacheManager.HelmClients.Get(kymaNsName)).Should(BeNil())
+
 		Expect(os.RemoveAll(util.GetFsChartPath(imageSpec))).Should(Succeed())
 		return true
 	}
@@ -101,6 +111,9 @@ func createTwoRemoteManifestsWithNoInstalls() func() bool {
 		By("having transitioned the CR State to Ready with an OCI specification")
 		imageSpec := GetImageSpecFromMockOCIRegistry()
 		kymaNsName := client.ObjectKey{Name: secretName, Namespace: v1.NamespaceDefault}
+
+		// verify cluster cache empty
+		Expect(reconciler.CacheManager.ClusterInfos.Get(kymaNsName).IsEmpty()).To(BeTrue())
 
 		// creating cluster cache entry
 		reconciler.CacheManager.ClusterInfos.Set(kymaNsName, types.ClusterInfo{Config: cfg})
@@ -114,8 +127,9 @@ func createTwoRemoteManifestsWithNoInstalls() func() bool {
 		Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
 			Should(BeEquivalentTo(v1alpha1.ManifestStateReady))
 
-		// check cluster cache entry
+		// check client cache entries after 1st resource creation
 		Expect(reconciler.CacheManager.ClusterInfos.Get(kymaNsName).Config).To(BeEquivalentTo(cfg))
+		Expect(reconciler.CacheManager.HelmClients.Get(kymaNsName)).Should(BeNil()) // no Installs exist
 
 		// create another manifest with same image specification
 		manifestObj2 := createManifestObj("manifest-sample-2", v1alpha1.ManifestSpec{
@@ -130,13 +144,15 @@ func createTwoRemoteManifestsWithNoInstalls() func() bool {
 		verifyHelmResourcesDeletion(imageSpec)
 		deleteManifestResource(manifestObj, nil)
 
-		// check cluster cache entry
+		// check client cache entries after 2nd resource creation
 		Expect(reconciler.CacheManager.ClusterInfos.Get(kymaNsName).Config).To(BeEquivalentTo(cfg))
+		Expect(reconciler.CacheManager.HelmClients.Get(kymaNsName)).Should(BeNil()) // no Installs exist
 
 		deleteManifestResource(manifestObj2, kymaSecret)
 
-		// verify cluster cache deleted
+		// verify client cache deleted
 		Expect(reconciler.CacheManager.ClusterInfos.Get(kymaNsName).IsEmpty()).To(BeTrue())
+		Expect(reconciler.CacheManager.HelmClients.Get(kymaNsName)).Should(BeNil()) // no Installs exist
 		return true
 	}
 }

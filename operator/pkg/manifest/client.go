@@ -44,17 +44,13 @@ type HelmClient struct {
 //nolint:gochecknoglobals
 var accessor = meta.NewAccessor()
 
-func NewHelmClient(restGetter *manifestRest.ManifestRESTClientGetter, restConfig *rest.Config,
-	settings *cli.EnvSettings, releaseName string, flags types.ChartFlags, logger *logr.Logger,
+// NewHelmClient creates and returns a new instance of HelmClient.
+// HelmClient offers helm chart resource operations on a target cluster.
+func NewHelmClient(restGetter *manifestRest.ManifestRESTClientGetter,
+	discoveryMapper *restmapper.DeferredDiscoveryRESTMapper, restConfig *rest.Config, settings *cli.EnvSettings,
+	releaseName string, flags types.ChartFlags, logger *logr.Logger,
 ) (*HelmClient, error) {
-	discoveryClient, err := restGetter.ToDiscoveryClient()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create new discovery client %w", err)
-	}
-
-	// Use deferred discovery client here as GVs applicable to the client are inconsistent at this moment
-	discoveryMapper := restmapper.NewDeferredDiscoveryRESTMapper(discoveryClient)
-
+	var err error
 	helmClient := &HelmClient{
 		logger:      logger,
 		repoHandler: NewRepoHandler(logger, settings),
@@ -268,8 +264,7 @@ func (h *HelmClient) assignRestMapping(gvk schema.GroupVersionKind, info *resour
 }
 
 func (h *HelmClient) convertToInfo(unstructuredObj *unstructured.Unstructured) (*resource.Info, error) {
-	// manual invalidation of mem cache client to maintain the current state
-	h.mapper.Reset()
+	//TODO:  manual invalidation of mem cache client to maintain current state of server mapping for API resources
 	info := &resource.Info{}
 	gvk := unstructuredObj.GroupVersionKind()
 	gv := gvk.GroupVersion()
