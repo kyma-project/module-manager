@@ -189,7 +189,8 @@ func (r *ManifestReconciler) sendJobToInstallChannel(ctx context.Context, logger
 		return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error())
 	}
 
-	// send install requests to deployment channel
+	// send processing requests (installation / uninstallation) to deployment channel
+	// each individual request will be processed by the next available worker
 	for _, deployInfo := range deployInfos {
 		r.DeployChan <- OperationRequest{
 			Info:         deployInfo,
@@ -208,7 +209,7 @@ func (r *ManifestReconciler) HandleErrorState(ctx context.Context, manifestObj *
 func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest,
 ) error {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
-	if manifestObj.Generation != manifestObj.Status.ObservedGeneration {
+	if manifestObj.IsSpecUpdated() {
 		logger.Info("observed generation change for " + namespacedName.String())
 		return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing,
 			"observed generation change")

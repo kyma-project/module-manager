@@ -1,26 +1,28 @@
 package rest
 
 import (
-	"sync"
-
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/discovery"
 	memory "k8s.io/client-go/discovery/cached"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/kyma-project/module-manager/operator/pkg/types"
 )
 
 type ManifestRESTClientGetter struct {
-	config          *rest.Config
-	client          discovery.CachedDiscoveryInterface
-	clientSyncMutex sync.Mutex
+	config     *rest.Config
+	cache      types.HelmClientCache
+	kymaObjKey client.ObjectKey
 }
 
-func NewRESTClientGetter(config *rest.Config) *ManifestRESTClientGetter {
+func NewRESTClientGetter(config *rest.Config, cache types.HelmClientCache, kymaObjKey client.ObjectKey) *ManifestRESTClientGetter {
 	return &ManifestRESTClientGetter{
-		config:          config,
-		clientSyncMutex: sync.Mutex{},
+		config:     config,
+		cache:      cache,
+		kymaObjKey: kymaObjKey,
 	}
 }
 
@@ -29,14 +31,14 @@ func (c *ManifestRESTClientGetter) ToRESTConfig() (*rest.Config, error) {
 }
 
 func (c *ManifestRESTClientGetter) ToDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
-	c.clientSyncMutex.Lock()
-	defer c.clientSyncMutex.Unlock()
-
-	if c.client != nil {
-		return c.client, nil
+	if c.kymaObjKey.Name != "" {
+		if client := c.cache.GetMemCachedClient(c.kymaObjKey); client != nil {
+			return client, nil
+		}
 	}
 
 	config, err := c.ToRESTConfig()
+
 	if err != nil {
 		return nil, err
 	}
@@ -51,9 +53,12 @@ func (c *ManifestRESTClientGetter) ToDiscoveryClient() (discovery.CachedDiscover
 		return nil, err
 	}
 
-	c.client = memory.NewMemCacheClient(discoveryClient)
+	memCachedClient := memory.NewMemCacheClient(discoveryClient)
+	if c.kymaObjKey.Name != "" {
+		c.cache.SetMemCachedClient(c.kymaObjKey, memCachedClient)
+	}
 
-	return c.client, nil
+	return memCachedClient, nil
 }
 
 func (c *ManifestRESTClientGetter) ToRESTMapper() (meta.RESTMapper, error) {

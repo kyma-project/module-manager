@@ -31,6 +31,10 @@ func (m *Manifest) SetObservedGeneration() *Manifest {
 	return m
 }
 
+func (m *Manifest) IsSpecUpdated() bool {
+	return m.Status.ObservedGeneration != m.Generation
+}
+
 // InstallInfo defines installation information.
 type InstallInfo struct {
 	// Source can either be described as ImageSpec or HelmChartSpec

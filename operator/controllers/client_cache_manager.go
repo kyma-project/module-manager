@@ -22,5 +22,6 @@ func NewCacheManager() *CacheManager {
 
 func (c *CacheManager) Invalidate(key client.ObjectKey) {
 	c.HelmClients.Delete(key)
+	c.HelmClients.DeleteMemCachedClient(key)
 	c.ClusterInfos.Delete(key)
 }
