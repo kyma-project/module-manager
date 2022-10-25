@@ -18,7 +18,8 @@ type ManifestRESTClientGetter struct {
 	kymaObjKey client.ObjectKey
 }
 
-func NewRESTClientGetter(config *rest.Config, cache types.HelmClientCache, kymaObjKey client.ObjectKey) *ManifestRESTClientGetter {
+func NewRESTClientGetter(config *rest.Config, cache types.HelmClientCache, kymaObjKey client.ObjectKey,
+) *ManifestRESTClientGetter {
 	return &ManifestRESTClientGetter{
 		config:     config,
 		cache:      cache,
@@ -38,7 +39,6 @@ func (c *ManifestRESTClientGetter) ToDiscoveryClient() (discovery.CachedDiscover
 	}
 
 	config, err := c.ToRESTConfig()
-
 	if err != nil {
 		return nil, err
 	}

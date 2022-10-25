@@ -45,8 +45,8 @@ type HelmClient struct {
 var accessor = meta.NewAccessor()
 
 func NewHelmClient(restGetter *manifestRest.ManifestRESTClientGetter, restConfig *rest.Config,
-	settings *cli.EnvSettings, releaseName string, flags types.ChartFlags, logger *logr.Logger) (*HelmClient, error) {
-
+	settings *cli.EnvSettings, releaseName string, flags types.ChartFlags, logger *logr.Logger,
+) (*HelmClient, error) {
 	discoveryClient, err := restGetter.ToDiscoveryClient()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new discovery client %w", err)
@@ -64,8 +64,8 @@ func NewHelmClient(restGetter *manifestRest.ManifestRESTClientGetter, restConfig
 		mapper:      discoveryMapper,
 	}
 
-	helmClient.actionClient, helmClient.kubeClient, err =
-		helmClient.newInstallActionClient(v1.NamespaceDefault, restGetter)
+	helmClient.actionClient, helmClient.kubeClient, err = helmClient.newInstallActionClient(
+		v1.NamespaceDefault, restGetter)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +95,8 @@ func (h *HelmClient) newInstallActionClient(namespace string, restGetter *manife
 	return action.NewInstall(actionConfig), kubeClient, nil
 }
 
-func (h *HelmClient) getGenericConfig(namespace string, restGetter *manifestRest.ManifestRESTClientGetter) (*action.Configuration, error) {
+func (h *HelmClient) getGenericConfig(namespace string, restGetter *manifestRest.ManifestRESTClientGetter,
+) (*action.Configuration, error) {
 	actionConfig := new(action.Configuration)
 	if err := actionConfig.Init(restGetter, namespace, "secrets",
 		func(format string, v ...interface{}) {
@@ -383,7 +384,6 @@ func (h *HelmClient) PerformDelete(resourceLists types.ResourceLists) (int, erro
 func (h *HelmClient) CheckWaitForResources(ctx context.Context, targetResources kube.ResourceList,
 	operation types.HelmOperation, verifyWithoutTimeout bool,
 ) (bool, error) {
-
 	// verifyWithoutTimeout flag checks native resources are in their respective ready states
 	// without a timeout defined
 	if verifyWithoutTimeout {
