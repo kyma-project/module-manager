@@ -14,15 +14,6 @@ import (
 	"github.com/kyma-project/module-manager/operator/pkg/labels"
 )
 
-type ClusterInfo struct {
-	Config *rest.Config
-	Client client.Client
-}
-
-func (r ClusterInfo) IsEmpty() bool {
-	return r.Config == nil
-}
-
 type ClusterClient struct {
 	DefaultClient client.Client
 }

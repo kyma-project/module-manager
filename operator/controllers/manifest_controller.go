@@ -23,6 +23,7 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	k8slabels "k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/ratelimiter"
 
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -46,7 +47,6 @@ import (
 	"github.com/kyma-project/module-manager/operator/internal/pkg/prepare"
 	internalTypes "github.com/kyma-project/module-manager/operator/internal/pkg/types"
 	internalUtil "github.com/kyma-project/module-manager/operator/internal/pkg/util"
-	"github.com/kyma-project/module-manager/operator/pkg/custom"
 	"github.com/kyma-project/module-manager/operator/pkg/labels"
 	"github.com/kyma-project/module-manager/operator/pkg/manifest"
 	"github.com/kyma-project/module-manager/operator/pkg/ratelimit"
@@ -76,6 +76,7 @@ type ManifestReconciler struct {
 	DeployChan       chan OperationRequest
 	Workers          *ManifestWorkerPool
 	RequeueIntervals RequeueIntervals
+	CacheManager     *CacheManager
 	internalTypes.ReconcileFlagConfig
 }
 
@@ -171,25 +172,23 @@ func (r *ManifestReconciler) sendJobToInstallChannel(ctx context.Context, logger
 	go r.ResponseHandlerFunc(ctx, logger, chartCount, responseChan, namespacedName)
 
 	// send deploy requests
-	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, custom.ClusterInfo{
+	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, types.ClusterInfo{
 		Client: r.Client, Config: r.RestConfig,
-	}, r.ReconcileFlagConfig)
+	}, r.ReconcileFlagConfig, r.CacheManager.ClusterInfos)
 	if err != nil {
-
 		logger.Error(err, fmt.Sprintf("cannot prepare install information for %s resource %s",
 			v1alpha1.ManifestKind, namespacedName))
 		if mode == manifest.DeletionMode {
 			// when installation info cannot not be determined in deletion mode
 			// reconciling this resource again will not fix itself
 			// so remove finalizer in this case, to process with Manifest deletion
-			if controllerutil.RemoveFinalizer(manifestObj, labels.ManifestFinalizer) {
-				return r.updateManifest(ctx, manifestObj)
-			}
+			return r.finalizeDeletion(ctx, manifestObj)
 		}
 		return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error())
 	}
 
-	// send install requests to deployment channel
+	// send processing requests (installation / uninstallation) to deployment channel
+	// each individual request will be processed by the next available worker
 	for _, deployInfo := range deployInfos {
 		r.DeployChan <- OperationRequest{
 			Info:         deployInfo,
@@ -208,7 +207,7 @@ func (r *ManifestReconciler) HandleErrorState(ctx context.Context, manifestObj *
 func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest,
 ) error {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
-	if manifestObj.Generation != manifestObj.Status.ObservedGeneration {
+	if manifestObj.IsSpecUpdated() {
 		logger.Info("observed generation change for " + namespacedName.String())
 		return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing,
 			"observed generation change")
@@ -217,15 +216,15 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 	logger.V(1).Info("checking consistent state for " + namespacedName.String())
 
 	// send deploy requests
-	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, custom.ClusterInfo{
+	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, types.ClusterInfo{
 		Client: r.Client, Config: r.RestConfig,
-	}, r.ReconcileFlagConfig)
+	}, r.ReconcileFlagConfig, r.CacheManager.ClusterInfos)
 	if err != nil {
 		return err
 	}
 
 	for _, deployInfo := range deployInfos {
-		ready, err := manifest.ConsistencyCheck(logger, deployInfo, []types.ObjectTransform{})
+		ready, err := manifest.ConsistencyCheck(logger, deployInfo, []types.ObjectTransform{}, r.CacheManager.HelmClients)
 
 		// prepare chart response object
 		chartResponse := &manifest.InstallResponse{
@@ -283,9 +282,9 @@ func (r *ManifestReconciler) HandleCharts(deployInfo manifest.InstallInfo, mode 
 	var ready bool
 	var err error
 	if create {
-		ready, err = manifest.InstallChart(logger, deployInfo, []types.ObjectTransform{})
+		ready, err = manifest.InstallChart(logger, deployInfo, []types.ObjectTransform{}, r.CacheManager.HelmClients)
 	} else {
-		ready, err = manifest.UninstallChart(logger, deployInfo, []types.ObjectTransform{})
+		ready, err = manifest.UninstallChart(logger, deployInfo, []types.ObjectTransform{}, r.CacheManager.HelmClients)
 	}
 
 	return &manifest.InstallResponse{
@@ -340,11 +339,8 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 
 	// handle deletion if no previous error occurred
 	if !errorState && !latestManifestObj.DeletionTimestamp.IsZero() && !processing {
-		// remove finalizer
-		controllerutil.RemoveFinalizer(latestManifestObj, labels.ManifestFinalizer)
-		err := r.updateManifest(ctx, latestManifestObj)
+		err := r.finalizeDeletion(ctx, latestManifestObj)
 		if err == nil {
-			// finalizer successfully removed
 			return
 		}
 
@@ -398,6 +394,9 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 	// default config from kubebuilder
 	r.RestConfig = mgr.GetConfig()
 
+	// initialize new cluster cache
+	r.CacheManager = NewCacheManager()
+
 	// register listener component
 	runnableListener, eventChannel := listener.RegisterListenerComponent(
 		listenerAddr, strings.ToLower(labels.OperatorName))
@@ -427,4 +426,40 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 			MaxConcurrentReconciles: r.MaxConcurrentReconciles,
 		}).
 		Complete(r)
+}
+
+func (r *ManifestReconciler) finalizeDeletion(ctx context.Context, manifestObj *v1alpha1.Manifest) error {
+	// remove finalizer
+	finalizerRemoved := controllerutil.RemoveFinalizer(manifestObj, labels.ManifestFinalizer)
+
+	// finally update Manifest, if finalizer was removed
+	if !finalizerRemoved {
+		return nil
+	}
+
+	// delete remote cluster information if present
+
+	kymaOwnerLabel, err := util.GetResourceLabel(manifestObj, labels.ComponentOwner)
+	if err != nil {
+		return err
+	}
+
+	manifestList := &v1alpha1.ManifestList{}
+	if err != nil {
+		return err
+	}
+	err = r.Client.List(ctx, manifestList, &client.ListOptions{
+		LabelSelector: k8slabels.SelectorFromSet(k8slabels.Set{labels.ComponentOwner: kymaOwnerLabel}),
+		Namespace:     manifestObj.Namespace,
+	})
+	if err != nil {
+		return err
+	}
+	// delete cluster cache entry only if the Manifest being deleted is the only one
+	// with the corresponding kyma name
+	if len(manifestList.Items) == 1 {
+		r.CacheManager.Invalidate(client.ObjectKey{Name: kymaOwnerLabel, Namespace: manifestObj.Namespace})
+	}
+
+	return r.updateManifest(ctx, manifestObj)
 }

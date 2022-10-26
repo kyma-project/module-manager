@@ -28,6 +28,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -55,6 +56,8 @@ var (
 	server        *httptest.Server                                    //nolint:gochecknoglobals
 	helmCacheRepo = filepath.Join(helmCacheHome, "repository")        //nolint:gochecknoglobals
 	helmRepoFile  = filepath.Join(helmCacheHome, "repositories.yaml") //nolint:gochecknoglobals
+	reconciler    *controllers.ManifestReconciler                     //nolint:gochecknoglobals
+	cfg           *rest.Config                                        //nolint:gochecknoglobals
 )
 
 const (
@@ -63,6 +66,7 @@ const (
 	helmCacheRepoEnv = "HELM_REPOSITORY_CACHE"
 	helmRepoEnv      = "HELM_REPOSITORY_CONFIG"
 	layerNameRef     = "some/name"
+	secretName       = "some-kyma-name"
 )
 
 func TestAPIs(t *testing.T) {
@@ -91,7 +95,7 @@ var _ = BeforeSuite(func() {
 		ErrorIfCRDPathMissing: false,
 	}
 
-	cfg, err := testEnv.Start()
+	cfg, err = testEnv.Start()
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 
@@ -113,7 +117,7 @@ var _ = BeforeSuite(func() {
 	codec, err := types.NewCodec()
 	Expect(err).ToNot(HaveOccurred())
 
-	err = (&controllers.ManifestReconciler{
+	reconciler = &controllers.ManifestReconciler{
 		Client:  k8sManager.GetClient(),
 		Scheme:  scheme.Scheme,
 		Workers: manifestWorkers,
@@ -129,7 +133,8 @@ var _ = BeforeSuite(func() {
 			Failure: time.Second * 2,
 			Waiting: time.Second * 2,
 		},
-	}).SetupWithManager(ctx, k8sManager, 1*time.Second, 1000*time.Second,
+	}
+	err = reconciler.SetupWithManager(ctx, k8sManager, 1*time.Second, 1000*time.Second,
 		30, 200, "8082")
 	Expect(err).ToNot(HaveOccurred())
 

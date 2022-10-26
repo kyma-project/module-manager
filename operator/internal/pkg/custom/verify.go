@@ -7,7 +7,10 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/go-logr/logr"
+
 	"github.com/kyma-project/module-manager/operator/pkg/custom"
+	"github.com/kyma-project/module-manager/operator/pkg/types"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -17,13 +20,13 @@ type Resource struct {
 }
 
 func (r *Resource) DefaultFn(context.Context, *unstructured.Unstructured, *logr.Logger,
-	custom.ClusterInfo,
+	types.ClusterInfo,
 ) (bool, error) {
 	return true, nil
 }
 
 func (r *Resource) CheckFn(ctx context.Context, manifestObj *unstructured.Unstructured, logger *logr.Logger,
-	clusterInfo custom.ClusterInfo,
+	clusterInfo types.ClusterInfo,
 ) (bool, error) {
 	// if manifest resource is in deleting state - validate check
 	if !manifestObj.GetDeletionTimestamp().IsZero() {

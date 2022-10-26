@@ -15,10 +15,12 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/types"
 	_ "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
+	"github.com/kyma-project/module-manager/operator/pkg/labels"
 	manifestTypes "github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
 )
@@ -86,15 +88,26 @@ func getImageSpec(digest string) manifestTypes.ImageSpec {
 	}
 }
 
+func createKymaSecret() *corev1.Secret {
+	kymaSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: corev1.NamespaceDefault,
+		},
+		StringData: map[string]string{},
+	}
+	Expect(k8sClient.Create(ctx, kymaSecret)).Should(Succeed())
+	return kymaSecret
+}
+
 func createManifestObj(name string, spec v1alpha1.ManifestSpec) *v1alpha1.Manifest {
 	return &v1alpha1.Manifest{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: v1alpha1.GroupVersion.String(),
-			Kind:       v1alpha1.ManifestKind,
-		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: metav1.NamespaceDefault,
+			Labels: map[string]string{
+				labels.ComponentOwner: secretName,
+			},
 		},
 		Spec: spec,
 	}
@@ -118,8 +131,11 @@ func verifyHelmResourcesDeletion(imageSpec manifestTypes.ImageSpec) {
 	Expect(os.IsNotExist(err)).To(BeTrue())
 }
 
-func deleteManifestResource(manifestObj *v1alpha1.Manifest) {
+func deleteManifestResource(manifestObj *v1alpha1.Manifest, secret *corev1.Secret) {
 	Expect(k8sClient.Delete(ctx, manifestObj)).Should(Succeed())
 	Eventually(getManifest(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
 		Should(BeTrue())
+	if secret != nil {
+		Expect(k8sClient.Delete(ctx, secret)).Should(Succeed())
+	}
 }

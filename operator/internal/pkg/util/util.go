@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/kyma-project/module-manager/operator/pkg/util"
-
 	"github.com/go-logr/logr"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -18,6 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
+	"github.com/kyma-project/module-manager/operator/pkg/util"
 )
 
 func getReadyConditionForComponent(manifest *v1alpha1.Manifest,

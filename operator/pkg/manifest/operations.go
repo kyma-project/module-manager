@@ -7,17 +7,20 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
-	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/kube"
 	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/discovery/cached/memory"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/restmapper"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kyma-project/module-manager/operator/pkg/custom"
+	"github.com/kyma-project/module-manager/operator/pkg/labels"
 	"github.com/kyma-project/module-manager/operator/pkg/resource"
 	manifestRest "github.com/kyma-project/module-manager/operator/pkg/rest"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
@@ -41,16 +44,6 @@ type ChartInfo struct {
 	Flags       types.ChartFlags
 }
 
-type ResourceLists struct {
-	Target    kube.ResourceList
-	Installed kube.ResourceList
-	Namespace kube.ResourceList
-}
-
-func (r ResourceLists) getWaitForResources() kube.ResourceList {
-	return append(r.Target, r.Namespace...)
-}
-
 // InstallInfo represents deployment information artifacts to be processed.
 type InstallInfo struct {
 	// ChartInfo represents chart information to be processed
@@ -58,13 +51,15 @@ type InstallInfo struct {
 	// ResourceInfo represents additional resources to be processed
 	ResourceInfo
 	// ClusterInfo represents target cluster information
-	custom.ClusterInfo
+	types.ClusterInfo
 	// Ctx hold the current context
 	Ctx context.Context //nolint:containedctx
 	// CheckFn returns a boolean indicating ready state based on custom checks
 	CheckFn custom.CheckFnType
 	// CheckReadyStates indicates if native resources should be checked for ready states
 	CheckReadyStates bool
+	// UpdateRepositories indicates if repositories should be updated
+	UpdateRepositories bool
 }
 
 // ResourceInfo represents additional resources.
@@ -94,18 +89,15 @@ func (r *InstallResponse) Error() string {
 
 type Operations struct {
 	logger             *logr.Logger
-	kubeClient         *kube.Client
-	helmClient         *HelmClient
-	repoHandler        *RepoHandler
-	restGetter         *manifestRest.ManifestRESTClientGetter
-	actionClient       *action.Install
+	helmClient         types.HelmClient
 	flags              types.ChartFlags
 	resourceTransforms []types.ObjectTransform
 }
 
 func InstallChart(logger *logr.Logger, deployInfo InstallInfo, resourceTransforms []types.ObjectTransform,
+	cache types.HelmClientCache,
 ) (bool, error) {
-	operations, err := newOperations(logger, deployInfo, resourceTransforms)
+	operations, err := newOperations(logger, deployInfo, resourceTransforms, cache)
 	if err != nil {
 		return false, err
 	}
@@ -114,8 +106,9 @@ func InstallChart(logger *logr.Logger, deployInfo InstallInfo, resourceTransform
 }
 
 func UninstallChart(logger *logr.Logger, deployInfo InstallInfo, resourceTransforms []types.ObjectTransform,
+	cache types.HelmClientCache,
 ) (bool, error) {
-	operations, err := newOperations(logger, deployInfo, resourceTransforms)
+	operations, err := newOperations(logger, deployInfo, resourceTransforms, cache)
 	if err != nil {
 		return false, err
 	}
@@ -124,8 +117,9 @@ func UninstallChart(logger *logr.Logger, deployInfo InstallInfo, resourceTransfo
 }
 
 func ConsistencyCheck(logger *logr.Logger, deployInfo InstallInfo, resourceTransforms []types.ObjectTransform,
+	cache types.HelmClientCache,
 ) (bool, error) {
-	operations, err := newOperations(logger, deployInfo, resourceTransforms)
+	operations, err := newOperations(logger, deployInfo, resourceTransforms, cache)
 	if err != nil {
 		return false, err
 	}
@@ -134,62 +128,102 @@ func ConsistencyCheck(logger *logr.Logger, deployInfo InstallInfo, resourceTrans
 }
 
 func newOperations(logger *logr.Logger, deployInfo InstallInfo, resourceTransforms []types.ObjectTransform,
+	cache types.HelmClientCache,
 ) (*Operations, error) {
-	settings := cli.New()
-	restGetter := manifestRest.NewRESTClientGetter(deployInfo.Config)
-	kubeClient := kube.New(restGetter)
-	helmClient, err := NewHelmClient(kubeClient, restGetter, deployInfo.Config, settings)
-	if err != nil {
-		return nil, err
+	var cacheKey client.ObjectKey
+
+	if deployInfo.BaseResource != nil {
+		// cache HelmClient by Kyma name
+		// as there can be multiple Manifests belonging to the same Kyma resource
+		label, err := util.GetResourceLabel(deployInfo.BaseResource, labels.ComponentOwner)
+		if err != nil {
+			return nil, err
+		}
+		cacheKey = client.ObjectKey{Name: label, Namespace: deployInfo.BaseResource.GetNamespace()}
+	}
+	helmClient := cache.Get(cacheKey)
+	if helmClient == nil {
+		memCacheClient, err := getMemCacheClient(deployInfo.Config)
+		if err != nil {
+			return nil, err
+		}
+		helmClient, err = getHelmClient(cacheKey, deployInfo, cache, memCacheClient, logger)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	operations := &Operations{
 		logger:             logger,
-		restGetter:         restGetter,
-		repoHandler:        NewRepoHandler(logger, settings),
-		kubeClient:         kubeClient,
 		helmClient:         helmClient,
 		flags:              deployInfo.Flags,
 		resourceTransforms: resourceTransforms,
 	}
 
-	operations.actionClient, err = operations.helmClient.NewInstallActionClient(v1.NamespaceDefault,
-		deployInfo.ReleaseName, deployInfo.Flags)
-	if err != nil {
-		return nil, err
-	}
 	return operations, nil
 }
 
-func (o *Operations) getClusterResources(deployInfo InstallInfo, operation HelmOperation) (ResourceLists, error) {
-	if deployInfo.ChartPath == "" {
-		if err := o.repoHandler.Add(deployInfo.RepoName, deployInfo.URL, o.logger); err != nil {
-			return ResourceLists{}, err
-		}
+// getHelmClient returns a new HelmClient instance and caches it in-memory.
+func getHelmClient(cacheKey client.ObjectKey, deployInfo InstallInfo, cache types.HelmClientCache,
+	memCacheClient discovery.CachedDiscoveryInterface, logger *logr.Logger,
+) (types.HelmClient, error) {
+	// create RESTGetter with cached memcached client
+	restGetter := manifestRest.NewRESTClientGetter(deployInfo.Config, memCacheClient)
+
+	// use deferred discovery client here as GVs applicable to the client are inconsistent at this moment
+	discoveryMapper := restmapper.NewDeferredDiscoveryRESTMapper(memCacheClient)
+
+	// create HelmClient instance
+	helmClient, err := NewHelmClient(restGetter, discoveryMapper, deployInfo.Config, cli.New(),
+		deployInfo.ReleaseName, deployInfo.Flags, logger)
+	if err != nil {
+		return nil, err
 	}
 
-	manifest, err := o.getManifestForChartPath(deployInfo.ChartPath, deployInfo.ChartName, o.actionClient, o.flags)
+	// cache HelmClient by valid kyma name
+	if cacheKey.Name != "" {
+		cache.Set(cacheKey, helmClient)
+	}
+	return helmClient, nil
+}
+
+// getMemCacheClient creates and returns a new instance of MemCacheClient.
+func getMemCacheClient(config *rest.Config) (discovery.CachedDiscoveryInterface, error) {
+	// The more groups you have, the more discovery requests you need to make.
+	// given 25 groups (our groups + a few custom conf) with one-ish version each, discovery needs to make 50 requests
+	// double it just so we don't end up here again for a while.  This config is only used for discovery.
+	config.Burst = 100
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
 	if err != nil {
-		return ResourceLists{}, err
+		return nil, err
+	}
+	return memory.NewMemCacheClient(discoveryClient), nil
+}
+
+func (o *Operations) getClusterResources(deployInfo InstallInfo, operation types.HelmOperation,
+) (types.ResourceLists, error) {
+	manifest, err := o.getManifestForChartPath(deployInfo, o.flags)
+	if err != nil {
+		return types.ResourceLists{}, err
 	}
 
-	NsResourceList, err := o.helmClient.GetNsResource(o.actionClient, operation)
+	NsResourceList, err := o.helmClient.GetNsResource()
 	if err != nil {
-		return ResourceLists{}, err
+		return types.ResourceLists{}, err
 	}
 
 	targetResourceList, err := o.helmClient.GetTargetResources(deployInfo.Ctx, manifest,
-		o.actionClient.Namespace, o.resourceTransforms, deployInfo.BaseResource)
+		o.resourceTransforms, deployInfo.BaseResource)
 	if err != nil {
-		return ResourceLists{}, fmt.Errorf("could not render resources from manifest: %w", err)
+		return types.ResourceLists{}, fmt.Errorf("could not render resources from manifest: %w", err)
 	}
 
 	existingResourceList, err := util.FilterExistingResources(targetResourceList)
 	if err != nil {
-		return ResourceLists{}, fmt.Errorf("could not render existing resources from manifest: %w", err)
+		return types.ResourceLists{}, fmt.Errorf("could not render existing resources from manifest: %w", err)
 	}
 
-	return ResourceLists{
+	return types.ResourceLists{
 		Target:    targetResourceList,
 		Installed: existingResourceList,
 		Namespace: NsResourceList,
@@ -239,26 +273,31 @@ func (o *Operations) install(deployInfo InstallInfo) (bool, error) {
 		return false, err
 	}
 
-	resourceLists, err := o.getClusterResources(deployInfo, OperationCreate)
+	// render manifests
+	resourceLists, err := o.getClusterResources(deployInfo, types.OperationCreate)
 	if err != nil {
 		return false, err
 	}
 
+	// install resources
 	if _, err = o.installResources(resourceLists); err != nil {
 		return false, err
 	}
 
+	// verify resource installation
 	if ready, err := o.verifyResources(deployInfo.Ctx, resourceLists,
-		deployInfo.CheckReadyStates, OperationCreate); !ready || err != nil {
+		deployInfo.CheckReadyStates, types.OperationCreate); !ready || err != nil {
 		return ready, err
 	}
 
 	o.logger.Info("Install Complete!! Happy Manifesting!", "release", deployInfo.ReleaseName,
 		"chart", deployInfo.ChartName)
 
-	// update manifest chart in a separate go-routine
-	if err = o.repoHandler.Update(deployInfo.Ctx); err != nil {
-		return false, err
+	// update Helm repositories
+	if deployInfo.UpdateRepositories {
+		if err = o.helmClient.UpdateRepos(deployInfo.Ctx); err != nil {
+			return false, err
+		}
 	}
 
 	// install crs - if present do not update!
@@ -274,14 +313,7 @@ func (o *Operations) install(deployInfo InstallInfo) (bool, error) {
 	return true, nil
 }
 
-func (o *Operations) installResources(resourceLists ResourceLists) (*kube.Result, error) {
-	// create namespace resource first
-	if len(resourceLists.Namespace) > 0 {
-		if err := o.helmClient.CreateNamespace(resourceLists.Namespace); err != nil {
-			return nil, err
-		}
-	}
-
+func (o *Operations) installResources(resourceLists types.ResourceLists) (*kube.Result, error) {
 	if resourceLists.Installed == nil && len(resourceLists.Target) > 0 {
 		return o.helmClient.PerformCreate(resourceLists)
 	}
@@ -289,45 +321,24 @@ func (o *Operations) installResources(resourceLists ResourceLists) (*kube.Result
 	return o.helmClient.PerformUpdate(resourceLists, true)
 }
 
-func (o *Operations) verifyResources(ctx context.Context, resourceLists ResourceLists, verifyReadyStates bool,
-	operationType HelmOperation,
+func (o *Operations) verifyResources(ctx context.Context, resourceLists types.ResourceLists, verifyReadyStates bool,
+	operationType types.HelmOperation,
 ) (bool, error) {
-	// if Wait or WaitForJobs is enabled, wait for resources to be ready with a timeout
-	if err := o.helmClient.CheckWaitForResources(resourceLists.getWaitForResources(), o.actionClient,
-		operationType); err != nil {
-		return false, err
-	}
-
-	if verifyReadyStates {
-		// check target resources are ready or deleted without waiting
-		return o.helmClient.CheckDesiredState(ctx, resourceLists.getWaitForResources(), operationType)
-	}
-
-	return true, nil
+	return o.helmClient.CheckWaitForResources(ctx, resourceLists.GetWaitForResources(), operationType,
+		verifyReadyStates)
 }
 
-func (o *Operations) uninstallResources(resourceLists ResourceLists) error {
-	if resourceLists.Installed != nil {
-		response, delErrors := o.kubeClient.Delete(resourceLists.Installed)
-		if len(delErrors) > 0 {
-			var wrappedError error
-			for _, err := range delErrors {
-				wrappedError = fmt.Errorf("%w", err)
-			}
-			return wrappedError
-		}
-
-		o.logger.Info("component deletion executed", "resource count", len(response.Deleted))
+func (o *Operations) uninstallResources(resourceLists types.ResourceLists) error {
+	count, err := o.helmClient.PerformDelete(resourceLists)
+	if err != nil {
+		return err
 	}
-
-	if len(resourceLists.Namespace) > 0 {
-		return o.helmClient.DeleteNamespace(resourceLists.Namespace)
-	}
+	o.logger.Info("component deletion executed", "resource count", count)
 	return nil
 }
 
 func (o *Operations) uninstall(deployInfo InstallInfo) (bool, error) {
-	resourceLists, err := o.getClusterResources(deployInfo, OperationDelete)
+	resourceLists, err := o.getClusterResources(deployInfo, types.OperationDelete)
 	if err != nil {
 		return false, err
 	}
@@ -341,18 +352,22 @@ func (o *Operations) uninstall(deployInfo InstallInfo) (bool, error) {
 		return false, err
 	}
 
+	// uninstall resources
 	if err := o.uninstallResources(resourceLists); err != nil {
 		return false, err
 	}
 
+	// verify resource uninstallations
 	if ready, err := o.verifyResources(deployInfo.Ctx, resourceLists,
-		deployInfo.CheckReadyStates, OperationDelete); !ready || err != nil {
+		deployInfo.CheckReadyStates, types.OperationDelete); !ready || err != nil {
 		return ready, err
 	}
 
-	// update manifest chart in a separate go-routine
-	if err = o.repoHandler.Update(deployInfo.Ctx); err != nil {
-		return false, err
+	// update Helm repositories
+	if deployInfo.UpdateRepositories {
+		if err = o.helmClient.UpdateRepos(deployInfo.Ctx); err != nil {
+			return false, err
+		}
 	}
 
 	// delete crds first - if not present ignore!
@@ -367,22 +382,20 @@ func (o *Operations) uninstall(deployInfo InstallInfo) (bool, error) {
 	return true, err
 }
 
-func (o *Operations) getManifestForChartPath(chartPath, chartName string, actionClient *action.Install,
-	flags types.ChartFlags,
-) (string, error) {
+func (o *Operations) getManifestForChartPath(deployInfo InstallInfo, flags types.ChartFlags) (string, error) {
 	var err error
 	helmRepo := false
-
+	chartPath := deployInfo.ChartPath
 	if chartPath == "" {
 		// 1. legacy case - helm repo
 		helmRepo = true
-		chartPath, err = o.helmClient.DownloadChart(actionClient, chartName)
+		chartPath, err = o.helmClient.DownloadChart(deployInfo.RepoName, deployInfo.URL, deployInfo.ChartName)
 		if err != nil {
 			return "", err
 		}
 	} else {
 		// 2. OCI Image
-		if renderedManifest, err := o.handleRenderedManifestForStaticChart(chartName, chartPath); err != nil {
+		if renderedManifest, err := o.handleRenderedManifestForStaticChart(deployInfo.ChartName, chartPath); err != nil {
 			return "", err
 		} else if renderedManifest != "" {
 			return renderedManifest, nil
@@ -391,13 +404,7 @@ func (o *Operations) getManifestForChartPath(chartPath, chartName string, action
 	o.logger.V(util.DebugLogLevel).Info("chart located", "path", chartPath)
 
 	// if rendered manifest doesn't exist
-	chartRequested, err := o.repoHandler.LoadChart(chartPath, actionClient)
-	if err != nil {
-		return "", err
-	}
-
-	// retrieve manifest
-	release, err := actionClient.Run(chartRequested, flags.SetFlags)
+	stringifiedManifest, err := o.helmClient.RenderManifestFromChartPath(chartPath, flags.SetFlags)
 	if err != nil {
 		return "", err
 	}
@@ -407,9 +414,9 @@ func (o *Operations) getManifestForChartPath(chartPath, chartName string, action
 
 	// write rendered manifest file
 	if !helmRepo {
-		err = util.WriteToFile(util.GetFsManifestChartPath(chartPath), []byte(release.Manifest))
+		err = util.WriteToFile(util.GetFsManifestChartPath(chartPath), []byte(stringifiedManifest))
 	}
-	return release.Manifest, err
+	return stringifiedManifest, err
 }
 
 func (o *Operations) handleRenderedManifestForStaticChart(chartName, chartPath string) (string, error) {

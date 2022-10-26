@@ -4,20 +4,15 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log"
 	"reflect"
 	"time"
 
+	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/discovery"
-	memory "k8s.io/client-go/discovery/cached"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
-
-	"github.com/kyma-project/module-manager/operator/pkg/types"
 
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
@@ -30,117 +25,112 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	manifestRest "github.com/kyma-project/module-manager/operator/pkg/rest"
+	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
 )
 
-type OperationType string
-
-type HelmOperation OperationType
-
-const (
-	OperationCreate HelmOperation = "create"
-	OperationDelete HelmOperation = "delete"
-)
-
 type HelmClient struct {
-	kubeClient *kube.Client
-	settings   *cli.EnvSettings
-	restGetter *manifestRest.ManifestRESTClientGetter
-	clientSet  *kubernetes.Clientset
-	restConfig *rest.Config
-	mapper     *restmapper.DeferredDiscoveryRESTMapper
+	kubeClient   *kube.Client
+	settings     *cli.EnvSettings
+	restGetter   *manifestRest.ManifestRESTClientGetter
+	clientSet    *kubernetes.Clientset
+	restConfig   *rest.Config
+	mapper       *restmapper.DeferredDiscoveryRESTMapper
+	actionClient *action.Install
+	repoHandler  *RepoHandler
+	logger       *logr.Logger
 }
 
 //nolint:gochecknoglobals
 var accessor = meta.NewAccessor()
 
-func NewHelmClient(kubeClient *kube.Client, restGetter *manifestRest.ManifestRESTClientGetter,
-	restConfig *rest.Config, settings *cli.EnvSettings,
+// NewHelmClient creates and returns a new instance of HelmClient.
+// HelmClient offers helm chart resource operations on a target cluster.
+func NewHelmClient(restGetter *manifestRest.ManifestRESTClientGetter,
+	discoveryMapper *restmapper.DeferredDiscoveryRESTMapper, restConfig *rest.Config, settings *cli.EnvSettings,
+	releaseName string, flags types.ChartFlags, logger *logr.Logger,
 ) (*HelmClient, error) {
-	clientSet, err := kubernetes.NewForConfig(restConfig)
-	if err != nil {
-		return &HelmClient{}, err
+	var err error
+	helmClient := &HelmClient{
+		logger:      logger,
+		repoHandler: NewRepoHandler(logger, settings),
+		settings:    settings,
+		restGetter:  restGetter,
+		restConfig:  restConfig,
+		mapper:      discoveryMapper,
 	}
 
-	discoveryClient, err := discovery.NewDiscoveryClientForConfig(restConfig)
+	helmClient.actionClient, helmClient.kubeClient, err = helmClient.newInstallActionClient(
+		v1.NamespaceDefault, restGetter)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create new discovery client %w", err)
+		return nil, err
 	}
 
-	discoveryMapper := restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(discoveryClient))
+	helmClient.clientSet, err = helmClient.kubeClient.Factory.KubernetesClientSet()
+	if err != nil {
+		return nil, err
+	}
 
-	return &HelmClient{
-		kubeClient: kubeClient,
-		settings:   settings,
-		restGetter: restGetter,
-		clientSet:  clientSet,
-		restConfig: restConfig,
-		mapper:     discoveryMapper,
-	}, nil
+	// set preliminary flag defaults for helm installation
+	helmClient.setDefaultFlags(releaseName)
+
+	// set custom flags for helm installation
+	return helmClient, helmClient.setCustomFlags(flags)
 }
 
-func (h *HelmClient) getGenericConfig(namespace string) (*action.Configuration, error) {
+func (h *HelmClient) newInstallActionClient(namespace string, restGetter *manifestRest.ManifestRESTClientGetter,
+) (*action.Install, *kube.Client, error) {
+	actionConfig, err := h.getGenericConfig(namespace, restGetter)
+	if err != nil {
+		return nil, nil, err
+	}
+	kubeClient, ok := actionConfig.KubeClient.(*kube.Client)
+	if !ok {
+		return nil, nil, fmt.Errorf("invalid kubeclient generation for helm installation")
+	}
+	return action.NewInstall(actionConfig), kubeClient, nil
+}
+
+func (h *HelmClient) getGenericConfig(namespace string, restGetter *manifestRest.ManifestRESTClientGetter,
+) (*action.Configuration, error) {
 	actionConfig := new(action.Configuration)
-	if err := actionConfig.Init(h.restGetter, namespace, "secrets",
+	if err := actionConfig.Init(restGetter, namespace, "secrets",
 		func(format string, v ...interface{}) {
-			callDepth := 2
-			format = fmt.Sprintf("[debug] %s\n", format)
-			err := log.Output(callDepth, fmt.Sprintf(format, v...))
-			if err != nil {
-				log.Println(err.Error())
-			}
+			format = fmt.Sprintf("%s\n", format)
+			h.logger.V(util.DebugLogLevel).Info(fmt.Sprintf(format, v...))
 		}); err != nil {
 		return nil, err
 	}
 	return actionConfig, nil
 }
 
-func (h *HelmClient) NewInstallActionClient(namespace, releaseName string, flags types.ChartFlags,
-) (*action.Install, error) {
-	actionConfig, err := h.getGenericConfig(namespace)
-	if err != nil {
-		return nil, err
-	}
-	actionClient := action.NewInstall(actionConfig)
-	h.SetDefaultClientConfig(actionClient, releaseName)
-	return actionClient, h.SetFlags(flags, actionClient)
-}
+func (h *HelmClient) setDefaultFlags(releaseName string) {
+	h.actionClient.DryRun = true
+	h.actionClient.Atomic = false
 
-func (h *HelmClient) NewUninstallActionClient(namespace string) (*action.Uninstall, error) {
-	actionConfig, err := h.getGenericConfig(namespace)
-	if err != nil {
-		return nil, err
-	}
-	return action.NewUninstall(actionConfig), nil
-}
+	h.actionClient.WaitForJobs = false
 
-func (h *HelmClient) SetDefaultClientConfig(actionClient *action.Install, releaseName string) {
-	actionClient.DryRun = true
-	actionClient.Atomic = false
-
-	actionClient.WaitForJobs = false
-
-	actionClient.Replace = true     // Skip the name check
-	actionClient.IncludeCRDs = true // include CRDs in the templated output
-	actionClient.UseReleaseName = false
-	actionClient.ReleaseName = releaseName
+	h.actionClient.Replace = true     // Skip the name check
+	h.actionClient.IncludeCRDs = true // include CRDs in the templated output
+	h.actionClient.UseReleaseName = false
+	h.actionClient.ReleaseName = releaseName
 
 	// ClientOnly has no interaction with the API server
 	// So unless mentioned no additional API Versions can be used as part of helm chart installation
-	actionClient.ClientOnly = false
+	h.actionClient.ClientOnly = false
 
-	actionClient.Namespace = v1.NamespaceDefault
+	h.actionClient.Namespace = v1.NamespaceDefault
 	// this will prohibit resource conflict validation while uninstalling
-	actionClient.IsUpgrade = true
+	h.actionClient.IsUpgrade = true
 
 	// default versioning if unspecified
-	if actionClient.Version == "" && actionClient.Devel {
-		actionClient.Version = ">0.0.0-0"
+	if h.actionClient.Version == "" && h.actionClient.Devel {
+		h.actionClient.Version = ">0.0.0-0"
 	}
 }
 
-func (h *HelmClient) SetFlags(flags types.ChartFlags, actionClient *action.Install) error {
-	clientValue := reflect.Indirect(reflect.ValueOf(actionClient))
+func (h *HelmClient) setCustomFlags(flags types.ChartFlags) error {
+	clientValue := reflect.Indirect(reflect.ValueOf(h.actionClient))
 
 	// TODO: as per requirements add more Kind types
 	for flagKey, flagValue := range flags.ConfigFlags {
@@ -186,22 +176,45 @@ func (h *HelmClient) SetFlags(flags types.ChartFlags, actionClient *action.Insta
 	return nil
 }
 
-func (h *HelmClient) DownloadChart(actionClient *action.Install, chartName string) (string, error) {
-	return actionClient.ChartPathOptions.LocateChart(chartName, h.settings)
+func (h *HelmClient) DownloadChart(repoName, url, chartName string) (string, error) {
+	err := h.repoHandler.Add(repoName, url)
+	if err != nil {
+		return "", err
+	}
+	return h.actionClient.ChartPathOptions.LocateChart(chartName, h.settings)
 }
 
-func (h *HelmClient) GetNsResource(actionClient *action.Install, operationType HelmOperation,
-) (kube.ResourceList, error) {
+func (h *HelmClient) RenderManifestFromChartPath(chartPath string, flags types.Flags) (string, error) {
+	// if rendered manifest doesn't exist
+	chartRequested, err := h.repoHandler.LoadChart(chartPath, h.actionClient)
+	if err != nil {
+		return "", err
+	}
+
+	// retrieve manifest
+	release, err := h.actionClient.Run(chartRequested, flags)
+	if err != nil {
+		return "", err
+	}
+
+	return release.Manifest, nil
+}
+
+func (h *HelmClient) UpdateRepo(repoName, url string) error {
+	return h.repoHandler.Add(repoName, url)
+}
+
+func (h *HelmClient) GetNsResource() (kube.ResourceList, error) {
 	// set kubeclient namespace for override
-	h.kubeClient.Namespace = actionClient.Namespace
+	h.kubeClient.Namespace = h.actionClient.Namespace
 
 	// validate namespace parameters
 	// proceed only if not default namespace since it already exists
-	if !actionClient.CreateNamespace || actionClient.Namespace == v1.NamespaceDefault {
+	if !h.actionClient.CreateNamespace || h.actionClient.Namespace == v1.NamespaceDefault {
 		return nil, nil
 	}
 
-	ns := actionClient.Namespace
+	ns := h.actionClient.Namespace
 	nsBuf, err := util.GetNamespaceObjBytes(ns)
 	if err != nil {
 		return nil, err
@@ -209,14 +222,14 @@ func (h *HelmClient) GetNsResource(actionClient *action.Install, operationType H
 	return h.kubeClient.Build(bytes.NewBuffer(nsBuf), false)
 }
 
-func (h *HelmClient) CreateNamespace(namespace kube.ResourceList) error {
+func (h *HelmClient) createNamespace(namespace kube.ResourceList) error {
 	if _, err := h.kubeClient.Create(namespace); err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
 	return nil
 }
 
-func (h *HelmClient) DeleteNamespace(namespace kube.ResourceList) error {
+func (h *HelmClient) deleteNamespace(namespace kube.ResourceList) error {
 	if _, delErrors := h.kubeClient.Delete(namespace); len(delErrors) > 0 {
 		var wrappedError error
 		for _, err := range delErrors {
@@ -227,7 +240,7 @@ func (h *HelmClient) DeleteNamespace(namespace kube.ResourceList) error {
 	return nil
 }
 
-func newRestClient(restConfig rest.Config, gv schema.GroupVersion) (resource.RESTClient, error) {
+func newRestClient(restConfig *rest.Config, gv schema.GroupVersion) (resource.RESTClient, error) {
 	restConfig.ContentConfig = resource.UnstructuredPlusDefaultContentConfig()
 	restConfig.GroupVersion = &gv
 
@@ -237,7 +250,7 @@ func newRestClient(restConfig rest.Config, gv schema.GroupVersion) (resource.RES
 		restConfig.APIPath = "/apis"
 	}
 
-	return rest.RESTClientFor(&restConfig)
+	return rest.RESTClientFor(restConfig)
 }
 
 func (h *HelmClient) assignRestMapping(gvk schema.GroupVersionKind, info *resource.Info) error {
@@ -251,10 +264,11 @@ func (h *HelmClient) assignRestMapping(gvk schema.GroupVersionKind, info *resour
 }
 
 func (h *HelmClient) convertToInfo(unstructuredObj *unstructured.Unstructured) (*resource.Info, error) {
+	//TODO:  manual invalidation of mem cache client to maintain current state of server mapping for API resources
 	info := &resource.Info{}
 	gvk := unstructuredObj.GroupVersionKind()
 	gv := gvk.GroupVersion()
-	client, err := newRestClient(*h.restConfig, gv)
+	client, err := newRestClient(h.restConfig, gv)
 	if err != nil {
 		return nil, err
 	}
@@ -294,7 +308,7 @@ func (h *HelmClient) transformManifestResources(ctx context.Context, manifest st
 	return resourceList, err
 }
 
-func (h *HelmClient) GetTargetResources(ctx context.Context, manifest string, targetNamespace string,
+func (h *HelmClient) GetTargetResources(ctx context.Context, manifest string,
 	transforms []types.ObjectTransform, object types.BaseCustomObject,
 ) (kube.ResourceList, error) {
 	var resourceList kube.ResourceList
@@ -311,50 +325,96 @@ func (h *HelmClient) GetTargetResources(ctx context.Context, manifest string, ta
 	}
 
 	// verify namespace override if not done by kubeclient
-	if err = h.overrideNamespace(resourceList, targetNamespace); err != nil {
+	if err = overrideNamespace(resourceList, h.actionClient.Namespace); err != nil {
 		return nil, err
 	}
 	return resourceList, nil
 }
 
-func (h *HelmClient) PerformUpdate(resourceLists ResourceLists, force bool,
+func (h *HelmClient) PerformUpdate(resourceLists types.ResourceLists, force bool,
 ) (*kube.Result, error) {
+	// create namespace resource first
+	if len(resourceLists.Namespace) > 0 {
+		if err := h.createNamespace(resourceLists.Namespace); err != nil {
+			return nil, err
+		}
+	}
 	return h.kubeClient.Update(resourceLists.Installed, resourceLists.Target, force)
 }
 
-func (h *HelmClient) PerformCreate(resourceLists ResourceLists) (*kube.Result, error) {
+func (h *HelmClient) PerformCreate(resourceLists types.ResourceLists) (*kube.Result, error) {
+	// create namespace resource first
+	if len(resourceLists.Namespace) > 0 {
+		if err := h.createNamespace(resourceLists.Namespace); err != nil {
+			return nil, err
+		}
+	}
 	return h.kubeClient.Create(resourceLists.Target)
 }
 
-func (h *HelmClient) CheckWaitForResources(targetResources kube.ResourceList, actionClient *action.Install,
-	operation HelmOperation,
-) error {
-	if !actionClient.Wait || actionClient.Timeout == 0 {
-		return nil
+func (h *HelmClient) PerformDelete(resourceLists types.ResourceLists) (int, error) {
+	count := 0
+	if resourceLists.Installed != nil {
+		response, delErrors := h.kubeClient.Delete(resourceLists.Installed)
+		if len(delErrors) > 0 {
+			var wrappedError error
+			for _, err := range delErrors {
+				wrappedError = fmt.Errorf("%w", err)
+			}
+			return 0, wrappedError
+		}
+
+		count = len(response.Deleted)
 	}
 
-	if operation == OperationDelete {
-		return h.kubeClient.WaitForDelete(targetResources, actionClient.Timeout)
+	if len(resourceLists.Namespace) > 0 {
+		count++
+		if err := h.deleteNamespace(resourceLists.Namespace); err != nil {
+			return 0, err
+		}
 	}
-
-	if actionClient.WaitForJobs {
-		return h.kubeClient.WaitWithJobs(targetResources, actionClient.Timeout)
-	}
-	return h.kubeClient.Wait(targetResources, actionClient.Timeout)
+	return count, nil
 }
 
-func (h *HelmClient) CheckDesiredState(ctx context.Context, targetResources kube.ResourceList, operation HelmOperation,
+func (h *HelmClient) CheckWaitForResources(ctx context.Context, targetResources kube.ResourceList,
+	operation types.HelmOperation, verifyWithoutTimeout bool,
 ) (bool, error) {
-	if operation == OperationDelete {
-		return h.checkResourcesDeleted(targetResources)
+	// verifyWithoutTimeout flag checks native resources are in their respective ready states
+	// without a timeout defined
+	if verifyWithoutTimeout {
+		if operation == types.OperationDelete {
+			return checkResourcesDeleted(targetResources)
+		}
+
+		readyChecker := kube.NewReadyChecker(h.clientSet, func(format string, v ...interface{}) {},
+			kube.PausedAsReady(true), kube.CheckJobs(true))
+		return checkReady(ctx, targetResources, readyChecker)
 	}
 
-	readyChecker := kube.NewReadyChecker(h.clientSet, func(format string, v ...interface{}) {},
-		kube.PausedAsReady(true), kube.CheckJobs(true))
-	return h.checkReady(ctx, targetResources, readyChecker)
+	// if Wait or WaitForJobs is enabled, resources are verified to be in ready state with a timeout
+	if !h.actionClient.Wait || h.actionClient.Timeout == 0 {
+		// return here as ready, since waiting flags were not set
+		return true, nil
+	}
+
+	if operation == types.OperationDelete {
+		// WaitForDelete reports an error if resources are not deleted in the specified timeout
+		return true, h.kubeClient.WaitForDelete(targetResources, h.actionClient.Timeout)
+	}
+
+	if h.actionClient.WaitForJobs {
+		// WaitWithJobs reports an error if resources are not deleted in the specified timeout
+		return true, h.kubeClient.WaitWithJobs(targetResources, h.actionClient.Timeout)
+	}
+	// Wait reports an error if resources are not deleted in the specified timeout
+	return true, h.kubeClient.Wait(targetResources, h.actionClient.Timeout)
 }
 
-func (h *HelmClient) checkResourcesDeleted(targetResources kube.ResourceList) (bool, error) {
+func (h *HelmClient) UpdateRepos(ctx context.Context) error {
+	return h.repoHandler.Update(ctx)
+}
+
+func checkResourcesDeleted(targetResources kube.ResourceList) (bool, error) {
 	resourcesDeleted := true
 	err := targetResources.Visit(func(info *resource.Info, err error) error {
 		if err != nil {
@@ -370,7 +430,7 @@ func (h *HelmClient) checkResourcesDeleted(targetResources kube.ResourceList) (b
 	return resourcesDeleted, err
 }
 
-func (h *HelmClient) setNamespaceIfNotPresent(targetNamespace string, resourceInfo *resource.Info,
+func setNamespaceIfNotPresent(targetNamespace string, resourceInfo *resource.Info,
 	helper *resource.Helper, runtimeObject runtime.Object,
 ) error {
 	// check if resource is scoped to namespaces
@@ -392,18 +452,18 @@ func (h *HelmClient) setNamespaceIfNotPresent(targetNamespace string, resourceIn
 	return nil
 }
 
-func (h *HelmClient) overrideNamespace(resourceList kube.ResourceList, targetNamespace string) error {
+func overrideNamespace(resourceList kube.ResourceList, targetNamespace string) error {
 	return resourceList.Visit(func(info *resource.Info, err error) error {
 		if err != nil {
 			return err
 		}
 
 		helper := resource.NewHelper(info.Client, info.Mapping)
-		return h.setNamespaceIfNotPresent(targetNamespace, info, helper, info.Object)
+		return setNamespaceIfNotPresent(targetNamespace, info, helper, info.Object)
 	})
 }
 
-func (h *HelmClient) checkReady(ctx context.Context, resourceList kube.ResourceList,
+func checkReady(ctx context.Context, resourceList kube.ResourceList,
 	readyChecker kube.ReadyChecker,
 ) (bool, error) {
 	resourcesReady := true
