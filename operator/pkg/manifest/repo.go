@@ -132,7 +132,7 @@ func (r *RepoHandler) updateRepos(repos []*repo.ChartRepository) {
 	waitGroup.Wait()
 }
 
-func (r *RepoHandler) Add(repoName string, url string, logger *logr.Logger) error {
+func (r *RepoHandler) Add(repoName string, url string) error {
 	repoFile := r.settings.RepositoryConfig
 
 	// File locking mechanism
@@ -181,6 +181,6 @@ func (r *RepoHandler) Add(repoName string, url string, logger *logr.Logger) erro
 	if err := file.WriteFile(repoConfig, ownerWriteUniversalRead); err != nil {
 		return err
 	}
-	logger.V(util.DebugLogLevel).Info(fmt.Sprintf("%s has been added to your repositories\n", repoName))
+	r.logger.V(util.DebugLogLevel).Info(fmt.Sprintf("%s has been added to your repositories\n", repoName))
 	return nil
 }

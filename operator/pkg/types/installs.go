@@ -88,6 +88,50 @@ type ManifestResources struct {
 	Blobs [][]byte
 }
 
+// ClusterInfo describes client and config for a cluster.
+type ClusterInfo struct {
+	Config *rest.Config
+	Client client.Client
+}
+
+// IsEmpty indicates if ClusterInfo is empty.
+func (r ClusterInfo) IsEmpty() bool {
+	return r.Config == nil
+}
+
+type HelmClient interface {
+	DownloadChart(repoName, url, chartName string) (string, error)
+	RenderManifestFromChartPath(chartPath string, flags Flags) (string, error)
+	GetNsResource() (kube.ResourceList, error)
+	GetTargetResources(ctx context.Context, manifest string,
+		transforms []ObjectTransform, object BaseCustomObject) (kube.ResourceList, error)
+	PerformUpdate(resourceLists ResourceLists, force bool) (*kube.Result, error)
+	PerformCreate(resourceLists ResourceLists) (*kube.Result, error)
+	PerformDelete(resourceLists ResourceLists) (int, error)
+	CheckWaitForResources(ctx context.Context, targetResources kube.ResourceList, operation HelmOperation,
+		verifyWithoutTimeout bool) (bool, error)
+	UpdateRepos(ctx context.Context) error
+}
+
+type OperationType string
+
+type HelmOperation OperationType
+
+const (
+	OperationCreate HelmOperation = "create"
+	OperationDelete HelmOperation = "delete"
+)
+
+type ResourceLists struct {
+	Target    kube.ResourceList
+	Installed kube.ResourceList
+	Namespace kube.ResourceList
+}
+
+func (r ResourceLists) GetWaitForResources() kube.ResourceList {
+	return append(r.Target, r.Namespace...)
+}
+
 // InstallInfo represents deployment information artifacts to be processed
 type InstallInfo struct {
 	// ChartInfo represents chart information to be processed

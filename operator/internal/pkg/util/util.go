@@ -4,20 +4,19 @@ import (
 	"encoding/json"
 	"time"
 
-	manifestTypes "github.com/kyma-project/module-manager/operator/pkg/types"
-	"github.com/kyma-project/module-manager/operator/pkg/util"
-
 	"github.com/go-logr/logr"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	opLabels "github.com/kyma-project/module-manager/operator/pkg/labels"
+	"github.com/kyma-project/module-manager/operator/pkg/manifest"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	opLabels "github.com/kyma-project/module-manager/operator/pkg/labels"
-
 	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
+	"github.com/kyma-project/module-manager/operator/pkg/util"
 )
 
 func getReadyConditionForComponent(manifest *v1alpha1.Manifest,
@@ -62,7 +61,7 @@ func AddReadyConditionForObjects(manifest *v1alpha1.Manifest, installItems []v1a
 	}
 }
 
-func AddReadyConditionForResponses(responses []*manifestTypes.InstallResponse, logger *logr.Logger,
+func AddReadyConditionForResponses(responses []*manifest.InstallResponse, logger *logr.Logger,
 	manifest *v1alpha1.Manifest,
 ) {
 	namespacedName := client.ObjectKeyFromObject(manifest)

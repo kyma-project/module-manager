@@ -12,7 +12,7 @@ spec:
   serviceInfo:
     name: event-service
     port: 8082
-    namespace: kcp-system
+    namespace: system
 
 ---
 apiVersion: v1

@@ -6,7 +6,6 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	k8slabels "k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -14,16 +13,6 @@ import (
 
 	"github.com/kyma-project/module-manager/operator/pkg/labels"
 )
-
-type ClusterInfo struct {
-	Config     *rest.Config
-	Client     client.Client
-	RestMapper meta.RESTMapper
-}
-
-func (r ClusterInfo) IsEmpty() bool {
-	return r.Config == nil
-}
 
 type ClusterClient struct {
 	DefaultClient client.Client

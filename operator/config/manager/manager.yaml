@@ -37,6 +37,8 @@ spec:
             name: listener
           - containerPort: 8080
             name: metrics
+          - containerPort: 8083
+            name: debug
         name: manager
         securityContext:
           allowPrivilegeEscalation: false
