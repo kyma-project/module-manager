@@ -141,7 +141,11 @@ func newOperations(logger *logr.Logger, deployInfo InstallInfo, resourceTransfor
 		}
 		cacheKey = client.ObjectKey{Name: label, Namespace: deployInfo.BaseResource.GetNamespace()}
 	}
-	helmClient := cache.Get(cacheKey)
+	var helmClient types.HelmClient
+	if cache != nil {
+		// read HelmClient from cache
+		helmClient = cache.Get(cacheKey)
+	}
 	if helmClient == nil {
 		memCacheClient, err := getMemCacheClient(deployInfo.Config)
 		if err != nil {
@@ -150,6 +154,10 @@ func newOperations(logger *logr.Logger, deployInfo InstallInfo, resourceTransfor
 		helmClient, err = getHelmClient(cacheKey, deployInfo, cache, memCacheClient, logger)
 		if err != nil {
 			return nil, err
+		}
+		// cache HelmClient
+		if cache != nil {
+			cache.Set(cacheKey, helmClient)
 		}
 	}
 
@@ -180,10 +188,6 @@ func getHelmClient(cacheKey client.ObjectKey, deployInfo InstallInfo, cache type
 		return nil, err
 	}
 
-	// cache HelmClient by valid kyma name
-	if cacheKey.Name != "" {
-		cache.Set(cacheKey, helmClient)
-	}
 	return helmClient, nil
 }
 
