@@ -61,7 +61,7 @@ func GetStringifiedYamlFromDirPath(dirPath string, logger *logr.Logger) (string,
 		return "", fmt.Errorf("file extension unsupported %s in dir %s", file.Name(), dirPath)
 	}
 
-	stringifiedYaml, err := GetStringifiedYamlFromFilePath(filepath.Join(dirPath, file.Name()))
+	stringifiedYaml, err := util.GetStringifiedYamlFromFilePath(filepath.Join(dirPath, file.Name()))
 	if err != nil {
 		return "", fmt.Errorf("yaml file could not be read %s in dir %s: %w", file.Name(), dirPath, err)
 	}
@@ -234,13 +234,4 @@ func RemoveCRs(ctx context.Context, crs []*unstructured.Unstructured,
 		}
 	}
 	return deleted, nil
-}
-
-func GetStringifiedYamlFromFilePath(filePath string) (string, error) {
-	file, err := os.ReadFile(filePath)
-	if err != nil {
-		return "", err
-	}
-
-	return string(file), err
 }

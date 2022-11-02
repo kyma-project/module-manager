@@ -9,18 +9,19 @@ import (
 
 type manifestTransformer struct{}
 
-func (m *manifestTransformer) transform(ctx context.Context, manifestStringified string,
-	object manifestTypes.BaseCustomObject, transforms []manifestTypes.ObjectTransform) error {
+func (m *manifestTransformer) Transform(ctx context.Context, manifestStringified string,
+	object manifestTypes.BaseCustomObject, transforms []manifestTypes.ObjectTransform,
+) (*manifestTypes.ManifestResources, error) {
 	objects, err := util.ParseManifestStringToObjects(manifestStringified)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	for _, transform := range transforms {
 		if err = transform(ctx, object, objects); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
-	return nil
+	return objects, nil
 }

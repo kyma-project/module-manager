@@ -190,3 +190,12 @@ func GetResourceLabel(resource client.Object, labelName string) (string, error) 
 	}
 	return label, nil
 }
+
+func GetStringifiedYamlFromFilePath(filePath string) (string, error) {
+	file, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", err
+	}
+
+	return string(file), err
+}

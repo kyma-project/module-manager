@@ -209,7 +209,7 @@ func createManifestWithKustomize() func() bool {
 		Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
 			Should(BeEquivalentTo(v1alpha1.ManifestStateError))
 
-		deleteManifestResource(manifestObj)
+		deleteManifestResource(manifestObj, nil)
 
 		return true
 	}

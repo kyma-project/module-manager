@@ -6,10 +6,22 @@ import (
 	"helm.sh/helm/v3/pkg/kube"
 	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kyma-project/module-manager/operator/pkg/custom"
 )
+
+type RenderSrc interface {
+	ProcessManifest(deployInfo InstallInfo) (string, error)
+	Install(manifest string, deployInfo InstallInfo, transforms []ObjectTransform) (bool, error)
+	Uninstall(manifest string, deployInfo InstallInfo, transforms []ObjectTransform) (bool, error)
+	IsConsistent(manifest string, deployInfo InstallInfo, transforms []ObjectTransform) (bool, error)
+	Transform(ctx context.Context, manifest string, base BaseCustomObject,
+		transforms []ObjectTransform) (*ManifestResources, error)
+	GetCachedResources(chartName, chartPath string) (string, error)
+	GetManifestResources(chartName, dirPath string) (string, error)
+}
 
 // +kubebuilder:validation:Enum=helm-chart;oci-ref;"kustomize";""
 type RefTypeMetadata string
@@ -128,8 +140,12 @@ type ResourceLists struct {
 	Namespace kube.ResourceList
 }
 
-func (r ResourceLists) GetWaitForResources() kube.ResourceList {
+func (r *ResourceLists) GetWaitForResources() kube.ResourceList {
 	return append(r.Target, r.Namespace...)
+}
+
+func (r *ResourceLists) GetResourcesToBeDeleted() kube.ResourceList {
+	return append(r.Installed, r.Namespace...)
 }
 
 // InstallInfo represents deployment information artifacts to be processed
@@ -139,13 +155,15 @@ type InstallInfo struct {
 	// ResourceInfo represents additional resources to be processed
 	ResourceInfo
 	// ClusterInfo represents target cluster information
-	custom.ClusterInfo
+	ClusterInfo
 	// Ctx hold the current context
 	Ctx context.Context //nolint:containedctx
 	// CheckFn returns a boolean indicating ready state based on custom checks
 	CheckFn custom.CheckFnType
 	// CheckReadyStates indicates if native resources should be checked for ready states
 	CheckReadyStates bool
+	// UpdateRepositories indicates if repositories should be updated
+	UpdateRepositories bool
 }
 
 // ChartInfo defines helm chart information
@@ -158,16 +176,6 @@ type ChartInfo struct {
 	Flags       ChartFlags
 	// Kustomize installation
 	Kustomize bool
-}
-
-type ResourceLists struct {
-	Target    kube.ResourceList
-	Installed kube.ResourceList
-	Namespace kube.ResourceList
-}
-
-func (r ResourceLists) GetWaitForResources() kube.ResourceList {
-	return append(r.Target, r.Namespace...)
 }
 
 // ResourceInfo represents additional resources
@@ -194,3 +202,10 @@ type InstallResponse struct {
 func (r *InstallResponse) Error() string {
 	return r.Err.Error()
 }
+
+type Mode int
+
+const (
+	CreateMode Mode = iota
+	DeletionMode
+)

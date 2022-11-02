@@ -9,13 +9,13 @@ import (
 )
 
 type CacheManager struct {
-	HelmClients  types.HelmClientCache
+	HelmClients  types.RendererCache
 	ClusterInfos types.ClusterInfoCache
 }
 
 func NewCacheManager() *CacheManager {
 	return &CacheManager{
-		HelmClients:  manifest.NewHelmClientCache(),
+		HelmClients:  manifest.NewRendererCache(),
 		ClusterInfos: custom.NewRemoteClusterCache(),
 	}
 }
