@@ -127,7 +127,7 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	case "":
 		return ctrl.Result{}, r.HandleInitialState(ctx, &logger, &manifestObj)
 	case v1alpha1.ManifestStateProcessing:
-		return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Failure)},
+		return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Waiting)},
 			r.HandleProcessingState(ctx, &logger, &manifestObj)
 	case v1alpha1.ManifestStateDeleting:
 		return ctrl.Result{}, r.HandleDeletingState(ctx, &logger, &manifestObj)
@@ -184,7 +184,10 @@ func (r *ManifestReconciler) sendJobToInstallChannel(ctx context.Context, logger
 			// so remove finalizer in this case, to process with Manifest deletion
 			return r.finalizeDeletion(ctx, manifestObj)
 		}
-		return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error())
+		if err := r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error()); err != nil {
+			return err
+		}
+		return err
 	}
 
 	// send processing requests (installation / uninstallation) to deployment channel
@@ -243,7 +246,10 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 		} else if err != nil {
 			logger.Error(err, fmt.Sprintf("error while performing consistency check on manifest %s", namespacedName))
 			internalUtil.AddReadyConditionForResponses([]*manifest.InstallResponse{chartResponse}, logger, manifestObj)
-			return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error())
+			if err := r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error()); err != nil {
+				return err
+			}
+			return err
 		}
 	}
 	return nil
