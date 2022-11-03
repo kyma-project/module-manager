@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"helm.sh/helm/v3/pkg/kube"
-	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -135,7 +135,7 @@ func (r *ResourceLists) GetResourcesToBeDeleted() kube.ResourceList {
 	return append(r.Installed, r.Namespace...)
 }
 
-// InstallInfo represents deployment information artifacts to be processed
+// InstallInfo represents deployment information artifacts to be processed.
 type InstallInfo struct {
 	// ChartInfo represents chart information to be processed
 	*ChartInfo
@@ -153,7 +153,7 @@ type InstallInfo struct {
 	UpdateRepositories bool
 }
 
-// ChartInfo defines helm chart information
+// ChartInfo defines helm chart information.
 type ChartInfo struct {
 	ChartPath   string
 	RepoName    string
@@ -163,7 +163,7 @@ type ChartInfo struct {
 	Flags       ChartFlags
 }
 
-// ResourceInfo represents additional resources
+// ResourceInfo represents additional resources.
 type ResourceInfo struct {
 	// BaseResource represents base custom resource that is being reconciled
 	BaseResource *unstructured.Unstructured

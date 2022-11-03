@@ -31,7 +31,8 @@ type SetApplier struct {
 }
 
 func NewSSAApplier(dynamicClient dynamic.Interface, logger *logr.Logger,
-	mapper *restmapper.DeferredDiscoveryRESTMapper) *SetApplier {
+	mapper *restmapper.DeferredDiscoveryRESTMapper,
+) *SetApplier {
 	return &SetApplier{
 		patchOptions:  metav1.PatchOptions{FieldManager: fieldManager},
 		logger:        logger,
@@ -41,7 +42,8 @@ func NewSSAApplier(dynamicClient dynamic.Interface, logger *logr.Logger,
 }
 
 func (s *SetApplier) Apply(deployInfo manifestTypes.InstallInfo, objects *manifestTypes.ManifestResources,
-	namespace string) error {
+	namespace string,
+) error {
 	// Populate the namespace on any namespace-scoped objects
 	err := s.adjustNs(objects, namespace)
 	if err != nil {
@@ -68,7 +70,8 @@ func (s *SetApplier) Apply(deployInfo manifestTypes.InstallInfo, objects *manife
 }
 
 func (s *SetApplier) Delete(deployInfo manifestTypes.InstallInfo, objects *manifestTypes.ManifestResources,
-	namespace string) (bool, error) {
+	namespace string,
+) (bool, error) {
 	// Populate the namespace on any namespace-scoped objects
 	if err := s.adjustNs(objects, namespace); err != nil {
 		return false, err
@@ -124,13 +127,12 @@ func (s *SetApplier) adjustNs(objects *manifestTypes.ManifestResources, namespac
 }
 
 func (s *SetApplier) execute(deployInfo manifestTypes.InstallInfo, objects []*unstructured.Unstructured,
-	dynamicClient dynamic.Interface, patchOptions metav1.PatchOptions) ([]*unstructured.Unstructured, error) {
-
+	dynamicClient dynamic.Interface, patchOptions metav1.PatchOptions,
+) ([]*unstructured.Unstructured, error) {
 	appliedObjects := make([]*unstructured.Unstructured, 0)
 
 	applyErrors := make([]error, 0)
 	for _, obj := range objects {
-
 		name := obj.GetName()
 
 		// get dynamic client interface for object
@@ -171,7 +173,7 @@ func (s *SetApplier) getDynamicResourceInterface(dynamicClient dynamic.Interface
 ) (dynamic.ResourceInterface, error) {
 	var dynamicResource dynamic.ResourceInterface
 
-	ns := obj.GetNamespace()
+	namespace := obj.GetNamespace()
 	gvk := obj.GroupVersionKind()
 
 	restMapping, err := s.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
@@ -182,13 +184,13 @@ func (s *SetApplier) getDynamicResourceInterface(dynamicClient dynamic.Interface
 
 	switch restMapping.Scope.Name() {
 	case meta.RESTScopeNameNamespace:
-		if ns == "" {
+		if namespace == "" {
 			return nil, fmt.Errorf("namespace was not provided for namespace-scoped object %v", gvk)
 		}
-		dynamicResource = dynamicClient.Resource(gvr).Namespace(ns)
+		dynamicResource = dynamicClient.Resource(gvr).Namespace(namespace)
 
 	case meta.RESTScopeNameRoot:
-		if ns != "" {
+		if namespace != "" {
 			// TODO: Differentiate between server-fixable vs client-fixable errors?
 			return nil, fmt.Errorf(
 				"namespace %q was provided for cluster-scoped object %v", obj.GetNamespace(), gvk)

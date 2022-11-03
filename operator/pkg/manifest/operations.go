@@ -124,10 +124,10 @@ func newOperations(logger *logr.Logger, deployInfo types.InstallInfo, resourceTr
 }
 
 // getManifestProcessor returns a new types.RenderSrc instance
-// this render source will handle subsequent operations for manifest resources based on types.InstallInfo
+// this render source will handle subsequent operations for manifest resources based on types.InstallInfo.
 func getManifestProcessor(deployInfo types.InstallInfo, memCacheClient discovery.CachedDiscoveryInterface,
-	logger *logr.Logger, render *rendered, txformer *transformer) (types.RenderSrc, error) {
-
+	logger *logr.Logger, render *rendered, txformer *transformer,
+) (types.RenderSrc, error) {
 	// use deferred discovery client here as GVs applicable to the client are inconsistent at this moment
 	discoveryMapper := restmapper.NewDeferredDiscoveryRESTMapper(memCacheClient)
 

@@ -41,7 +41,7 @@ type helm struct {
 	*rendered
 }
 
-// verify compliance of interface
+// verify compliance of interface.
 var _ types.RenderSrc = &helm{}
 
 //nolint:gochecknoglobals
@@ -55,7 +55,8 @@ var accessor = meta.NewAccessor()
 // can be executed on the resource manifest.
 func NewHelmProcessor(restGetter *manifestRest.ManifestRESTClientGetter,
 	discoveryMapper *restmapper.DeferredDiscoveryRESTMapper, restConfig *rest.Config, settings *cli.EnvSettings,
-	logger *logr.Logger, render *rendered, txformer *transformer) (types.RenderSrc, error) {
+	logger *logr.Logger, render *rendered, txformer *transformer,
+) (types.RenderSrc, error) {
 	var err error
 	helmClient := &helm{
 		logger:      logger,
@@ -226,12 +227,11 @@ func (h *helm) installResources(resourceLists types.ResourceLists) (*kube.Result
 
 	// missing resources - update with force
 	return h.kubeClient.Update(resourceLists.Installed, resourceLists.Target, true)
-
 }
 
 func (h *helm) uninstallResources(resourceLists types.ResourceLists) (*kube.Result, error) {
 	var response *kube.Result
-	delErrors := make([]error, 0)
+	var delErrors []error
 	if resourceLists.Installed != nil {
 		// add namespace to deleted resources
 		response, delErrors = h.kubeClient.Delete(resourceLists.GetResourcesToBeDeleted())
@@ -244,17 +244,6 @@ func (h *helm) uninstallResources(resourceLists types.ResourceLists) (*kube.Resu
 		}
 	}
 	return response, nil
-}
-
-func (h *helm) deleteNamespace(namespace kube.ResourceList) error {
-	if _, delErrors := h.kubeClient.Delete(namespace); len(delErrors) > 0 {
-		var wrappedError error
-		for _, err := range delErrors {
-			wrappedError = fmt.Errorf("%w", err)
-		}
-		return wrappedError
-	}
-	return nil
 }
 
 func (h *helm) checkWaitForResources(ctx context.Context, targetResources kube.ResourceList,
@@ -426,7 +415,8 @@ func (h *helm) setCustomFlags(flags types.ChartFlags) error {
 }
 
 func (h *helm) parseToResourceLists(stringifiedManifest string, deployInfo types.InstallInfo,
-	transforms []types.ObjectTransform) (types.ResourceLists, error) {
+	transforms []types.ObjectTransform,
+) (types.ResourceLists, error) {
 	nsResourceList, err := h.GetNsResource()
 	if err != nil {
 		return types.ResourceLists{}, err
@@ -511,7 +501,7 @@ func (h *helm) transformManifestResources(ctx context.Context, manifest string,
 }
 
 func (h *helm) convertToInfo(unstructuredObj *unstructured.Unstructured) (*resource.Info, error) {
-	//TODO:  manual invalidation of mem cache client to maintain current state of server mapping for API resources
+	// TODO:  manual invalidation of mem cache client to maintain current state of server mapping for API resources
 	info := &resource.Info{}
 	gvk := unstructuredObj.GroupVersionKind()
 	gv := gvk.GroupVersion()

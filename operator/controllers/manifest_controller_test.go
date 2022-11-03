@@ -321,7 +321,7 @@ var _ = Describe("given manifest with a helm repo", Ordered, func() {
 		[]TableEntry{
 			Entry("when manifestCR contains a valid remote Kustomize specification", createManifestWithRemoteKustomize()),
 			Entry("when manifestCR contains a valid local Kustomize specification", createManifestWithLocalKustomize()),
-			Entry("when manifestCR contains a valid invalid Kustomize specification", createManifestWithInvalidKustomize()),
+			Entry("when manifestCR contains invalid Kustomize specification", createManifestWithInvalidKustomize()),
 			Entry("when manifestCR contains a valid helm repo", createManifestWithHelmRepo()),
 			Entry("when two manifestCRs contain valid OCI Image specification", createManifestWithOCI()),
 			Entry("when manifestCR contains invalid OCI Image specification", createManifestWithInvalidOCI()),

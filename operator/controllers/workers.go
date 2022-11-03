@@ -12,8 +12,8 @@ import (
 type Workers interface {
 	GetWorkerPoolSize() int
 	SetWorkerPoolSize(newSize int)
-	StartWorkers(ctx context.Context, jobChan <-chan manifestTypes.InstallInfo, handlerFn func(info manifestTypes.InstallInfo,
-		logger *logr.Logger) *manifestTypes.InstallResponse)
+	StartWorkers(ctx context.Context, jobChan <-chan manifestTypes.InstallInfo,
+		handlerFn func(info manifestTypes.InstallInfo, logger *logr.Logger) *manifestTypes.InstallResponse)
 }
 
 type ManifestWorkerPool struct {
