@@ -96,7 +96,8 @@ func (s *SetApplier) Delete(deployInfo manifestTypes.InstallInfo, objects *manif
 
 	for _, deleteError := range deleteErrors {
 		err := fmt.Errorf("%w/n", deleteError)
-		s.logger.V(util.DebugLogLevel).Info("deletion of resource unsuccessful", err.Error())
+		s.logger.V(util.DebugLogLevel).Info("deletion of resource unsuccessful", "message",
+			err.Error())
 	}
 
 	return deletionSuccess, nil
@@ -163,7 +164,8 @@ func (s *SetApplier) execute(deployInfo manifestTypes.InstallInfo, objects []*un
 	var err error
 	for _, applyError := range applyErrors {
 		err = fmt.Errorf("%w/n", applyError)
-		s.logger.V(util.DebugLogLevel).Info("conflict during SSA with no overwrites", err.Error())
+		s.logger.V(util.DebugLogLevel).Info("conflict during SSA with no overwrites", "message",
+			err.Error())
 	}
 
 	return appliedObjects, nil

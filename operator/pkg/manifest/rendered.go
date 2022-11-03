@@ -16,7 +16,7 @@ type rendered struct {
 
 // NewRendered returns a new instance on rendered.
 // Using rendered instance, pre-rendered and cached manifest can be identified and retrieved.
-func NewRendered(logger *logr.Logger) *rendered {
+func NewRendered(logger *logr.Logger) *rendered { //nolint:revive
 	return &rendered{
 		logger: logger,
 	}

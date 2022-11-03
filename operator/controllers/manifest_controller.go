@@ -18,7 +18,9 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"strings"
 	"time"
 
@@ -302,6 +304,9 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 	// errorState takes precedence over processing
 	errorState := false
 	processing := false
+	// pathError indicates an unfixable error
+	// a true value signifies finalizer removal
+	pathError := false
 	responses := make([]*types.InstallResponse, 0)
 
 	for a := 1; a <= chartCount; a++ {
@@ -313,6 +318,11 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 		case response := <-responseChan:
 			responses = append(responses, response)
 			if response.Err != nil {
+				// if there is a local path error, we assume that it's an error in CR creation itself
+				// so this should not be marked in error state
+				// as this will hinder deletion
+				var pathErr *fs.PathError
+				pathError = errors.As(response.Err, &pathErr)
 				logger.Error(fmt.Errorf("chart installation failure for '%s': %w",
 					response.ResNamespacedName.String(), response.Err), "")
 				errorState = true
@@ -338,7 +348,9 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 	internalUtil.AddReadyConditionForResponses(responses, logger, latestManifestObj)
 
 	// handle deletion if no previous error occurred
-	if !errorState && !latestManifestObj.DeletionTimestamp.IsZero() && !processing {
+	if (!errorState || pathError) &&
+		!latestManifestObj.DeletionTimestamp.IsZero() &&
+		!processing {
 		err := r.finalizeDeletion(ctx, latestManifestObj)
 		if err == nil {
 			return
