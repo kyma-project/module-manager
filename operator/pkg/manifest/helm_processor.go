@@ -38,16 +38,19 @@ type helm struct {
 	actionClient *action.Install
 	repoHandler  *RepoHandler
 	logger       *logr.Logger
-	manifestTransformer
-	rendered
+	*transformer
+	*rendered
 }
 
 // verify compliance of interface
 var _ types.RenderSrc = &helm{}
 
+//nolint:gochecknoglobals
+var accessor = meta.NewAccessor()
+
 func NewHelmProcessor(restGetter *manifestRest.ManifestRESTClientGetter,
 	discoveryMapper *restmapper.DeferredDiscoveryRESTMapper, restConfig *rest.Config, settings *cli.EnvSettings,
-	logger *logr.Logger) (types.RenderSrc, error) {
+	logger *logr.Logger, render *rendered, txformer *transformer) (types.RenderSrc, error) {
 	var err error
 	helmClient := &helm{
 		logger:      logger,
@@ -56,6 +59,8 @@ func NewHelmProcessor(restGetter *manifestRest.ManifestRESTClientGetter,
 		restGetter:  restGetter,
 		restConfig:  restConfig,
 		mapper:      discoveryMapper,
+		transformer: txformer,
+		rendered:    render,
 	}
 
 	helmClient.actionClient, helmClient.kubeClient, err = helmClient.newInstallActionClient(
@@ -69,10 +74,13 @@ func NewHelmProcessor(restGetter *manifestRest.ManifestRESTClientGetter,
 		return nil, err
 	}
 
-	return helmClient, nil
+	// verify compliance of interface
+	var helmProcessor types.RenderSrc = helmClient
+
+	return helmProcessor, nil
 }
 
-func (h *helm) ProcessManifest(deployInfo types.InstallInfo) (string, error) {
+func (h *helm) GetRawManifest(deployInfo types.InstallInfo) (string, error) {
 	// always override existing flags config
 	// to ensure CR updates are reflected on the action client
 	err := h.resetFlags(deployInfo)
@@ -588,4 +596,17 @@ func checkReady(ctx context.Context, resourceList kube.ResourceList,
 		return nil
 	})
 	return resourcesReady, err
+}
+
+func newRestClient(restConfig *rest.Config, gv schema.GroupVersion) (resource.RESTClient, error) {
+	restConfig.ContentConfig = resource.UnstructuredPlusDefaultContentConfig()
+	restConfig.GroupVersion = &gv
+
+	if len(gv.Group) == 0 {
+		restConfig.APIPath = "/api"
+	} else {
+		restConfig.APIPath = "/apis"
+	}
+
+	return rest.RESTClientFor(restConfig)
 }

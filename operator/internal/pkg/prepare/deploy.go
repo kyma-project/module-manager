@@ -258,9 +258,9 @@ func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *types.Codec,
 		}
 
 		return &types.ChartInfo{
-			Kustomize: true,
 			ChartName: install.Name,
 			ChartPath: kustomizeSpec.Path,
+			URL:       kustomizeSpec.URL,
 		}, nil
 	case types.NilRefType:
 		return nil, fmt.Errorf("empty image type for %s resource chart installation", namespacedName.String())

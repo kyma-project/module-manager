@@ -8,12 +8,10 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/kyma-project/module-manager/operator/pkg/custom"
 )
 
 type RenderSrc interface {
-	ProcessManifest(deployInfo InstallInfo) (string, error)
+	GetRawManifest(deployInfo InstallInfo) (string, error)
 	Install(manifest string, deployInfo InstallInfo, transforms []ObjectTransform) (bool, error)
 	Uninstall(manifest string, deployInfo InstallInfo, transforms []ObjectTransform) (bool, error)
 	IsConsistent(manifest string, deployInfo InstallInfo, transforms []ObjectTransform) (bool, error)
@@ -86,8 +84,11 @@ type HelmChartSpec struct {
 
 // KustomizeSpec defines the specification for a Kustomize specification.
 type KustomizeSpec struct {
-	// Path defines the Kustomize path
+	// Path defines the Kustomize local path
 	Path string `json:"path"`
+
+	// URL defines the Kustomize remote URL
+	URL string `json:"url"`
 
 	// Type defines the chart as "kustomize"
 	// +kubebuilder:validation:Optional
@@ -109,20 +110,6 @@ type ClusterInfo struct {
 // IsEmpty indicates if ClusterInfo is empty.
 func (r ClusterInfo) IsEmpty() bool {
 	return r.Config == nil
-}
-
-type HelmClient interface {
-	DownloadChart(repoName, url, chartName string) (string, error)
-	RenderManifestFromChartPath(chartPath string, flags Flags) (string, error)
-	GetNsResource() (kube.ResourceList, error)
-	GetTargetResources(ctx context.Context, manifest string,
-		transforms []ObjectTransform, object BaseCustomObject) (kube.ResourceList, error)
-	PerformUpdate(resourceLists ResourceLists, force bool) (*kube.Result, error)
-	PerformCreate(resourceLists ResourceLists) (*kube.Result, error)
-	PerformDelete(resourceLists ResourceLists) (int, error)
-	CheckWaitForResources(ctx context.Context, targetResources kube.ResourceList, operation HelmOperation,
-		verifyWithoutTimeout bool) (bool, error)
-	UpdateRepos(ctx context.Context) error
 }
 
 type OperationType string
@@ -159,7 +146,7 @@ type InstallInfo struct {
 	// Ctx hold the current context
 	Ctx context.Context //nolint:containedctx
 	// CheckFn returns a boolean indicating ready state based on custom checks
-	CheckFn custom.CheckFnType
+	CheckFn CheckFnType
 	// CheckReadyStates indicates if native resources should be checked for ready states
 	CheckReadyStates bool
 	// UpdateRepositories indicates if repositories should be updated
@@ -174,8 +161,6 @@ type ChartInfo struct {
 	ChartName   string
 	ReleaseName string
 	Flags       ChartFlags
-	// Kustomize installation
-	Kustomize bool
 }
 
 // ResourceInfo represents additional resources

@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-logr/logr"
 
+	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -22,6 +23,14 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+)
+
+type ChartKind int
+
+const (
+	HelmKind ChartKind = iota
+	KustomizeKind
+	UnknownKind
 )
 
 func getDirContent(filePath string) ([]fs.DirEntry, error) {
@@ -39,6 +48,36 @@ func getDirContent(filePath string) ([]fs.DirEntry, error) {
 	})
 
 	return dirEntries, err
+}
+
+func GetChartKind(deployInfo types.InstallInfo) (ChartKind, error) {
+	// URLs are not verified at this state
+	if deployInfo.URL != "" {
+		// URL without RepoName is expected for Kustomize
+		if deployInfo.RepoName == "" {
+			return KustomizeKind, nil
+		}
+		// RepoName + URL is only set for Helm
+		return HelmKind, nil
+	}
+
+	kind := UnknownKind
+
+	// traverse directory content if local chart path is specified
+	fileEntries, err := getDirContent(deployInfo.ChartPath)
+	if err != nil {
+		return UnknownKind, err
+	}
+
+	for _, entry := range fileEntries {
+		if entry.Name() == "kustomization.yaml" {
+			return KustomizeKind, nil
+		} else if entry.Name() == "Chart.yaml" {
+			return HelmKind, nil
+		}
+	}
+
+	return kind, nil
 }
 
 func GetStringifiedYamlFromDirPath(dirPath string, logger *logr.Logger) (string, error) {

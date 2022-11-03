@@ -175,8 +175,6 @@ func (r *ManifestReconciler) sendJobToInstallChannel(ctx context.Context, logger
 	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, types.ClusterInfo{
 		Client: r.Client, Config: r.RestConfig,
 	}, r.ReconcileFlagConfig, r.CacheManager.ClusterInfos)
-	triggerLabelTimeFormat := "200601021504050700"
-	fmt.Println(time.Now().Format(triggerLabelTimeFormat))
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("cannot prepare install information for %s resource %s",
 			v1alpha1.ManifestKind, namespacedName))
@@ -226,7 +224,7 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 	}
 
 	for _, deployInfo := range deployInfos {
-		ready, err := manifest.ConsistencyCheck(logger, deployInfo, []types.ObjectTransform{}, r.CacheManager.HelmClients)
+		ready, err := manifest.ConsistencyCheck(logger, deployInfo, []types.ObjectTransform{}, r.CacheManager.RenderSources)
 
 		// prepare chart response object
 		chartResponse := &types.InstallResponse{
@@ -284,9 +282,9 @@ func (r *ManifestReconciler) HandleCharts(deployInfo types.InstallInfo, mode typ
 	var ready bool
 	var err error
 	if create {
-		ready, err = manifest.InstallChart(logger, deployInfo, []types.ObjectTransform{}, r.CacheManager.HelmClients)
+		ready, err = manifest.InstallChart(logger, deployInfo, []types.ObjectTransform{}, r.CacheManager.RenderSources)
 	} else {
-		ready, err = manifest.UninstallChart(logger, deployInfo, []types.ObjectTransform{}, r.CacheManager.HelmClients)
+		ready, err = manifest.UninstallChart(logger, deployInfo, []types.ObjectTransform{}, r.CacheManager.RenderSources)
 	}
 
 	return &types.InstallResponse{

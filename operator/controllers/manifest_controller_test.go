@@ -3,6 +3,7 @@ package controllers_test
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -57,7 +58,7 @@ func createManifestWithOCI() func() bool {
 
 		// initial HelmClient cache entry
 		kymaNsName := client.ObjectKey{Name: secretName, Namespace: v1.NamespaceDefault}
-		Expect(reconciler.CacheManager.HelmClients.Get(kymaNsName)).Should(BeNil())
+		Expect(reconciler.CacheManager.RenderSources.Get(kymaNsName)).Should(BeNil())
 
 		manifestObj := createManifestObj("manifest-sample", v1alpha1.ManifestSpec{
 			Installs: []v1alpha1.InstallInfo{
@@ -74,7 +75,7 @@ func createManifestWithOCI() func() bool {
 			Should(BeEquivalentTo(v1alpha1.ManifestStateReady))
 
 		// intermediate HelmClient cache entry
-		Expect(reconciler.CacheManager.HelmClients.Get(kymaNsName)).ShouldNot(BeNil())
+		Expect(reconciler.CacheManager.RenderSources.Get(kymaNsName)).ShouldNot(BeNil())
 		deleteHelmChartResources(imageSpec)
 		deleteManifestResource(manifestObj, nil)
 
@@ -99,7 +100,7 @@ func createManifestWithOCI() func() bool {
 		deleteManifestResource(manifestObj2, nil)
 
 		// final HelmClient cache entry
-		Expect(reconciler.CacheManager.HelmClients.Get(kymaNsName)).Should(BeNil())
+		Expect(reconciler.CacheManager.RenderSources.Get(kymaNsName)).Should(BeNil())
 
 		Expect(os.RemoveAll(util.GetFsChartPath(imageSpec))).Should(Succeed())
 		return true
@@ -129,7 +130,7 @@ func createTwoRemoteManifestsWithNoInstalls() func() bool {
 
 		// check client cache entries after 1st resource creation
 		Expect(reconciler.CacheManager.ClusterInfos.Get(kymaNsName).Config).To(BeEquivalentTo(cfg))
-		Expect(reconciler.CacheManager.HelmClients.Get(kymaNsName)).Should(BeNil()) // no Installs exist
+		Expect(reconciler.CacheManager.RenderSources.Get(kymaNsName)).Should(BeNil()) // no Installs exist
 
 		// create another manifest with same image specification
 		manifestObj2 := createManifestObj("manifest-sample-2", v1alpha1.ManifestSpec{
@@ -146,13 +147,13 @@ func createTwoRemoteManifestsWithNoInstalls() func() bool {
 
 		// check client cache entries after 2nd resource creation
 		Expect(reconciler.CacheManager.ClusterInfos.Get(kymaNsName).Config).To(BeEquivalentTo(cfg))
-		Expect(reconciler.CacheManager.HelmClients.Get(kymaNsName)).Should(BeNil()) // no Installs exist
+		Expect(reconciler.CacheManager.RenderSources.Get(kymaNsName)).Should(BeNil()) // no Installs exist
 
 		deleteManifestResource(manifestObj2, kymaSecret)
 
 		// verify client cache deleted
 		Expect(reconciler.CacheManager.ClusterInfos.Get(kymaNsName).IsEmpty()).To(BeTrue())
-		Expect(reconciler.CacheManager.HelmClients.Get(kymaNsName)).Should(BeNil()) // no Installs exist
+		Expect(reconciler.CacheManager.RenderSources.Get(kymaNsName)).Should(BeNil()) // no Installs exist
 		return true
 	}
 }
@@ -186,10 +187,69 @@ func createManifestWithInvalidOCI() func() bool {
 	}
 }
 
-func createManifestWithKustomize() func() bool {
+func createManifestWithRemoteKustomize() func() bool {
 	return func() bool {
 		kustomizeSpec := types.KustomizeSpec{
-			Path: "https://github.com/kyma-project/module-manager//operator/config/default?ref=main",
+			URL:  "https://github.com/kyma-project/module-manager//operator/config/default?ref=main",
+			Type: "kustomize",
+		}
+		specBytes, err := json.Marshal(kustomizeSpec)
+		Expect(err).ToNot(HaveOccurred())
+
+		manifestObj := createManifestObj("manifest-sample", v1alpha1.ManifestSpec{
+			Installs: []v1alpha1.InstallInfo{
+				{
+					Source: runtime.RawExtension{
+						Raw: specBytes,
+					},
+					Name: "kustomize-test",
+				},
+			},
+		})
+		Expect(k8sClient.Create(ctx, manifestObj)).Should(Succeed())
+		Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
+			Should(BeEquivalentTo(v1alpha1.ManifestStateReady))
+
+		deleteManifestResource(manifestObj, nil)
+
+		return true
+	}
+}
+
+func createManifestWithLocalKustomize() func() bool {
+	return func() bool {
+		kustomizeSpec := types.KustomizeSpec{
+			Path: "./test_samples/kustomize",
+			Type: "kustomize",
+		}
+		specBytes, err := json.Marshal(kustomizeSpec)
+		Expect(err).ToNot(HaveOccurred())
+
+		manifestObj := createManifestObj("manifest-sample", v1alpha1.ManifestSpec{
+			Installs: []v1alpha1.InstallInfo{
+				{
+					Source: runtime.RawExtension{
+						Raw: specBytes,
+					},
+					Name: "kustomize-test",
+				},
+			},
+		})
+		Expect(k8sClient.Create(ctx, manifestObj)).Should(Succeed())
+		Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
+			Should(BeEquivalentTo(v1alpha1.ManifestStateReady))
+
+		deleteManifestResource(manifestObj, nil)
+
+		Expect(os.RemoveAll(filepath.Join(kustomizeSpec.Path, util.ManifestDir))).ShouldNot(HaveOccurred())
+		return true
+	}
+}
+
+func createManifestWithInvalidKustomize() func() bool {
+	return func() bool {
+		kustomizeSpec := types.KustomizeSpec{
+			Path: "./invalidPath",
 			Type: "kustomize",
 		}
 		specBytes, err := json.Marshal(kustomizeSpec)
@@ -211,6 +271,7 @@ func createManifestWithKustomize() func() bool {
 
 		deleteManifestResource(manifestObj, nil)
 
+		Expect(os.RemoveAll(filepath.Join(kustomizeSpec.Path, util.ManifestDir))).ShouldNot(HaveOccurred())
 		return true
 	}
 }
@@ -258,7 +319,9 @@ var _ = Describe("given manifest with a helm repo", Ordered, func() {
 			Expect(testCaseFn()).To(BeTrue())
 		},
 		[]TableEntry{
-			Entry("when manifestCR contains a valid Kustomize specification", createManifestWithKustomize()),
+			Entry("when manifestCR contains a valid remote Kustomize specification", createManifestWithRemoteKustomize()),
+			Entry("when manifestCR contains a valid local Kustomize specification", createManifestWithLocalKustomize()),
+			Entry("when manifestCR contains a valid invalid Kustomize specification", createManifestWithInvalidKustomize()),
 			Entry("when manifestCR contains a valid helm repo", createManifestWithHelmRepo()),
 			Entry("when two manifestCRs contain valid OCI Image specification", createManifestWithOCI()),
 			Entry("when manifestCR contains invalid OCI Image specification", createManifestWithInvalidOCI()),

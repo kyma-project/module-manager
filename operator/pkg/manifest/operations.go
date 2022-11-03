@@ -1,20 +1,21 @@
 package manifest
 
 import (
+	"fmt"
+
 	"github.com/go-logr/logr"
 	"helm.sh/helm/v3/pkg/cli"
 	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/discovery/cached/memory"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/kyma-project/module-manager/operator/pkg/applier"
 	"github.com/kyma-project/module-manager/operator/pkg/labels"
 	"github.com/kyma-project/module-manager/operator/pkg/resource"
 	manifestRest "github.com/kyma-project/module-manager/operator/pkg/rest"
@@ -87,52 +88,67 @@ func newOperations(logger *logr.Logger, deployInfo types.InstallInfo, resourceTr
 		cacheKey = client.ObjectKey{Name: label, Namespace: deployInfo.BaseResource.GetNamespace()}
 	}
 	// TODO offer generic client creation, by deciding between Helm or Kustomize
-	var helmClient types.RenderSrc
+	var renderSrc types.RenderSrc
 	if cache != nil {
 		// read HelmClient from cache
-		helmClient = cache.Get(cacheKey)
+		renderSrc = cache.Get(cacheKey)
 	}
-	if helmClient == nil {
+	if renderSrc == nil {
 		memCacheClient, err := getMemCacheClient(deployInfo.Config)
 		if err != nil {
 			return nil, err
 		}
-		helmClient, err = getHelmClient(deployInfo, memCacheClient, logger)
+		render := NewRendered(logger)
+		txformer := NewTransformer()
+		renderSrc, err = getManifestProcessor(deployInfo, memCacheClient, logger, render, txformer)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("unable to create manifest processor: %w", err)
 		}
 		// cache HelmClient
 		if cache != nil {
-			cache.Set(cacheKey, helmClient)
+			cache.Set(cacheKey, renderSrc)
 		}
 	}
 
-	operations := &operations{
+	ops := &operations{
 		logger:             logger,
-		renderSrc:          helmClient,
+		renderSrc:          renderSrc,
 		flags:              deployInfo.Flags,
 		resourceTransforms: resourceTransforms,
 	}
 
-	return operations, nil
+	return ops, nil
 }
 
-// getHelmClient returns a new HelmClient instance and caches it in-memory.
-func getHelmClient(deployInfo types.InstallInfo, memCacheClient discovery.CachedDiscoveryInterface, logger *logr.Logger,
-) (types.RenderSrc, error) {
-	// create RESTGetter with cached memcached client
-	restGetter := manifestRest.NewRESTClientGetter(deployInfo.Config, memCacheClient)
+// getManifestProcessor returns a new types.RenderSrc instance.
+func getManifestProcessor(deployInfo types.InstallInfo, memCacheClient discovery.CachedDiscoveryInterface, logger *logr.Logger,
+	render *rendered, txformer *transformer) (types.RenderSrc, error) {
 
 	// use deferred discovery client here as GVs applicable to the client are inconsistent at this moment
 	discoveryMapper := restmapper.NewDeferredDiscoveryRESTMapper(memCacheClient)
 
-	// create HelmClient instance
-	helmClient, err := NewHelmProcessor(restGetter, discoveryMapper, deployInfo.Config, cli.New(), logger)
+	chartKind, err := resource.GetChartKind(deployInfo)
 	if err != nil {
 		return nil, err
 	}
+	switch chartKind {
+	case resource.HelmKind, resource.UnknownKind:
+		// create RESTGetter with cached memcached client
+		restGetter := manifestRest.NewRESTClientGetter(deployInfo.Config, memCacheClient)
 
-	return helmClient, nil
+		// create HelmClient instance
+		return NewHelmProcessor(restGetter, discoveryMapper, deployInfo.Config, cli.New(), logger,
+			render, txformer)
+	case resource.KustomizeKind:
+		// create dynamic client for rest config
+		dynamicClient, err := dynamic.NewForConfig(deployInfo.Config)
+		if err != nil {
+			return nil, fmt.Errorf("error creating dynamic client: %w", err)
+		}
+		return NewKustomizeProcessor(dynamicClient, discoveryMapper, logger,
+			render, txformer)
+	}
+	return nil, nil
 }
 
 // getMemCacheClient creates and returns a new instance of MemCacheClient.
@@ -197,19 +213,6 @@ func (o *operations) install(deployInfo types.InstallInfo) (bool, error) {
 	manifest, err := o.getManifestForChartPath(deployInfo)
 	if err != nil {
 		return false, err
-	}
-
-	// Kustomize
-	if deployInfo.Kustomize {
-		// TODO offer SSA as a generic installation and not only bound to Kustomize
-		ssaApplier := &applier.SetApplier{
-			PatchOptions: v1.PatchOptions{FieldManager: "manifest-lib"},
-		}
-		objects, err := util.ParseManifestStringToObjects(manifest)
-		if err != nil {
-			return false, err
-		}
-		return true, ssaApplier.Apply(deployInfo, objects, "")
 	}
 
 	// install resources
@@ -283,7 +286,7 @@ func (o *operations) getManifestForChartPath(deployInfo types.InstallInfo) (stri
 	}
 
 	// 3. render manifests
-	renderedManifest, err = o.renderSrc.ProcessManifest(deployInfo)
+	renderedManifest, err = o.renderSrc.GetRawManifest(deployInfo)
 	if err != nil {
 		return "", err
 	}

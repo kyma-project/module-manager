@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	manifestDir                     = "manifest"
+	ManifestDir                     = "manifest"
 	manifestFile                    = "manifest.yaml"
 	configFileName                  = "installConfig.yaml"
 	YamlDecodeBufferSize            = 2048
@@ -143,7 +143,7 @@ func GetConfigFilePath(config types.ImageSpec) string {
 }
 
 func GetFsManifestChartPath(imageChartPath string) string {
-	return filepath.Join(imageChartPath, manifestDir, manifestFile)
+	return filepath.Join(imageChartPath, ManifestDir, manifestFile)
 }
 
 func GetYamlFileContent(filePath string) (interface{}, error) {
