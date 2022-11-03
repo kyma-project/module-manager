@@ -326,6 +326,7 @@ var _ = Describe("given manifest with a helm repo", Ordered, func() {
 			Entry("when two manifestCRs contain valid OCI Image specification", createManifestWithOCI()),
 			Entry("when manifestCR contains invalid OCI Image specification", createManifestWithInvalidOCI()),
 			Entry("when two remote manifestCRs contain no install specification", createTwoRemoteManifestsWithNoInstalls()),
+			// TODO write tests for pre-rendered Manifests
 		})
 
 	AfterAll(func() {

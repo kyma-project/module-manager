@@ -14,12 +14,16 @@ type rendered struct {
 	logger *logr.Logger
 }
 
+// NewRendered returns a new instance on rendered.
+// Using rendered instance, pre-rendered and cached manifest can be identified and retrieved.
 func NewRendered(logger *logr.Logger) *rendered {
 	return &rendered{
 		logger: logger,
 	}
 }
 
+// GetCachedResources returns a resource manifest which was already cached during previous operations
+// by the module-manager library.
 func (r *rendered) GetCachedResources(chartName, chartPath string) (string, error) {
 	if emptyPath(chartPath) {
 		return "", nil
@@ -44,6 +48,7 @@ func (r *rendered) GetCachedResources(chartName, chartPath string) (string, erro
 	return stringifiedManifest, nil
 }
 
+// GetManifestResources returns a pre-rendered resource manifest located at the passed chartPath.
 func (r *rendered) GetManifestResources(chartName, chartPath string) (string, error) {
 	if emptyPath(chartPath) {
 		return "", nil

@@ -20,6 +20,11 @@ type kustomize struct {
 	*rendered
 }
 
+// NewKustomizeProcessor returns a new instance of the kustomize processor.
+// The returned kustomize instance contains necessary clients based on rest config and rest mapper.
+// Additionally, it also transforms the manifest resources based on user defined input.
+// On the returned helm instance, installation, uninstallation and verification checks
+// can then be executed on the resource manifest.
 func NewKustomizeProcessor(dynamicClient dynamic.Interface, discoveryMapper *restmapper.DeferredDiscoveryRESTMapper,
 	logger *logr.Logger, render *rendered, txformer *transformer,
 ) (types.RenderSrc, error) {
@@ -38,11 +43,13 @@ func NewKustomizeProcessor(dynamicClient dynamic.Interface, discoveryMapper *res
 	return kustomizeProcessor, nil
 }
 
+// GetRawManifest returns processed resource manifest using kustomize client.
 func (k *kustomize) GetRawManifest(deployInfo types.InstallInfo) (string, error) {
 	opts := krusty.MakeDefaultOptions()
 	kustomizer := krusty.MakeKustomizer(opts)
+
+	// file system on which kustomize works on
 	fileSystem := filesys.MakeFsOnDisk()
-	//os.ReadDir()
 	path := deployInfo.URL
 	if path == "" {
 		path = deployInfo.ChartPath
@@ -64,7 +71,9 @@ func (k *kustomize) GetRawManifest(deployInfo types.InstallInfo) (string, error)
 	return manifestStringified, nil
 }
 
-func (k *kustomize) Install(manifest string, deployInfo types.InstallInfo, transforms []types.ObjectTransform) (bool, error) {
+// Install transforms and applies the kustomize manifest using server side apply.
+func (k *kustomize) Install(manifest string, deployInfo types.InstallInfo,
+	transforms []types.ObjectTransform) (bool, error) {
 	// transform
 	objects, err := k.Transform(deployInfo.Ctx, manifest, deployInfo.BaseResource, transforms)
 	if err != nil {
@@ -79,7 +88,9 @@ func (k *kustomize) Install(manifest string, deployInfo types.InstallInfo, trans
 	return true, nil
 }
 
-func (k *kustomize) Uninstall(manifest string, deployInfo types.InstallInfo, transforms []types.ObjectTransform) (bool, error) {
+// Uninstall transforms and deletes kustomize based manifest using dynamic client.
+func (k *kustomize) Uninstall(manifest string, deployInfo types.InstallInfo,
+	transforms []types.ObjectTransform) (bool, error) {
 	// transform
 	objects, err := k.Transform(deployInfo.Ctx, manifest, deployInfo.BaseResource, transforms)
 	if err != nil {
@@ -94,7 +105,9 @@ func (k *kustomize) Uninstall(manifest string, deployInfo types.InstallInfo, tra
 	return deletionSuccess, nil
 }
 
-func (k *kustomize) IsConsistent(manifest string, deployInfo types.InstallInfo, transforms []types.ObjectTransform) (bool, error) {
+// IsConsistent indicates if kustomize installation is consistent with the desired manifest resources.
+func (k *kustomize) IsConsistent(manifest string, deployInfo types.InstallInfo,
+	transforms []types.ObjectTransform) (bool, error) {
 	// TODO evaluate a better consistency check
 	return k.Install(manifest, deployInfo, transforms)
 }

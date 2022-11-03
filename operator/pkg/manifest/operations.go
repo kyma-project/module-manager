@@ -40,6 +40,7 @@ type operations struct {
 	resourceTransforms []types.ObjectTransform
 }
 
+// InstallChart installs the resources based on types.InstallInfo and an appropriate rendering mechanism.
 func InstallChart(logger *logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
 	cache types.RendererCache,
 ) (bool, error) {
@@ -51,6 +52,7 @@ func InstallChart(logger *logr.Logger, deployInfo types.InstallInfo, resourceTra
 	return ops.install(deployInfo)
 }
 
+// UninstallChart uninstalls the resources based on types.InstallInfo and an appropriate rendering mechanism.
 func UninstallChart(logger *logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
 	cache types.RendererCache,
 ) (bool, error) {
@@ -62,6 +64,7 @@ func UninstallChart(logger *logr.Logger, deployInfo types.InstallInfo, resourceT
 	return ops.uninstall(deployInfo)
 }
 
+// ConsistencyCheck verifies consistency of resources based on types.InstallInfo and an appropriate rendering mechanism.
 func ConsistencyCheck(logger *logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
 	cache types.RendererCache,
 ) (bool, error) {
@@ -104,7 +107,7 @@ func newOperations(logger *logr.Logger, deployInfo types.InstallInfo, resourceTr
 		if err != nil {
 			return nil, fmt.Errorf("unable to create manifest processor: %w", err)
 		}
-		// cache HelmClient
+		// cache render source
 		if cache != nil {
 			cache.Set(cacheKey, renderSrc)
 		}
@@ -120,9 +123,10 @@ func newOperations(logger *logr.Logger, deployInfo types.InstallInfo, resourceTr
 	return ops, nil
 }
 
-// getManifestProcessor returns a new types.RenderSrc instance.
-func getManifestProcessor(deployInfo types.InstallInfo, memCacheClient discovery.CachedDiscoveryInterface, logger *logr.Logger,
-	render *rendered, txformer *transformer) (types.RenderSrc, error) {
+// getManifestProcessor returns a new types.RenderSrc instance
+// this render source will handle subsequent operations for manifest resources based on types.InstallInfo
+func getManifestProcessor(deployInfo types.InstallInfo, memCacheClient discovery.CachedDiscoveryInterface,
+	logger *logr.Logger, render *rendered, txformer *transformer) (types.RenderSrc, error) {
 
 	// use deferred discovery client here as GVs applicable to the client are inconsistent at this moment
 	discoveryMapper := restmapper.NewDeferredDiscoveryRESTMapper(memCacheClient)
