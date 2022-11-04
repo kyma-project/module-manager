@@ -49,7 +49,6 @@ import (
 	internalUtil "github.com/kyma-project/module-manager/operator/internal/pkg/util"
 	"github.com/kyma-project/module-manager/operator/pkg/labels"
 	"github.com/kyma-project/module-manager/operator/pkg/manifest"
-	"github.com/kyma-project/module-manager/operator/pkg/ratelimit"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
 	listener "github.com/kyma-project/runtime-watcher/listener/pkg/event"
@@ -89,7 +88,7 @@ type ManifestReconciler struct {
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx).WithName(req.NamespacedName.String())
+	logger := log.FromContext(ctx)
 	logger.Info("Reconciliation loop starting for", "resource", req.NamespacedName.String())
 
 	// get manifest object
@@ -102,12 +101,6 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	manifestObj = *manifestObj.DeepCopy()
-
-	randomizeDuration := func(input time.Duration) time.Duration {
-		millis := int(input / time.Millisecond)
-		res := ratelimit.RandomizeByTenPercent(millis)
-		return time.Duration(res) * time.Millisecond
-	}
 
 	// check if deletionTimestamp is set, retry until it gets fully deleted
 	if !manifestObj.DeletionTimestamp.IsZero() && manifestObj.Status.State != v1alpha1.ManifestStateDeleting {
@@ -127,15 +120,15 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	case "":
 		return ctrl.Result{}, r.HandleInitialState(ctx, &logger, &manifestObj)
 	case v1alpha1.ManifestStateProcessing:
-		return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Waiting)},
+		return ctrl.Result{},
 			r.HandleProcessingState(ctx, &logger, &manifestObj)
 	case v1alpha1.ManifestStateDeleting:
 		return ctrl.Result{}, r.HandleDeletingState(ctx, &logger, &manifestObj)
 	case v1alpha1.ManifestStateError:
-		return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Failure)},
+		return ctrl.Result{},
 			r.HandleErrorState(ctx, &manifestObj)
 	case v1alpha1.ManifestStateReady:
-		return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Success)},
+		return ctrl.Result{RequeueAfter: r.RequeueIntervals.Success},
 			r.HandleReadyState(ctx, &logger, &manifestObj)
 	}
 

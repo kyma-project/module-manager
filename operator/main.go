@@ -38,14 +38,16 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	"github.com/go-logr/logr"
+	"github.com/go-logr/zapr"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-
 	"net/http"
 	"net/http/pprof"
+	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 var (
@@ -95,13 +97,8 @@ type FlagVar struct {
 
 func main() {
 	flagVar := defineFlagVar()
-	opts := zap.Options{
-		Development: true,
-	}
-	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
-
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	ctrl.SetLogger(configLogger())
 
 	config := ctrl.GetConfigOrDie()
 	config.QPS = float32(flagVar.clientQPS)
@@ -110,6 +107,20 @@ func main() {
 		go pprofStartServer(flagVar.pprofAddr, flagVar.pprofServerTimeout)
 	}
 	setupWithManager(flagVar, util.GetCacheFunc(), scheme, config)
+}
+
+func configLogger() logr.Logger {
+	// The following settings is based on kyma community Improvement of log messages usability
+	// https://github.com/kyma-project/community/blob/main/concepts/observability-consistent-logging/improvement-of-log-messages-usability.md#log-structure
+	atomicLevel := zap.NewAtomicLevel()
+	encoderConfig := zap.NewProductionEncoderConfig()
+	encoderConfig.TimeKey = "date"
+	encoderConfig.EncodeTime = zapcore.RFC3339NanoTimeEncoder
+	encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
+	core := zapcore.NewCore(zapcore.NewJSONEncoder(encoderConfig), zapcore.Lock(os.Stdout), atomicLevel)
+	zapLog := zap.New(core, zap.AddCaller(), zap.AddStacktrace(zapcore.ErrorLevel))
+	logger := zapr.NewLogger(zapLog.With(zap.Namespace("context")))
+	return logger
 }
 
 func pprofStartServer(addr string, timeout time.Duration) {
