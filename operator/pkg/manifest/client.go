@@ -264,7 +264,7 @@ func (h *HelmClient) assignRestMapping(gvk schema.GroupVersionKind, info *resour
 }
 
 func (h *HelmClient) convertToInfo(unstructuredObj *unstructured.Unstructured) (*resource.Info, error) {
-	//TODO:  manual invalidation of mem cache client to maintain current state of server mapping for API resources
+	// TODO:  manual invalidation of mem cache client to maintain current state of server mapping for API resources
 	info := &resource.Info{}
 	gvk := unstructuredObj.GroupVersionKind()
 	gv := gvk.GroupVersion()

@@ -15,7 +15,7 @@ type ManifestRESTClientGetter struct {
 
 // NewRESTClientGetter returns a RESTClientGetter instance based on the passed rest config.
 // Additionally, it always returns the cached client passed during struct initialization.
-// To invalidate the cached client, call client.Invalidate()
+// To invalidate the cached client, call client.Invalidate().
 func NewRESTClientGetter(config *rest.Config, memCachedClient discovery.CachedDiscoveryInterface,
 ) *ManifestRESTClientGetter {
 	return &ManifestRESTClientGetter{

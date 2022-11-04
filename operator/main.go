@@ -18,6 +18,8 @@ package main
 
 import (
 	"flag"
+	"net/http"
+	"net/http/pprof"
 	"os"
 	"time"
 
@@ -45,8 +47,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"net/http"
-	"net/http/pprof"
+
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -111,6 +112,7 @@ func main() {
 
 func configLogger() logr.Logger {
 	// The following settings is based on kyma community Improvement of log messages usability
+	//nolint:lll
 	// https://github.com/kyma-project/community/blob/main/concepts/observability-consistent-logging/improvement-of-log-messages-usability.md#log-structure
 	atomicLevel := zap.NewAtomicLevel()
 	encoderConfig := zap.NewProductionEncoderConfig()
@@ -132,10 +134,11 @@ func pprofStartServer(addr string, timeout time.Duration) {
 	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 
 	server := &http.Server{
-		Addr:         addr,
-		Handler:      mux,
-		ReadTimeout:  timeout,
-		WriteTimeout: timeout,
+		Addr:              addr,
+		Handler:           mux,
+		ReadTimeout:       timeout,
+		WriteTimeout:      timeout,
+		ReadHeaderTimeout: timeout,
 	}
 
 	if err := server.ListenAndServe(); err != nil {
