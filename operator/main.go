@@ -18,6 +18,8 @@ package main
 
 import (
 	"flag"
+	"net/http"
+	"net/http/pprof"
 	"os"
 	"time"
 
@@ -43,9 +45,6 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-
-	"net/http"
-	"net/http/pprof"
 )
 
 var (
@@ -121,10 +120,11 @@ func pprofStartServer(addr string, timeout time.Duration) {
 	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 
 	server := &http.Server{
-		Addr:         addr,
-		Handler:      mux,
-		ReadTimeout:  timeout,
-		WriteTimeout: timeout,
+		Addr:              addr,
+		Handler:           mux,
+		ReadTimeout:       timeout,
+		WriteTimeout:      timeout,
+		ReadHeaderTimeout: timeout,
 	}
 
 	if err := server.ListenAndServe(); err != nil {

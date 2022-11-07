@@ -10,6 +10,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/go-logr/logr"
+
+	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -22,9 +25,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-func GetCRDsFromPath(ctx context.Context, filePath string) ([]*apiextensionsv1.CustomResourceDefinition, error) {
+type ChartKind int
+
+const (
+	HelmKind ChartKind = iota
+	KustomizeKind
+	UnknownKind
+)
+
+func getDirContent(filePath string) ([]fs.DirEntry, error) {
 	dirEntries := make([]fs.DirEntry, 0)
-	if err := filepath.WalkDir(filePath, func(path string, info fs.DirEntry, err error) error {
+	err := filepath.WalkDir(filePath, func(path string, info fs.DirEntry, err error) error {
 		// initial error
 		if err != nil {
 			return err
@@ -34,7 +45,71 @@ func GetCRDsFromPath(ctx context.Context, filePath string) ([]*apiextensionsv1.C
 		}
 		dirEntries, err = os.ReadDir(filePath)
 		return err
-	}); err != nil {
+	})
+
+	return dirEntries, err
+}
+
+func GetChartKind(deployInfo types.InstallInfo) (ChartKind, error) {
+	// URLs are not verified at this state
+	if deployInfo.URL != "" {
+		// URL without RepoName is expected for Kustomize
+		if deployInfo.RepoName == "" {
+			return KustomizeKind, nil
+		}
+		// RepoName + URL is only set for Helm
+		return HelmKind, nil
+	}
+
+	kind := UnknownKind
+
+	// traverse directory content if local chart path is specified
+	fileEntries, err := getDirContent(deployInfo.ChartPath)
+	if err != nil {
+		return UnknownKind, err
+	}
+
+	for _, entry := range fileEntries {
+		if entry.Name() == "kustomization.yaml" {
+			return KustomizeKind, nil
+		} else if entry.Name() == "Chart.yaml" {
+			return HelmKind, nil
+		}
+	}
+
+	return kind, nil
+}
+
+func GetStringifiedYamlFromDirPath(dirPath string, logger *logr.Logger) (string, error) {
+	dirEntries, err := getDirContent(dirPath)
+	if err != nil {
+		return "", err
+	}
+
+	childCount := len(dirEntries)
+	if childCount == 0 {
+		logger.V(util.DebugLogLevel).Info(fmt.Sprintf("no yaml file found at file path %s", dirPath))
+		return "", nil
+	} else if childCount > 1 {
+		logger.V(util.DebugLogLevel).Info(fmt.Sprintf("more than onw yaml file found at file path %s", dirPath))
+		return "", nil
+	}
+	file := dirEntries[0]
+	allowedExtns := sets.NewString(".yaml", ".yml")
+	if !allowedExtns.Has(filepath.Ext(file.Name())) {
+		return "", fmt.Errorf("file extension unsupported %s in dir %s", file.Name(), dirPath)
+	}
+
+	stringifiedYaml, err := util.GetStringifiedYamlFromFilePath(filepath.Join(dirPath, file.Name()))
+	if err != nil {
+		return "", fmt.Errorf("yaml file could not be read %s in dir %s: %w", file.Name(), dirPath, err)
+	}
+	return stringifiedYaml, nil
+}
+
+func GetCRDsFromPath(ctx context.Context, filePath string) ([]*apiextensionsv1.CustomResourceDefinition, error) {
+	dirEntries, err := getDirContent(filePath)
+	if err != nil {
 		return nil, err
 	}
 

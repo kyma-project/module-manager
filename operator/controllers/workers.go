@@ -6,14 +6,14 @@ import (
 
 	"github.com/go-logr/logr"
 
-	"github.com/kyma-project/module-manager/operator/pkg/manifest"
+	manifestTypes "github.com/kyma-project/module-manager/operator/pkg/types"
 )
 
 type Workers interface {
 	GetWorkerPoolSize() int
 	SetWorkerPoolSize(newSize int)
-	StartWorkers(ctx context.Context, jobChan <-chan manifest.InstallInfo, handlerFn func(info manifest.InstallInfo,
-		logger *logr.Logger) *manifest.InstallResponse)
+	StartWorkers(ctx context.Context, jobChan <-chan manifestTypes.InstallInfo,
+		handlerFn func(info manifestTypes.InstallInfo, logger *logr.Logger) *manifestTypes.InstallResponse)
 }
 
 type ManifestWorkerPool struct {
@@ -32,7 +32,7 @@ func NewManifestWorkers(logger *logr.Logger, workersConcurrentManifests int) *Ma
 }
 
 func (mw *ManifestWorkerPool) StartWorkers(ctx context.Context, jobChan <-chan OperationRequest,
-	handlerFn func(manifest.InstallInfo, manifest.Mode, *logr.Logger) *manifest.InstallResponse,
+	handlerFn func(manifestTypes.InstallInfo, manifestTypes.Mode, *logr.Logger) *manifestTypes.InstallResponse,
 ) {
 	for worker := 1; worker <= mw.GetWorkerPoolSize(); worker++ {
 		go func(ctx context.Context, workerId int, deployJob <-chan OperationRequest) {

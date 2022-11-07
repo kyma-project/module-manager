@@ -11,7 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	opLabels "github.com/kyma-project/module-manager/operator/pkg/labels"
-	"github.com/kyma-project/module-manager/operator/pkg/manifest"
+	"github.com/kyma-project/module-manager/operator/pkg/types"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -61,7 +61,7 @@ func AddReadyConditionForObjects(manifest *v1alpha1.Manifest, installItems []v1a
 	}
 }
 
-func AddReadyConditionForResponses(responses []*manifest.InstallResponse, logger *logr.Logger,
+func AddReadyConditionForResponses(responses []*types.InstallResponse, logger *logr.Logger,
 	manifest *v1alpha1.Manifest,
 ) {
 	namespacedName := client.ObjectKeyFromObject(manifest)

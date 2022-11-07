@@ -37,7 +37,7 @@ func (m *Manifest) IsSpecUpdated() bool {
 
 // InstallInfo defines installation information.
 type InstallInfo struct {
-	// Source can either be described as ImageSpec or HelmChartSpec
+	// Source can either be described as ImageSpec, HelmChartSpec or KustomizeSpec
 	//+kubebuilder:pruning:PreserveUnknownFields
 	Source runtime.RawExtension `json:"source"`
 
