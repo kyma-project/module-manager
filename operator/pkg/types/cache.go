@@ -4,10 +4,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// HelmClientCache offers utility methods to access HelmClient cached instances.
-type HelmClientCache interface {
-	Get(key client.ObjectKey) HelmClient
-	Set(key client.ObjectKey, helmClient HelmClient)
+// RendererCache offers utility methods to access RenderSrc cached instances.
+type RendererCache interface {
+	Get(key client.ObjectKey) RenderSrc
+	Set(key client.ObjectKey, renderSrc RenderSrc)
 	Delete(key client.ObjectKey)
 }
 

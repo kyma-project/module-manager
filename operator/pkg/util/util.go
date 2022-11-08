@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	manifestDir                     = "manifest"
+	ManifestDir                     = "manifest"
 	manifestFile                    = "manifest.yaml"
 	configFileName                  = "installConfig.yaml"
 	YamlDecodeBufferSize            = 2048
@@ -143,7 +143,7 @@ func GetConfigFilePath(config types.ImageSpec) string {
 }
 
 func GetFsManifestChartPath(imageChartPath string) string {
-	return filepath.Join(imageChartPath, manifestDir, manifestFile)
+	return filepath.Join(imageChartPath, ManifestDir, manifestFile)
 }
 
 func GetYamlFileContent(filePath string) (interface{}, error) {
@@ -160,15 +160,6 @@ func GetYamlFileContent(filePath string) (interface{}, error) {
 	}
 
 	return fileContent, err
-}
-
-func GetStringifiedYamlFromFilePath(filePath string) (string, error) {
-	file, err := os.ReadFile(filePath)
-	if err != nil {
-		return "", err
-	}
-
-	return string(file), err
 }
 
 func WriteToFile(filePath string, bytes []byte) error {
@@ -198,4 +189,13 @@ func GetResourceLabel(resource client.Object, labelName string) (string, error) 
 			client.ObjectKeyFromObject(resource).String())
 	}
 	return label, nil
+}
+
+func GetStringifiedYamlFromFilePath(filePath string) (string, error) {
+	file, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", err
+	}
+
+	return string(file), err
 }

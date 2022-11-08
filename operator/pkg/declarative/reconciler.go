@@ -292,24 +292,24 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, objectInstanc
 
 func (r *ManifestReconciler) prepareInstallInfo(ctx context.Context, objectInstance types.BaseCustomObject,
 	installSpec types.InstallationSpec, releaseName string,
-) (manifest.InstallInfo, error) {
+) (types.InstallInfo, error) {
 	unstructuredObj := &unstructured.Unstructured{}
 	var err error
 	switch typedObject := objectInstance.(type) {
 	case types.CustomObject:
 		unstructuredObj.Object, err = runtime.DefaultUnstructuredConverter.ToUnstructured(typedObject)
 		if err != nil {
-			return manifest.InstallInfo{}, err
+			return types.InstallInfo{}, err
 		}
 	case *unstructured.Unstructured:
 		unstructuredObj = typedObject
 	default:
-		return manifest.InstallInfo{}, getTypeError(client.ObjectKeyFromObject(objectInstance).String())
+		return types.InstallInfo{}, getTypeError(client.ObjectKeyFromObject(objectInstance).String())
 	}
 
-	return manifest.InstallInfo{
+	return types.InstallInfo{
 		Ctx: ctx,
-		ChartInfo: &manifest.ChartInfo{
+		ChartInfo: &types.ChartInfo{
 			ChartPath:   installSpec.ChartPath,
 			ReleaseName: releaseName,
 			Flags:       installSpec.ChartFlags,
@@ -320,7 +320,7 @@ func (r *ManifestReconciler) prepareInstallInfo(ctx context.Context, objectInsta
 			// destination cluster rest client
 			Client: r.nativeClient,
 		},
-		ResourceInfo: manifest.ResourceInfo{
+		ResourceInfo: types.ResourceInfo{
 			// base operator resource to be passed for custom checks
 			BaseResource: unstructuredObj,
 		},

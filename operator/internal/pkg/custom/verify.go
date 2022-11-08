@@ -16,7 +16,7 @@ import (
 
 type Resource struct {
 	DefaultClient client.Client
-	custom.Check
+	types.Check
 }
 
 func (r *Resource) DefaultFn(context.Context, *unstructured.Unstructured, *logr.Logger,

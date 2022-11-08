@@ -9,18 +9,18 @@ import (
 )
 
 type CacheManager struct {
-	HelmClients  types.HelmClientCache
-	ClusterInfos types.ClusterInfoCache
+	RenderSources types.RendererCache
+	ClusterInfos  types.ClusterInfoCache
 }
 
 func NewCacheManager() *CacheManager {
 	return &CacheManager{
-		HelmClients:  manifest.NewHelmClientCache(),
-		ClusterInfos: custom.NewRemoteClusterCache(),
+		RenderSources: manifest.NewRendererCache(),
+		ClusterInfos:  custom.NewRemoteClusterCache(),
 	}
 }
 
 func (c *CacheManager) Invalidate(key client.ObjectKey) {
-	c.HelmClients.Delete(key)
+	c.RenderSources.Delete(key)
 	c.ClusterInfos.Delete(key)
 }

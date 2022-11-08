@@ -43,7 +43,7 @@ func (m mockLayer) MediaType() (types.MediaType, error) {
 
 func (m mockLayer) Size() (int64, error) { return 137438691328, nil }
 func (m mockLayer) Compressed() (io.ReadCloser, error) {
-	f, err := os.Open("./test_samples/compressed.tgz")
+	f, err := os.Open("./test_samples/helm/compressed.tgz")
 	if err != nil {
 		return nil, err
 	}

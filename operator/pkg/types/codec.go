@@ -13,6 +13,7 @@ import (
 type Codec struct {
 	imageSpecSchema     *gojsonschema.Schema
 	helmChartSpecSchema *gojsonschema.Schema
+	kustomizeSpecSchema *gojsonschema.Schema
 }
 
 func NewCodec() (*Codec, error) {
@@ -38,9 +39,21 @@ func NewCodec() (*Codec, error) {
 		return nil, err
 	}
 
+	kustomizeSpecJSONBytes := jsonschema.Reflect(KustomizeSpec{})
+	bytes, err = kustomizeSpecJSONBytes.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+
+	kustomizeSpecSchema, err := gojsonschema.NewSchema(gojsonschema.NewBytesLoader(bytes))
+	if err != nil {
+		return nil, err
+	}
+
 	return &Codec{
 		imageSpecSchema:     imageSpecSchema,
 		helmChartSpecSchema: helmChartSpecSchema,
+		kustomizeSpecSchema: kustomizeSpecSchema,
 	}, nil
 }
 
@@ -81,9 +94,13 @@ func (c *Codec) Validate(data []byte, refType RefTypeMetadata) error {
 		if err != nil {
 			return err
 		}
-
 	case OciRefType:
 		result, err = c.imageSpecSchema.Validate(dataBytes)
+		if err != nil {
+			return err
+		}
+	case KustomizeType:
+		result, err = c.kustomizeSpecSchema.Validate(dataBytes)
 		if err != nil {
 			return err
 		}

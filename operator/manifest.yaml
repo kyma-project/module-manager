@@ -1,0 +1,536 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    app.kubernetes.io/component: module-manager.kyma-project.io
+    app.kubernetes.io/created-by: kustomize
+    app.kubernetes.io/instance: module-manager-main
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: module-manager
+    app.kubernetes.io/part-of: manual-deployment
+  name: kcp-system
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.9.2
+  creationTimestamp: null
+  labels:
+    app.kubernetes.io/component: module-manager.kyma-project.io
+    app.kubernetes.io/created-by: kustomize
+    app.kubernetes.io/instance: module-manager-main
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: module-manager
+    app.kubernetes.io/part-of: manual-deployment
+  name: manifests.operator.kyma-project.io
+spec:
+  group: operator.kyma-project.io
+  names:
+    kind: Manifest
+    listKind: ManifestList
+    plural: manifests
+    singular: manifest
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.state
+      name: State
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Manifest is the Schema for the manifests API.
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec specifies the content and configuration for Manifest
+            properties:
+              config:
+                description: Config specifies OCI image configuration for Manifest
+                properties:
+                  name:
+                    description: Name defines the Image name
+                    type: string
+                  ref:
+                    description: Ref is either a sha value, tag or version
+                    type: string
+                  repo:
+                    description: Repo defines the Image repo
+                    type: string
+                  type:
+                    description: Type defines the chart as "oci-ref"
+                    enum:
+                    - helm-chart
+                    - oci-ref
+                    - ""
+                    type: string
+                type: object
+              crds:
+                description: CRDs specifies the custom resource definitions' ImageSpec
+                properties:
+                  name:
+                    description: Name defines the Image name
+                    type: string
+                  ref:
+                    description: Ref is either a sha value, tag or version
+                    type: string
+                  repo:
+                    description: Repo defines the Image repo
+                    type: string
+                  type:
+                    description: Type defines the chart as "oci-ref"
+                    enum:
+                    - helm-chart
+                    - oci-ref
+                    - ""
+                    type: string
+                type: object
+              installs:
+                description: Installs specifies a list of installations for Manifest
+                items:
+                  description: InstallInfo defines installation information.
+                  properties:
+                    name:
+                      description: Name specifies a unique install name for Manifest
+                      type: string
+                    source:
+                      description: Source can either be described as ImageSpec or
+                        HelmChartSpec
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                  required:
+                  - name
+                  - source
+                  type: object
+                type: array
+              remote:
+                default: true
+                description: Remote indicates if Manifest should be installed on a
+                  remote cluster
+                type: boolean
+              resource:
+                description: Resource specifies a resource to be watched for state
+                  updates
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
+            required:
+            - installs
+            type: object
+          status:
+            description: Status signifies the current status of the Manifest
+            properties:
+              conditions:
+                description: Conditions is a list of status conditions to indicate
+                  the status of Manifest
+                items:
+                  description: ManifestCondition describes condition information for
+                    Manifest.
+                  properties:
+                    installInfo:
+                      description: InstallInfo contains a list of installations for
+                        Manifest
+                      properties:
+                        chartName:
+                          description: ChartName defines the name for InstallItem
+                          type: string
+                        clientConfig:
+                          description: ClientConfig defines the client config for
+                            InstallItem
+                          type: string
+                        overrides:
+                          description: Overrides defines the overrides for InstallItem
+                          type: string
+                      type: object
+                    lastTransitionTime:
+                      description: Timestamp for when Manifest last transitioned from
+                        one status to another.
+                      format: date-time
+                      type: string
+                    message:
+                      description: Human-readable message indicating details about
+                        the last status transition.
+                      type: string
+                    reason:
+                      description: Machine-readable text indicating the reason for
+                        the condition's last transition.
+                      type: string
+                    status:
+                      description: Status of the ManifestCondition
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: Type of ManifestCondition
+                      type: string
+                  required:
+                  - status
+                  - type
+                  type: object
+                type: array
+              observedGeneration:
+                description: ObservedGeneration
+                format: int64
+                type: integer
+              state:
+                allOf:
+                - enum:
+                  - Processing
+                  - Deleting
+                  - Ready
+                  - Error
+                - enum:
+                  - Ready
+                  - Processing
+                  - Error
+                  - Deleting
+                description: State signifies current state of Manifest
+                type: string
+            required:
+            - state
+            type: object
+        required:
+        - metadata
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/component: module-manager.kyma-project.io
+    app.kubernetes.io/created-by: kustomize
+    app.kubernetes.io/instance: module-manager-main
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: module-manager
+    app.kubernetes.io/part-of: manual-deployment
+  name: module-manager-manager
+  namespace: kcp-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app.kubernetes.io/component: module-manager.kyma-project.io
+    app.kubernetes.io/created-by: kustomize
+    app.kubernetes.io/instance: module-manager-main
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: module-manager
+    app.kubernetes.io/part-of: manual-deployment
+  name: module-manager-leader-election-role
+  namespace: kcp-system
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  labels:
+    app.kubernetes.io/component: module-manager.kyma-project.io
+    app.kubernetes.io/created-by: kustomize
+    app.kubernetes.io/instance: module-manager-main
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: module-manager
+    app.kubernetes.io/part-of: manual-deployment
+  name: module-manager-manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - operator.kyma-project.io
+  resources:
+  - manifests
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - operator.kyma-project.io
+  resources:
+  - manifests/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - operator.kyma-project.io
+  resources:
+  - manifests/status
+  verbs:
+  - get
+  - patch
+  - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/component: module-manager.kyma-project.io
+    app.kubernetes.io/created-by: kustomize
+    app.kubernetes.io/instance: module-manager-main
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: module-manager
+    app.kubernetes.io/part-of: manual-deployment
+  name: module-manager-metrics-reader
+rules:
+- nonResourceURLs:
+  - /metrics
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/component: module-manager.kyma-project.io
+    app.kubernetes.io/created-by: kustomize
+    app.kubernetes.io/instance: module-manager-main
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: module-manager
+    app.kubernetes.io/part-of: manual-deployment
+  name: module-manager-leader-election-rolebinding
+  namespace: kcp-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: module-manager-leader-election-role
+subjects:
+- kind: ServiceAccount
+  name: module-manager-manager
+  namespace: kcp-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/component: module-manager.kyma-project.io
+    app.kubernetes.io/created-by: kustomize
+    app.kubernetes.io/instance: module-manager-main
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: module-manager
+    app.kubernetes.io/part-of: manual-deployment
+  name: module-manager-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: module-manager-manager-role
+subjects:
+- kind: ServiceAccount
+  name: module-manager-manager
+  namespace: kcp-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/component: module-manager.kyma-project.io
+    app.kubernetes.io/created-by: kustomize
+    app.kubernetes.io/instance: module-manager-main
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: module-manager
+    app.kubernetes.io/part-of: manual-deployment
+  name: module-manager-metrics-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: module-manager-metrics-reader
+subjects:
+- kind: ServiceAccount
+  name: controller-manager
+  namespace: system
+---
+apiVersion: v1
+data:
+  controller_manager_config.yaml: |
+    apiVersion: controller-runtime.sigs.k8s.io/v1alpha1
+    kind: ControllerManagerConfig
+    health:
+      healthProbeBindAddress: :8081
+    metrics:
+      bindAddress: 127.0.0.1:8080
+    webhook:
+      port: 9443
+    leaderElection:
+      leaderElect: true
+      resourceName: 7f5e28d0.kyma-project.io
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/component: module-manager.kyma-project.io
+    app.kubernetes.io/created-by: kustomize
+    app.kubernetes.io/instance: module-manager-main
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: module-manager
+    app.kubernetes.io/part-of: manual-deployment
+  name: module-manager-manager-config
+  namespace: kcp-system
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: module-manager.kyma-project.io
+    app.kubernetes.io/created-by: kustomize
+    app.kubernetes.io/instance: module-manager-main
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: module-manager
+    app.kubernetes.io/part-of: manual-deployment
+  name: module-manager-metrics-service
+  namespace: kcp-system
+spec:
+  ports:
+  - appProtocol: http
+    name: metrics
+    port: 8080
+    protocol: TCP
+    targetPort: metrics
+  selector:
+    app.kubernetes.io/component: module-manager.kyma-project.io
+    app.kubernetes.io/created-by: kustomize
+    app.kubernetes.io/instance: module-manager-main
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: module-manager
+    app.kubernetes.io/part-of: manual-deployment
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/component: module-manager.kyma-project.io
+    app.kubernetes.io/created-by: kustomize
+    app.kubernetes.io/instance: module-manager-main
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: module-manager
+    app.kubernetes.io/part-of: manual-deployment
+  name: module-manager-controller-manager
+  namespace: kcp-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: module-manager.kyma-project.io
+      app.kubernetes.io/created-by: kustomize
+      app.kubernetes.io/instance: module-manager-main
+      app.kubernetes.io/managed-by: kustomize
+      app.kubernetes.io/name: module-manager
+      app.kubernetes.io/part-of: manual-deployment
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: manager
+      labels:
+        app.kubernetes.io/component: module-manager.kyma-project.io
+        app.kubernetes.io/created-by: kustomize
+        app.kubernetes.io/instance: module-manager-main
+        app.kubernetes.io/managed-by: kustomize
+        app.kubernetes.io/name: module-manager
+        app.kubernetes.io/part-of: manual-deployment
+    spec:
+      containers:
+      - args:
+        - --leader-elect
+        command:
+        - /manager
+        image: eu.gcr.io/kyma-project/module-manager:latest
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        name: manager
+        ports:
+        - containerPort: 8082
+          name: listener
+        - containerPort: 8080
+          name: metrics
+        - containerPort: 8083
+          name: debug
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+          requests:
+            cpu: 1000m
+            memory: 1Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+      securityContext:
+        runAsNonRoot: true
+      serviceAccountName: module-manager-manager
+      terminationGracePeriodSeconds: 10

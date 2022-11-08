@@ -19,7 +19,6 @@ import (
 	"github.com/kyma-project/module-manager/operator/pkg/custom"
 	"github.com/kyma-project/module-manager/operator/pkg/descriptor"
 	"github.com/kyma-project/module-manager/operator/pkg/labels"
-	"github.com/kyma-project/module-manager/operator/pkg/manifest"
 	"github.com/kyma-project/module-manager/operator/pkg/resource"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
@@ -31,7 +30,7 @@ const (
 
 func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClusterInfo types.ClusterInfo,
 	flags internalTypes.ReconcileFlagConfig, clusterCache types.ClusterInfoCache,
-) ([]manifest.InstallInfo, error) {
+) ([]types.InstallInfo, error) {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 
 	// extract config
@@ -78,9 +77,9 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 	InsertWatcherLabels(manifestObj)
 
 	// parse installs
-	baseDeployInfo := manifest.InstallInfo{
+	baseDeployInfo := types.InstallInfo{
 		ClusterInfo: clusterInfo,
-		ResourceInfo: manifest.ResourceInfo{
+		ResourceInfo: types.ResourceInfo{
 			Crds:            crds,
 			BaseResource:    &unstructured.Unstructured{Object: manifestObjMetadata},
 			CustomResources: []*unstructured.Unstructured{},
@@ -165,10 +164,10 @@ func parseInstallConfigs(decodedConfig interface{}) ([]interface{}, error) {
 }
 
 func parseInstallations(manifestObj *v1alpha1.Manifest, codec *types.Codec,
-	configs []interface{}, baseDeployInfo manifest.InstallInfo, insecureRegistry bool,
-) ([]manifest.InstallInfo, error) {
+	configs []interface{}, baseDeployInfo types.InstallInfo, insecureRegistry bool,
+) ([]types.InstallInfo, error) {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
-	deployInfos := make([]manifest.InstallInfo, 0)
+	deployInfos := make([]types.InstallInfo, 0)
 
 	for _, install := range manifestObj.Spec.Installs {
 		deployInfo := baseDeployInfo
@@ -216,7 +215,7 @@ func parseCrds(ctx context.Context, crdImage types.ImageSpec, insecureRegistry b
 
 func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *types.Codec,
 	manifestObj *v1alpha1.Manifest, insecureRegistry bool,
-) (*manifest.ChartInfo, error) {
+) (*types.ChartInfo, error) {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 	specType, err := types.GetSpecType(install.Source.Raw)
 	if err != nil {
@@ -230,7 +229,7 @@ func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *types.Codec,
 			return nil, err
 		}
 
-		return &manifest.ChartInfo{
+		return &types.ChartInfo{
 			ChartName: fmt.Sprintf("%s/%s", install.Name, helmChartSpec.ChartName),
 			RepoName:  install.Name,
 			URL:       helmChartSpec.URL,
@@ -248,9 +247,20 @@ func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *types.Codec,
 			return nil, err
 		}
 
-		return &manifest.ChartInfo{
+		return &types.ChartInfo{
 			ChartName: install.Name,
 			ChartPath: chartPath,
+		}, nil
+	case types.KustomizeType:
+		var kustomizeSpec types.KustomizeSpec
+		if err = codec.Decode(install.Source.Raw, &kustomizeSpec, specType); err != nil {
+			return nil, err
+		}
+
+		return &types.ChartInfo{
+			ChartName: install.Name,
+			ChartPath: kustomizeSpec.Path,
+			URL:       kustomizeSpec.URL,
 		}, nil
 	case types.NilRefType:
 		return nil, fmt.Errorf("empty image type for %s resource chart installation", namespacedName.String())

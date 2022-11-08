@@ -18,7 +18,9 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"strings"
 	"time"
 
@@ -61,9 +63,9 @@ type RequeueIntervals struct {
 }
 
 type OperationRequest struct {
-	Info         manifest.InstallInfo
-	Mode         manifest.Mode
-	ResponseChan manifest.ResponseChan
+	Info         types.InstallInfo
+	Mode         types.Mode
+	ResponseChan types.ResponseChan
 }
 
 // ManifestReconciler reconciles a Manifest object.
@@ -144,20 +146,20 @@ func (r *ManifestReconciler) HandleInitialState(ctx context.Context, _ *logr.Log
 func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, logger *logr.Logger,
 	manifestObj *v1alpha1.Manifest,
 ) error {
-	return r.sendJobToInstallChannel(ctx, logger, manifestObj, manifest.CreateMode)
+	return r.sendJobToInstallChannel(ctx, logger, manifestObj, types.CreateMode)
 }
 
 func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, logger *logr.Logger,
 	manifestObj *v1alpha1.Manifest,
 ) error {
-	return r.sendJobToInstallChannel(ctx, logger, manifestObj, manifest.DeletionMode)
+	return r.sendJobToInstallChannel(ctx, logger, manifestObj, types.DeletionMode)
 }
 
 func (r *ManifestReconciler) sendJobToInstallChannel(ctx context.Context, logger *logr.Logger,
-	manifestObj *v1alpha1.Manifest, mode manifest.Mode,
+	manifestObj *v1alpha1.Manifest, mode types.Mode,
 ) error {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
-	responseChan := make(manifest.ResponseChan)
+	responseChan := make(types.ResponseChan)
 
 	chartCount := len(manifestObj.Spec.Installs)
 
@@ -171,7 +173,7 @@ func (r *ManifestReconciler) sendJobToInstallChannel(ctx context.Context, logger
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("cannot prepare install information for %s resource %s",
 			v1alpha1.ManifestKind, namespacedName))
-		if mode == manifest.DeletionMode {
+		if mode == types.DeletionMode {
 			// when installation info cannot not be determined in deletion mode
 			// reconciling this resource again will not fix itself
 			// so remove finalizer in this case, to process with Manifest deletion
@@ -220,10 +222,10 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 	}
 
 	for _, deployInfo := range deployInfos {
-		ready, err := manifest.ConsistencyCheck(logger, deployInfo, []types.ObjectTransform{}, r.CacheManager.HelmClients)
+		ready, err := manifest.ConsistencyCheck(logger, deployInfo, []types.ObjectTransform{}, r.CacheManager.RenderSources)
 
 		// prepare chart response object
-		chartResponse := &manifest.InstallResponse{
+		chartResponse := &types.InstallResponse{
 			Ready:             ready,
 			ResNamespacedName: client.ObjectKeyFromObject(manifestObj),
 			Err:               err,
@@ -233,12 +235,12 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 
 		// update only if resources not ready OR an error occurred during chart verification
 		if !ready {
-			internalUtil.AddReadyConditionForResponses([]*manifest.InstallResponse{chartResponse}, logger, manifestObj)
+			internalUtil.AddReadyConditionForResponses([]*types.InstallResponse{chartResponse}, logger, manifestObj)
 			return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing,
 				"resources not ready")
 		} else if err != nil {
 			logger.Error(err, fmt.Sprintf("error while performing consistency check on manifest %s", namespacedName))
-			internalUtil.AddReadyConditionForResponses([]*manifest.InstallResponse{chartResponse}, logger, manifestObj)
+			internalUtil.AddReadyConditionForResponses([]*types.InstallResponse{chartResponse}, logger, manifestObj)
 			if err := r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error()); err != nil {
 				return err
 			}
@@ -272,21 +274,21 @@ func (r *ManifestReconciler) updateManifestStatus(ctx context.Context, manifestO
 	return r.Status().Update(ctx, manifestObj.SetObservedGeneration())
 }
 
-func (r *ManifestReconciler) HandleCharts(deployInfo manifest.InstallInfo, mode manifest.Mode,
+func (r *ManifestReconciler) HandleCharts(deployInfo types.InstallInfo, mode types.Mode,
 	logger *logr.Logger,
-) *manifest.InstallResponse {
+) *types.InstallResponse {
 	// evaluate create or delete chart
-	create := mode == manifest.CreateMode
+	create := mode == types.CreateMode
 
 	var ready bool
 	var err error
 	if create {
-		ready, err = manifest.InstallChart(logger, deployInfo, []types.ObjectTransform{}, r.CacheManager.HelmClients)
+		ready, err = manifest.InstallChart(logger, deployInfo, []types.ObjectTransform{}, r.CacheManager.RenderSources)
 	} else {
-		ready, err = manifest.UninstallChart(logger, deployInfo, []types.ObjectTransform{}, r.CacheManager.HelmClients)
+		ready, err = manifest.UninstallChart(logger, deployInfo, []types.ObjectTransform{}, r.CacheManager.RenderSources)
 	}
 
-	return &manifest.InstallResponse{
+	return &types.InstallResponse{
 		Ready:             ready,
 		ResNamespacedName: client.ObjectKeyFromObject(deployInfo.BaseResource),
 		Err:               err,
@@ -296,12 +298,15 @@ func (r *ManifestReconciler) HandleCharts(deployInfo manifest.InstallInfo, mode 
 }
 
 func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *logr.Logger, chartCount int,
-	responseChan manifest.ResponseChan, namespacedName client.ObjectKey,
+	responseChan types.ResponseChan, namespacedName client.ObjectKey,
 ) {
 	// errorState takes precedence over processing
 	errorState := false
 	processing := false
-	responses := make([]*manifest.InstallResponse, 0)
+	// pathError indicates an unfixable error
+	// a true value signifies finalizer removal
+	pathError := false
+	responses := make([]*types.InstallResponse, 0)
 
 	for a := 1; a <= chartCount; a++ {
 		select {
@@ -312,6 +317,11 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 		case response := <-responseChan:
 			responses = append(responses, response)
 			if response.Err != nil {
+				// if there is a local path error, we assume that it's an error in CR creation itself
+				// so this should not be marked in error state
+				// as this will hinder deletion
+				var pathErr *fs.PathError
+				pathError = errors.As(response.Err, &pathErr)
 				logger.Error(fmt.Errorf("chart installation failure for '%s': %w",
 					response.ResNamespacedName.String(), response.Err), "")
 				errorState = true
@@ -337,7 +347,9 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 	internalUtil.AddReadyConditionForResponses(responses, logger, latestManifestObj)
 
 	// handle deletion if no previous error occurred
-	if !errorState && !latestManifestObj.DeletionTimestamp.IsZero() && !processing {
+	if (!errorState || pathError) &&
+		!latestManifestObj.DeletionTimestamp.IsZero() &&
+		!processing {
 		err := r.finalizeDeletion(ctx, latestManifestObj)
 		if err == nil {
 			return
@@ -435,8 +447,6 @@ func (r *ManifestReconciler) finalizeDeletion(ctx context.Context, manifestObj *
 	if !finalizerRemoved {
 		return nil
 	}
-
-	// delete remote cluster information if present
 
 	kymaOwnerLabel, err := util.GetResourceLabel(manifestObj, labels.ComponentOwner)
 	if err != nil {
