@@ -177,6 +177,10 @@ func createManifestWithInsufficientExecutePerm() func() bool {
 		}
 		user, err := user.Current()
 		Expect(err).ToNot(HaveOccurred())
+		// TODO run prow pipeline without root privileges
+		if user.Username == "root" {
+			Skip("")
+		}
 		// should not be run as root user
 		Expect(user.Username).ToNot(Equal("root"))
 		// giving read rights only!
@@ -205,6 +209,10 @@ func createManifestWithInsufficientWritePermissions() func() bool {
 		}
 		user, err := user.Current()
 		Expect(err).ToNot(HaveOccurred())
+		// TODO run prow pipeline without root privileges
+		if user.Username == "root" {
+			Skip("")
+		}
 		// should not be run as root user
 		Expect(user.Username).ToNot(Equal("root"))
 		// giving execute rights only!
