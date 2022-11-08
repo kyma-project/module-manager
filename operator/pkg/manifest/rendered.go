@@ -16,7 +16,7 @@ type rendered struct {
 
 // NewRendered returns a new instance on rendered.
 // Using rendered instance, pre-rendered and cached manifest can be identified and retrieved.
-func NewRendered(logger *logr.Logger) *rendered { //nolint:revive
+func NewRendered(logger *logr.Logger) *rendered {
 	return &rendered{
 		logger: logger,
 	}
@@ -38,7 +38,7 @@ func (r *rendered) GetCachedResources(chartName, chartPath string) (string, erro
 	// check if rendered manifest already exists
 	stringifiedManifest, err := util.GetStringifiedYamlFromFilePath(util.GetFsManifestChartPath(chartPath))
 	if err != nil {
-		if !os.IsNotExist(err) {
+		if !os.IsNotExist(err) && !os.IsPermission(err) {
 			return "", fmt.Errorf("locating chart rendered manifest %s at path %s resulted in an error: %w",
 				chartName, chartPath, err)
 		}

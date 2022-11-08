@@ -284,6 +284,7 @@ func (o *operations) getManifestForChartPath(deployInfo types.InstallInfo) (stri
 
 	// 2. check cached manifest
 	renderedManifest, err = o.renderSrc.GetCachedResources(deployInfo.ChartName, deployInfo.ChartPath)
+	// NotExist and Permission errors will not be reported
 	if err != nil {
 		return "", err
 	} else if renderedManifest != "" {
