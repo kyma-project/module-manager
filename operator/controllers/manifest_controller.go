@@ -118,6 +118,13 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			"deletion timestamp set")
 	}
 
+	if manifestObj.Labels == nil {
+		manifestObj.Labels = make(map[string]string, 0)
+		if manifestObj.Labels[labels.CacheKey] == "" {
+			manifestObj.Labels[labels.CacheKey] = manifestObj.Labels[labels.ComponentOwner] // TODO: Fix, does not make sense
+		}
+	}
+
 	// check finalizer on native object
 	if !controllerutil.ContainsFinalizer(&manifestObj, labels.ManifestFinalizer) {
 		controllerutil.AddFinalizer(&manifestObj, labels.ManifestFinalizer)

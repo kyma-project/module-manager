@@ -1,6 +1,7 @@
 package manifest
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -85,15 +86,24 @@ func newOperations(logger *logr.Logger, deployInfo types.InstallInfo, resourceTr
 	if deployInfo.BaseResource != nil {
 		// cache HelmClient by Kyma name
 		// as there can be multiple Manifests belonging to the same Kyma resource
-		label, err := util.GetResourceLabel(deployInfo.BaseResource, labels.ComponentOwner)
+		label, err := util.GetResourceLabel(deployInfo.BaseResource, labels.CacheKey)
 		if err != nil {
-			return nil, err
+			var e *util.LabelNotFoundError
+			if errors.As(err, &e) {
+				logger.V(util.DebugLogLevel).Info("cache-key label missing, resource will not be cached. Resulted in",
+					"error", err.Error(),
+					"resource", client.ObjectKeyFromObject(deployInfo.BaseResource))
+			} else {
+				return nil, err
+			}
+		} else {
+			cacheKey = client.ObjectKey{Name: label, Namespace: deployInfo.BaseResource.GetNamespace()}
 		}
-		cacheKey = client.ObjectKey{Name: label, Namespace: deployInfo.BaseResource.GetNamespace()}
+
 	}
 	// TODO offer generic client creation, by deciding between Helm or Kustomize
 	var renderSrc types.RenderSrc
-	if cache != nil {
+	if cache != nil && cacheKey.Name != "" {
 		// read HelmClient from cache
 		renderSrc = cache.Get(cacheKey)
 	}
@@ -109,7 +119,7 @@ func newOperations(logger *logr.Logger, deployInfo types.InstallInfo, resourceTr
 			return nil, fmt.Errorf("unable to create manifest processor: %w", err)
 		}
 		// cache render source
-		if cache != nil {
+		if cache != nil && cacheKey.Name != "" {
 			cache.Set(cacheKey, renderSrc)
 		}
 	}
