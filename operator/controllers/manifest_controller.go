@@ -449,8 +449,6 @@ func (r *ManifestReconciler) finalizeDeletion(ctx context.Context, manifestObj *
 		return nil
 	}
 
-	// delete remote cluster information if present
-
 	kymaOwnerLabel, err := util.GetResourceLabel(manifestObj, labels.ComponentOwner)
 	if err != nil {
 		return err

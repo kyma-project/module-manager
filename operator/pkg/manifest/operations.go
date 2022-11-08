@@ -2,6 +2,7 @@ package manifest
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/go-logr/logr"
 	"helm.sh/helm/v3/pkg/cli"
@@ -298,10 +299,17 @@ func (o *operations) getManifestForChartPath(deployInfo types.InstallInfo) (stri
 	// 4. persist only if static chart path was passed
 	if deployInfo.ChartPath != "" {
 		err = util.WriteToFile(util.GetFsManifestChartPath(deployInfo.ChartPath), []byte(renderedManifest))
+		if err != nil {
+			if !os.IsPermission(err) {
+				return renderedManifest, err
+			}
+			o.logger.Info("manifest for chart path could not be cached, this will affect performance",
+				"resource", client.ObjectKeyFromObject(deployInfo.BaseResource).String())
+		}
 	}
 
 	// optional: Uncomment below to print manifest
 	// fmt.Println(release.Manifest)
 
-	return renderedManifest, err
+	return renderedManifest, nil
 }
