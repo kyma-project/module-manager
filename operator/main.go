@@ -58,8 +58,6 @@ var (
 
 const (
 	requeueSuccessIntervalDefault = 20 * time.Second
-	requeueFailureIntervalDefault = 10 * time.Second
-	requeueWaitingIntervalDefault = 2 * time.Second
 	workersCountDefault           = 4
 	rateLimiterBurstDefault       = 200
 	rateLimiterFrequencyDefault   = 30
@@ -82,18 +80,18 @@ func init() {
 }
 
 type FlagVar struct {
-	metricsAddr, listenerAddr                                              string
-	enableLeaderElection, enablePProf, enableWebhooks                      bool
-	checkReadyStates, customStateCheck, insecureRegistry                   bool
-	probeAddr                                                              string
-	requeueSuccessInterval, requeueFailureInterval, requeueWaitingInterval time.Duration
-	failureBaseDelay, failureMaxDelay                                      time.Duration
-	concurrentReconciles, workersConcurrentManifests                       int
-	rateLimiterBurst, rateLimiterFrequency                                 int
-	clientQPS                                                              float64
-	clientBurst                                                            int
-	pprofAddr                                                              string
-	pprofServerTimeout                                                     time.Duration
+	metricsAddr, listenerAddr                            string
+	enableLeaderElection, enablePProf, enableWebhooks    bool
+	checkReadyStates, customStateCheck, insecureRegistry bool
+	probeAddr                                            string
+	requeueSuccessInterval                               time.Duration
+	failureBaseDelay, failureMaxDelay                    time.Duration
+	concurrentReconciles, workersConcurrentManifests     int
+	rateLimiterBurst, rateLimiterFrequency               int
+	clientQPS                                            float64
+	clientBurst                                          int
+	pprofAddr                                            string
+	pprofServerTimeout                                   time.Duration
 }
 
 func main() {
@@ -181,8 +179,6 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 		},
 		RequeueIntervals: controllers.RequeueIntervals{
 			Success: flagVar.requeueSuccessInterval,
-			Failure: flagVar.requeueFailureInterval,
-			Waiting: flagVar.requeueWaitingInterval,
 		},
 	}).SetupWithManager(context, mgr, flagVar.failureBaseDelay, flagVar.failureMaxDelay,
 		flagVar.rateLimiterFrequency, flagVar.rateLimiterBurst, flagVar.listenerAddr); err != nil {
@@ -228,13 +224,6 @@ func defineFlagVar() *FlagVar {
 	flag.DurationVar(&flagVar.requeueSuccessInterval, "requeue-success-interval", requeueSuccessIntervalDefault,
 		"Determines the duration after which an already successfully reconciled Manifest is "+
 			"enqueued for checking, if it's still in a consistent state.")
-	flag.DurationVar(&flagVar.requeueFailureInterval, "requeue-failure-interval", requeueFailureIntervalDefault,
-		"Determines the duration after which a failing reconciliation is retried and "+
-			"enqueued for a next try at recovering (e.g. because an Remote Synchronization Interaction failed).")
-	flag.DurationVar(&flagVar.requeueWaitingInterval, "requeue-waiting-interval", requeueWaitingIntervalDefault,
-		"Determines the duration after which a pending reconciliation is requeued, "+
-			"if the operator decides that it needs to wait for a certain state to update before it can proceed "+
-			"(e.g. because of pending finalizers in the deletion process).")
 	flag.IntVar(&flagVar.concurrentReconciles, "max-concurrent-reconciles", 1,
 		"Determines the number of concurrent reconciliations by the operator.")
 	flag.IntVar(&flagVar.workersConcurrentManifests, "workers-concurrent-manifest", workersCountDefault,

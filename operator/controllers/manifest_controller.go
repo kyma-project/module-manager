@@ -58,8 +58,6 @@ import (
 
 type RequeueIntervals struct {
 	Success time.Duration
-	Failure time.Duration
-	Waiting time.Duration
 }
 
 type OperationRequest struct {

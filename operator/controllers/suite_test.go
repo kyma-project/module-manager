@@ -130,8 +130,6 @@ var _ = BeforeSuite(func() {
 		},
 		RequeueIntervals: controllers.RequeueIntervals{
 			Success: time.Second * 10,
-			Failure: time.Second * 2,
-			Waiting: time.Second * 2,
 		},
 	}
 	err = reconciler.SetupWithManager(ctx, k8sManager, 1*time.Second, 1000*time.Second,
