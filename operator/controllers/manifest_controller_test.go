@@ -21,7 +21,7 @@ import (
 	"github.com/kyma-project/module-manager/operator/pkg/util"
 )
 
-func createManifestAndCheckState(name string, desiredState v1alpha1.ManifestState, specBytes []byte, installName string,
+func createManifestAndCheckState(desiredState v1alpha1.ManifestState, specBytes []byte, installName string,
 	remote bool) *v1alpha1.Manifest {
 	installs := make([]v1alpha1.InstallInfo, 0)
 	if specBytes != nil {
@@ -52,7 +52,7 @@ func createManifestWithHelmRepo() func() bool {
 		}
 		specBytes, err := json.Marshal(helmChartSpec)
 		Expect(err).ToNot(HaveOccurred())
-		manifestObj := createManifestAndCheckState("manifest-sample", v1alpha1.ManifestStateReady, specBytes,
+		manifestObj := createManifestAndCheckState(v1alpha1.ManifestStateReady, specBytes,
 			"nginx-stable", false)
 		deleteManifestResource(manifestObj, nil)
 		return true
@@ -70,14 +70,14 @@ func createManifestWithOCI() func() bool {
 		kymaNsName := client.ObjectKey{Name: secretName, Namespace: v1.NamespaceDefault}
 		Expect(reconciler.CacheManager.RenderSources.Get(kymaNsName)).Should(BeNil())
 		// resource
-		manifestObj := createManifestAndCheckState("manifest-sample", v1alpha1.ManifestStateReady, specBytes,
+		manifestObj := createManifestAndCheckState(v1alpha1.ManifestStateReady, specBytes,
 			"oci-image", false)
 		// intermediate HelmClient cache entry
 		Expect(reconciler.CacheManager.RenderSources.Get(kymaNsName)).ShouldNot(BeNil())
 		deleteHelmChartResources(imageSpec)
 		deleteManifestResource(manifestObj, nil)
 		// create another manifest with same image specification
-		manifestObj2 := createManifestAndCheckState("manifest-sample-2", v1alpha1.ManifestStateReady, specBytes,
+		manifestObj2 := createManifestAndCheckState(v1alpha1.ManifestStateReady, specBytes,
 			"oci-image", false)
 		verifyHelmResourcesDeletion(imageSpec)
 		deleteManifestResource(manifestObj2, nil)
@@ -90,23 +90,21 @@ func createManifestWithOCI() func() bool {
 
 func createTwoRemoteManifestsWithNoInstalls() func() bool {
 	return func() bool {
-		By("having transitioned the CR State to Ready with an OCI specification")
-		imageSpec := GetImageSpecFromMockOCIRegistry()
+		By("having transitioned the CR State to Ready with an OCI spec and no installs")
 		kymaNsName := client.ObjectKey{Name: secretName, Namespace: v1.NamespaceDefault}
 		// verify cluster cache empty
 		Expect(reconciler.CacheManager.ClusterInfos.Get(kymaNsName).IsEmpty()).To(BeTrue())
 		// creating cluster cache entry
 		reconciler.CacheManager.ClusterInfos.Set(kymaNsName, types.ClusterInfo{Config: cfg})
 		kymaSecret := createKymaSecret()
-		manifestObj := createManifestAndCheckState("manifest-sample", v1alpha1.ManifestStateReady, nil,
+		manifestObj := createManifestAndCheckState(v1alpha1.ManifestStateReady, nil,
 			"", true)
 		// check client cache entries after 1st resource creation
 		Expect(reconciler.CacheManager.ClusterInfos.Get(kymaNsName).Config).To(BeEquivalentTo(cfg))
 		Expect(reconciler.CacheManager.RenderSources.Get(kymaNsName)).Should(BeNil()) // no Installs exist
 		// create another manifest with same image specification
-		manifestObj2 := createManifestAndCheckState("manifest-sample-2", v1alpha1.ManifestStateReady, nil,
+		manifestObj2 := createManifestAndCheckState(v1alpha1.ManifestStateReady, nil,
 			"", true)
-		verifyHelmResourcesDeletion(imageSpec)
 		deleteManifestResource(manifestObj, nil)
 		// check client cache entries after 2nd resource creation
 		Expect(reconciler.CacheManager.ClusterInfos.Get(kymaNsName).Config).To(BeEquivalentTo(cfg))
@@ -127,7 +125,7 @@ func createManifestWithInvalidOCI() func() bool {
 
 		specBytes, err := json.Marshal(imageSpec)
 		Expect(err).ToNot(HaveOccurred())
-		manifestObj := createManifestAndCheckState("manifest-sample", v1alpha1.ManifestStateError, specBytes,
+		manifestObj := createManifestAndCheckState(v1alpha1.ManifestStateError, specBytes,
 			"oci-image", false)
 
 		deleteManifestResource(manifestObj, nil)
@@ -139,13 +137,14 @@ func createManifestWithInvalidOCI() func() bool {
 
 func createManifestWithRemoteKustomize() func() bool {
 	return func() bool {
+		By("having transitioned the CR State to Ready with remote Kustomization")
 		kustomizeSpec := types.KustomizeSpec{
 			URL:  "https://github.com/kyma-project/module-manager//operator/config/default?ref=main",
 			Type: "kustomize",
 		}
 		specBytes, err := json.Marshal(kustomizeSpec)
 		Expect(err).ToNot(HaveOccurred())
-		manifestObj := createManifestAndCheckState("manifest-sample", v1alpha1.ManifestStateReady, specBytes,
+		manifestObj := createManifestAndCheckState(v1alpha1.ManifestStateReady, specBytes,
 			"kustomize-test", false)
 		deleteManifestResource(manifestObj, nil)
 		return true
@@ -154,13 +153,14 @@ func createManifestWithRemoteKustomize() func() bool {
 
 func createManifestWithLocalKustomize() func() bool {
 	return func() bool {
+		By("having transitioned the CR State to Ready with local Kustomization")
 		kustomizeSpec := types.KustomizeSpec{
 			Path: kustomizeLocalPath,
 			Type: "kustomize",
 		}
 		specBytes, err := json.Marshal(kustomizeSpec)
 		Expect(err).ToNot(HaveOccurred())
-		manifestObj := createManifestAndCheckState("manifest-sample", v1alpha1.ManifestStateReady, specBytes,
+		manifestObj := createManifestAndCheckState(v1alpha1.ManifestStateReady, specBytes,
 			"kustomize-test", false)
 		deleteManifestResource(manifestObj, nil)
 		Expect(os.RemoveAll(filepath.Join(kustomizeSpec.Path, util.ManifestDir))).ShouldNot(HaveOccurred())
@@ -170,6 +170,7 @@ func createManifestWithLocalKustomize() func() bool {
 
 func createManifestWithInsufficientExecutePerm() func() bool {
 	return func() bool {
+		By("having transitioned the CR State to Error with insufficient read permissions")
 		kustomizeSpec := types.KustomizeSpec{
 			Path: kustomizeLocalPath,
 			Type: "kustomize",
@@ -178,11 +179,11 @@ func createManifestWithInsufficientExecutePerm() func() bool {
 		Expect(err).ToNot(HaveOccurred())
 		// should not be run as root user
 		Expect(user.Username).ToNot(Equal("root"))
-		// giving Read rights only!
+		// giving read rights only!
 		Expect(os.Chmod(kustomizeLocalPath, 0o444)).ToNot(HaveOccurred())
 		specBytes, err := json.Marshal(kustomizeSpec)
 		Expect(err).ToNot(HaveOccurred())
-		manifestObj := createManifestAndCheckState("manifest-sample", v1alpha1.ManifestStateError, specBytes,
+		manifestObj := createManifestAndCheckState(v1alpha1.ManifestStateError, specBytes,
 			"kustomize-test", false)
 		// verify permission restriction
 		_, err = os.Stat(filepath.Join(kustomizeSpec.Path, util.ManifestDir))
@@ -197,6 +198,7 @@ func createManifestWithInsufficientExecutePerm() func() bool {
 
 func createManifestWithInsufficientWritePermissions() func() bool {
 	return func() bool {
+		By("having transitioned the CR State to Error with insufficient execute permissions")
 		kustomizeSpec := types.KustomizeSpec{
 			Path: kustomizeLocalPath,
 			Type: "kustomize",
@@ -205,13 +207,12 @@ func createManifestWithInsufficientWritePermissions() func() bool {
 		Expect(err).ToNot(HaveOccurred())
 		// should not be run as root user
 		Expect(user.Username).ToNot(Equal("root"))
-		// giving Read rights only!
+		// giving execute rights only!
 		Expect(os.Chmod(kustomizeLocalPath, 0o555)).ToNot(HaveOccurred())
 		specBytes, err := json.Marshal(kustomizeSpec)
 		Expect(err).ToNot(HaveOccurred())
-		manifestObj := createManifestAndCheckState("manifest-sample", v1alpha1.ManifestStateReady, specBytes,
+		manifestObj := createManifestAndCheckState(v1alpha1.ManifestStateReady, specBytes,
 			"kustomize-test", false)
-		// verify permission restriction
 		// manifest was not cached due to permission issues
 		_, err = os.Stat(filepath.Join(kustomizeSpec.Path, util.ManifestDir))
 		Expect(os.IsNotExist(err)).To(BeTrue())
@@ -225,13 +226,14 @@ func createManifestWithInsufficientWritePermissions() func() bool {
 
 func createManifestWithInvalidKustomize() func() bool {
 	return func() bool {
+		By("having transitioned the CR State to Ready with invalid Kustomization")
 		kustomizeSpec := types.KustomizeSpec{
 			Path: "./invalidPath",
 			Type: "kustomize",
 		}
 		specBytes, err := json.Marshal(kustomizeSpec)
 		Expect(err).ToNot(HaveOccurred())
-		manifestObj := createManifestAndCheckState("manifest-sample", v1alpha1.ManifestStateError, specBytes,
+		manifestObj := createManifestAndCheckState(v1alpha1.ManifestStateError, specBytes,
 			"kustomize-test", false)
 		deleteManifestResource(manifestObj, nil)
 		Expect(os.RemoveAll(filepath.Join(kustomizeSpec.Path, util.ManifestDir))).ShouldNot(HaveOccurred())
@@ -285,13 +287,13 @@ var _ = Describe("given manifest with a helm repo", Ordered, func() {
 			Expect(testCaseFn()).To(BeTrue())
 		},
 		[]TableEntry{
+			Entry("when two remote manifestCRs contain no install specification", createTwoRemoteManifestsWithNoInstalls()),
 			Entry("when manifestCR contains a valid remote Kustomize specification", createManifestWithRemoteKustomize()),
 			Entry("when manifestCR contains a valid local Kustomize specification", createManifestWithLocalKustomize()),
 			Entry("when manifestCR contains invalid Kustomize specification", createManifestWithInvalidKustomize()),
 			Entry("when manifestCR contains a valid helm repo", createManifestWithHelmRepo()),
 			Entry("when two manifestCRs contain valid OCI Image specifications", createManifestWithOCI()),
 			Entry("when manifestCR contains invalid OCI Image specification", createManifestWithInvalidOCI()),
-			Entry("when two remote manifestCRs contain no install specification", createTwoRemoteManifestsWithNoInstalls()),
 			Entry("when manifestCR contains a valid local Kustomize specification with "+
 				"insufficient execute permissions", createManifestWithInsufficientExecutePerm()),
 			Entry("when manifestCR contains a valid local Kustomize specification with "+
