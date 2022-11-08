@@ -110,11 +110,11 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	case "":
 		return ctrl.Result{}, r.HandleInitialState(ctx, objectInstance)
 	case types.StateProcessing:
-		return ctrl.Result{RequeueAfter: requeueInterval}, r.HandleProcessingState(ctx, objectInstance)
+		return ctrl.Result{Requeue: true}, r.HandleProcessingState(ctx, objectInstance)
 	case types.StateDeleting:
-		return ctrl.Result{RequeueAfter: requeueInterval}, r.HandleDeletingState(ctx, objectInstance)
+		return ctrl.Result{Requeue: true}, r.HandleDeletingState(ctx, objectInstance)
 	case types.StateError:
-		return ctrl.Result{RequeueAfter: requeueInterval}, r.HandleErrorState(ctx, objectInstance)
+		return ctrl.Result{Requeue: true}, r.HandleErrorState(ctx, objectInstance)
 	case types.StateReady:
 		return ctrl.Result{RequeueAfter: requeueInterval}, r.HandleReadyState(ctx, objectInstance)
 	}
