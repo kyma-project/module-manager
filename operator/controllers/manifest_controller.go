@@ -77,6 +77,7 @@ type ManifestReconciler struct {
 	RequeueIntervals RequeueIntervals
 	CacheManager     *CacheManager
 	internalTypes.ReconcileFlagConfig
+	CacheSyncTimeout time.Duration
 }
 
 //+kubebuilder:rbac:groups=operator.kyma-project.io,resources=manifests,verbs=get;list;watch;create;update;patch;delete
@@ -433,6 +434,7 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 		WithOptions(controller.Options{
 			RateLimiter:             ManifestRateLimiter(failureBaseDelay, failureMaxDelay, frequency, burst),
 			MaxConcurrentReconciles: r.MaxConcurrentReconciles,
+			CacheSyncTimeout:        r.CacheSyncTimeout,
 		}).
 		Complete(r)
 }

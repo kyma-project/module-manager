@@ -49,7 +49,10 @@ patches:
         value: --enable-pprof=true
       - op: add
         path: /spec/template/spec/containers/0/args/-
-        value: --check-ready-states=true  
+        value: --check-ready-states=true        
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: --cache-sync-timeout=4m
       - op: replace
         path: /spec/template/spec/containers/0/imagePullPolicy
         value: Always

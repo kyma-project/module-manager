@@ -67,6 +67,7 @@ const (
 	clientQPSDefault              = 150
 	clientBurstDefault            = 150
 	defaultPprofServerTimeout     = 90 * time.Second
+	defaultCacheSyncTimeout       = 2 * time.Minute
 )
 
 //nolint:gochecknoinits
@@ -92,6 +93,7 @@ type FlagVar struct {
 	clientBurst                                          int
 	pprofAddr                                            string
 	pprofServerTimeout                                   time.Duration
+	cacheSyncTimeout                                     time.Duration
 }
 
 func main() {
@@ -167,9 +169,10 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 		os.Exit(1)
 	}
 	if err = (&controllers.ManifestReconciler{
-		Client:  mgr.GetClient(),
-		Scheme:  mgr.GetScheme(),
-		Workers: manifestWorkers,
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		Workers:          manifestWorkers,
+		CacheSyncTimeout: flagVar.cacheSyncTimeout,
 		ReconcileFlagConfig: internalTypes.ReconcileFlagConfig{
 			Codec:                   codec,
 			MaxConcurrentReconciles: flagVar.concurrentReconciles,
@@ -251,5 +254,7 @@ func defineFlagVar() *FlagVar {
 		"indicates if pprof should be enabled")
 	flag.DurationVar(&flagVar.pprofServerTimeout, "pprof-server-timeout", defaultPprofServerTimeout,
 		"Timeout of Read / Write for the pprof server.")
+	flag.DurationVar(&flagVar.cacheSyncTimeout, "cache-sync-timeout", defaultCacheSyncTimeout,
+		"Indicates the cache sync timeout in seconds")
 	return flagVar
 }
