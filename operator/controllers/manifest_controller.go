@@ -121,7 +121,7 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if manifestObj.Labels == nil {
 		manifestObj.Labels = make(map[string]string, 0)
 		if manifestObj.Labels[labels.CacheKey] == "" {
-			manifestObj.Labels[labels.CacheKey] = manifestObj.Labels[labels.ComponentOwner] // TODO: Fix, does not make sense
+			manifestObj.Labels[labels.CacheKey] = fmt.Sprintf("%s.%s", manifestObj.Namespace, manifestObj.Name)
 		}
 	}
 
