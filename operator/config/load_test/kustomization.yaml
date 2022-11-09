@@ -52,7 +52,7 @@ patches:
         value: --check-ready-states=true        
       - op: add
         path: /spec/template/spec/containers/0/args/-
-        value: --cache-sync-timeout=4m
+        value: --cache-sync-timeout=10m
       - op: replace
         path: /spec/template/spec/containers/0/imagePullPolicy
         value: Always
