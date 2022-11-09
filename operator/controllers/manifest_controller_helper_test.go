@@ -23,6 +23,7 @@ import (
 	"github.com/kyma-project/module-manager/operator/pkg/labels"
 	manifestTypes "github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
+	"math/rand"
 )
 
 type mockLayer struct{}
@@ -111,6 +112,28 @@ func createManifestObj(name string, spec v1alpha1.ManifestSpec) *v1alpha1.Manife
 		},
 		Spec: spec,
 	}
+}
+
+func NewTestManifest(name string) *v1alpha1.Manifest {
+	return &v1alpha1.Manifest{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name + RandString(8),
+			Namespace: metav1.NamespaceDefault,
+			Labels: map[string]string{
+				labels.ComponentOwner: secretName,
+			},
+		},
+	}
+}
+
+const letterBytes = "abcdefghijklmnopqrstuvwxyz"
+
+func RandString(n int) string {
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = letterBytes[rand.Intn(len(letterBytes))] //nolint:gosec
+	}
+	return string(b)
 }
 
 func deleteHelmChartResources(imageSpec manifestTypes.ImageSpec) {

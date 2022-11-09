@@ -8,14 +8,20 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"errors"
 	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
+)
+
+const (
+	Timeout  = time.Second * 30
+	Interval = time.Millisecond * 250
 )
 
 func createManifestWithHelmRepo() func() bool {
@@ -39,8 +45,8 @@ func createManifestWithHelmRepo() func() bool {
 			},
 		})
 		Expect(k8sClient.Create(ctx, manifestObj)).Should(Succeed())
-		Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
-			Should(BeEquivalentTo(v1alpha1.ManifestStateReady))
+		//Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
+		//	Should(BeEquivalentTo(v1alpha1.ManifestStateReady))
 
 		deleteManifestResource(manifestObj, nil)
 
@@ -71,8 +77,8 @@ func createManifestWithOCI() func() bool {
 			},
 		})
 		Expect(k8sClient.Create(ctx, manifestObj)).Should(Succeed())
-		Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
-			Should(BeEquivalentTo(v1alpha1.ManifestStateReady))
+		//Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
+		//	Should(BeEquivalentTo(v1alpha1.ManifestStateReady))
 
 		// intermediate HelmClient cache entry
 		Expect(reconciler.CacheManager.RenderSources.Get(kymaNsName)).ShouldNot(BeNil())
@@ -92,8 +98,8 @@ func createManifestWithOCI() func() bool {
 		})
 
 		Expect(k8sClient.Create(ctx, manifestObj2)).Should(Succeed())
-		Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj2)), 5*time.Minute, 250*time.Millisecond).
-			Should(BeEquivalentTo(v1alpha1.ManifestStateReady))
+		//Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj2)), 5*time.Minute, 250*time.Millisecond).
+		//	Should(BeEquivalentTo(v1alpha1.ManifestStateReady))
 
 		verifyHelmResourcesDeletion(imageSpec)
 
@@ -125,8 +131,8 @@ func createTwoRemoteManifestsWithNoInstalls() func() bool {
 			Installs: []v1alpha1.InstallInfo{},
 		})
 		Expect(k8sClient.Create(ctx, manifestObj)).Should(Succeed())
-		Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
-			Should(BeEquivalentTo(v1alpha1.ManifestStateReady))
+		//Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
+		//	Should(BeEquivalentTo(v1alpha1.ManifestStateReady))
 
 		// check client cache entries after 1st resource creation
 		Expect(reconciler.CacheManager.ClusterInfos.Get(kymaNsName).Config).To(BeEquivalentTo(cfg))
@@ -139,8 +145,8 @@ func createTwoRemoteManifestsWithNoInstalls() func() bool {
 		})
 
 		Expect(k8sClient.Create(ctx, manifestObj2)).Should(Succeed())
-		Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj2)), 5*time.Minute, 250*time.Millisecond).
-			Should(BeEquivalentTo(v1alpha1.ManifestStateReady))
+		//Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj2)), 5*time.Minute, 250*time.Millisecond).
+		//	Should(BeEquivalentTo(v1alpha1.ManifestStateReady))
 
 		verifyHelmResourcesDeletion(imageSpec)
 		deleteManifestResource(manifestObj, nil)
@@ -177,8 +183,8 @@ func createManifestWithInvalidOCI() func() bool {
 			},
 		})
 		Expect(k8sClient.Create(ctx, manifestObj)).Should(Succeed())
-		Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
-			Should(BeEquivalentTo(v1alpha1.ManifestStateError))
+		//Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
+		//	Should(BeEquivalentTo(v1alpha1.ManifestStateError))
 
 		deleteManifestResource(manifestObj, nil)
 
@@ -196,24 +202,29 @@ func createManifestWithRemoteKustomize() func() bool {
 		specBytes, err := json.Marshal(kustomizeSpec)
 		Expect(err).ToNot(HaveOccurred())
 
-		manifestObj := createManifestObj("manifest-sample", v1alpha1.ManifestSpec{
-			Installs: []v1alpha1.InstallInfo{
-				{
-					Source: runtime.RawExtension{
-						Raw: specBytes,
-					},
-					Name: "kustomize-test",
-				},
-			},
-		})
-		Expect(k8sClient.Create(ctx, manifestObj)).Should(Succeed())
-		Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
-			Should(BeEquivalentTo(v1alpha1.ManifestStateReady))
+		manifestObj := createManifest(specBytes, "manifest-sample")
+		//Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), Timeout, 250*time.Millisecond).
+		//	Should(BeEquivalentTo(v1alpha1.ManifestStateReady))
 
 		deleteManifestResource(manifestObj, nil)
 
 		return true
 	}
+}
+
+func createManifest(specBytes []byte, manifestName string) *v1alpha1.Manifest {
+	manifestObj := createManifestObj(manifestName, v1alpha1.ManifestSpec{
+		Installs: []v1alpha1.InstallInfo{
+			{
+				Source: runtime.RawExtension{
+					Raw: specBytes,
+				},
+				Name: manifestName,
+			},
+		},
+	})
+	Expect(k8sClient.Create(ctx, manifestObj)).Should(Succeed())
+	return manifestObj
 }
 
 func createManifestWithLocalKustomize() func() bool {
@@ -236,8 +247,8 @@ func createManifestWithLocalKustomize() func() bool {
 			},
 		})
 		Expect(k8sClient.Create(ctx, manifestObj)).Should(Succeed())
-		Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
-			Should(BeEquivalentTo(v1alpha1.ManifestStateReady))
+		//Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
+		//	Should(BeEquivalentTo(v1alpha1.ManifestStateReady))
 
 		deleteManifestResource(manifestObj, nil)
 
@@ -266,8 +277,8 @@ func createManifestWithInvalidKustomize() func() bool {
 			},
 		})
 		Expect(k8sClient.Create(ctx, manifestObj)).Should(Succeed())
-		Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
-			Should(BeEquivalentTo(v1alpha1.ManifestStateError))
+		//Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
+		//	Should(BeEquivalentTo(v1alpha1.ManifestStateError))
 
 		deleteManifestResource(manifestObj, nil)
 
@@ -276,22 +287,24 @@ func createManifestWithInvalidKustomize() func() bool {
 	}
 }
 
-func getManifestState(key client.ObjectKey) func() v1alpha1.ManifestState {
-	return func() v1alpha1.ManifestState {
-		manifest := v1alpha1.Manifest{}
-		err := k8sClient.Get(ctx, key, &manifest)
-		if err != nil {
-			return ""
-		}
-		return manifest.Status.State
+func getManifestState(manifestName string) v1alpha1.ManifestState {
+	manifest := &v1alpha1.Manifest{}
+
+	err := k8sClient.Get(ctx, client.ObjectKey{
+		Namespace: v1.NamespaceDefault,
+		Name:      manifestName,
+	}, manifest)
+	if err != nil {
+		return "invalid"
 	}
+	return manifest.Status.State
 }
 
 func getManifest(key client.ObjectKey) func() bool {
 	return func() bool {
 		manifest := v1alpha1.Manifest{}
 		err := k8sClient.Get(ctx, key, &manifest)
-		return errors.IsNotFound(err)
+		return apiErrors.IsNotFound(err)
 	}
 }
 
@@ -309,27 +322,116 @@ func unsetHelmEnv() error {
 	return nil
 }
 
-var _ = Describe("given manifest with a helm repo", Ordered, func() {
-	BeforeAll(func() {
-		Expect(setHelmEnv()).Should(Succeed())
-	})
+//var _ = Describe("given manifest with a helm repo", func() {
+//	BeforeEach(func() {
+//		Expect(setHelmEnv()).Should(Succeed())
+//	})
+//
+//	DescribeTable("given watcherCR reconcile loop",
+//		func(testCaseFn func() bool) {
+//			Expect(testCaseFn()).To(BeTrue())
+//		},
+//		[]TableEntry{
+//			//Entry("when manifestCR contains a valid remote Kustomize specification", createManifestWithRemoteKustomize()),
+//			//Entry("when manifestCR contains a valid local Kustomize specification", createManifestWithLocalKustomize()),
+//			//Entry("when manifestCR contains invalid Kustomize specification", createManifestWithInvalidKustomize()),
+//			//Entry("when manifestCR contains a valid helm repo", createManifestWithHelmRepo()),
+//			//Entry("when two manifestCRs contain valid OCI Image specification", createManifestWithOCI()),
+//			//Entry("when manifestCR contains invalid OCI Image specification", createManifestWithInvalidOCI()),
+//			//Entry("when two remote manifestCRs contain no install specification", createTwoRemoteManifestsWithNoInstalls()),
+//			// TODO write tests for pre-rendered Manifests
+//		})
+//
+//	AfterEach(func() {
+//		//Expect(unsetHelmEnv()).Should(Succeed())
+//	})
+//})
 
-	DescribeTable("given watcherCR reconcile loop",
-		func(testCaseFn func() bool) {
-			Expect(testCaseFn()).To(BeTrue())
+var _ = Describe("given manifest with kustomize", func() {
+	remoteKustomizeSpec := types.KustomizeSpec{
+		URL:  "https://github.com/kyma-project/module-manager//operator/config/default?ref=main",
+		Type: "kustomize",
+	}
+	localKustomizeSpec := types.KustomizeSpec{
+		Path: "./test_samples/kustomize",
+		Type: "kustomize",
+	}
+	invalidKustomizeSpec := types.KustomizeSpec{
+		Path: "./invalidPath",
+		Type: "kustomize",
+	}
+
+	DescribeTable("Test ModuleStatus",
+		func(givenCondition func(manifest *v1alpha1.Manifest) error, expectedBehavior func(manifestName string) error) {
+			var manifest = NewTestManifest("manifest")
+			Eventually(givenCondition, Timeout, Interval).WithArguments(manifest).Should(Succeed())
+			Eventually(expectedBehavior, Timeout, Interval).WithArguments(manifest.GetName()).Should(Succeed())
 		},
-		[]TableEntry{
-			Entry("when manifestCR contains a valid remote Kustomize specification", createManifestWithRemoteKustomize()),
-			Entry("when manifestCR contains a valid local Kustomize specification", createManifestWithLocalKustomize()),
-			Entry("when manifestCR contains invalid Kustomize specification", createManifestWithInvalidKustomize()),
-			Entry("when manifestCR contains a valid helm repo", createManifestWithHelmRepo()),
-			Entry("when two manifestCRs contain valid OCI Image specification", createManifestWithOCI()),
-			Entry("when manifestCR contains invalid OCI Image specification", createManifestWithInvalidOCI()),
-			Entry("when two remote manifestCRs contain no install specification", createTwoRemoteManifestsWithNoInstalls()),
-			// TODO write tests for pre-rendered Manifests
-		})
+		Entry("When manifestCR contains a valid remote Kustomize specification, expect state in ready",
+			addKustomizeSpec(remoteKustomizeSpec), expectManifestStateIn(v1alpha1.ManifestStateReady)),
+		Entry("When manifestCR contains a valid local Kustomize specification, expect state in ready",
+			addKustomizeSpec(localKustomizeSpec), expectManifestStateIn(v1alpha1.ManifestStateReady)),
+		Entry("When manifestCR contains an invalid local Kustomize specification, expect state in error",
+			addKustomizeSpec(invalidKustomizeSpec), expectManifestStateIn(v1alpha1.ManifestStateError)),
+	)
 
-	AfterAll(func() {
-		Expect(unsetHelmEnv()).Should(Succeed())
-	})
 })
+var _ = Describe("given manifest with helm repo", func() {
+	setHelmEnv()
+	validHelmChartSpec := types.HelmChartSpec{
+		ChartName: "nginx-ingress",
+		URL:       "https://helm.nginx.com/stable",
+		Type:      "helm-chart",
+	}
+	DescribeTable("Test ModuleStatus",
+		func(givenCondition func(manifest *v1alpha1.Manifest) error, expectedBehavior func(manifestName string) error) {
+			var manifest = NewTestManifest("manifest")
+			Eventually(givenCondition, Timeout, Interval).WithArguments(manifest).Should(Succeed())
+			Eventually(expectedBehavior, Timeout, Interval).WithArguments(manifest.GetName()).Should(Succeed())
+		},
+		Entry("When manifestCR contains a valid helm repo, expect state in ready",
+			addHelmChartSpec(validHelmChartSpec), expectManifestStateIn(v1alpha1.ManifestStateReady)),
+	)
+})
+
+func expectManifestStateIn(state v1alpha1.ManifestState) func(manifestName string) error {
+	return func(manifestName string) error {
+		manifestState := getManifestState(manifestName)
+		if state != manifestState {
+			return errors.New("ManifestState not match")
+		}
+		return nil
+	}
+}
+
+func addKustomizeSpec(spec types.KustomizeSpec) func(manifest *v1alpha1.Manifest) error {
+	return func(manifest *v1alpha1.Manifest) error {
+		specBytes, err := json.Marshal(spec)
+		Expect(err).ToNot(HaveOccurred())
+		manifest.Spec.Installs = []v1alpha1.InstallInfo{
+			{
+				Source: runtime.RawExtension{
+					Raw: specBytes,
+				},
+				Name: "kustomize-test",
+			},
+		}
+		return k8sClient.Create(ctx, manifest)
+	}
+}
+
+func addHelmChartSpec(spec types.HelmChartSpec) func(manifest *v1alpha1.Manifest) error {
+	return func(manifest *v1alpha1.Manifest) error {
+		specBytes, err := json.Marshal(spec)
+		Expect(err).ToNot(HaveOccurred())
+		manifest.Spec.Installs = []v1alpha1.InstallInfo{
+			{
+				Source: runtime.RawExtension{
+					Raw: specBytes,
+				},
+				Name: "nginx-stable",
+			},
+		}
+		return k8sClient.Create(ctx, manifest)
+	}
+}
