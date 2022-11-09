@@ -118,16 +118,8 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			"deletion timestamp set")
 	}
 
-	if manifestObj.Labels == nil {
-		manifestObj.Labels = make(map[string]string, 0)
-		if manifestObj.Labels[labels.CacheKey] == "" {
-			manifestObj.Labels[labels.CacheKey] = fmt.Sprintf("%s.%s", manifestObj.Namespace, manifestObj.Name)
-		}
-	}
-
-	// check finalizer on native object
-	if !controllerutil.ContainsFinalizer(&manifestObj, labels.ManifestFinalizer) {
-		controllerutil.AddFinalizer(&manifestObj, labels.ManifestFinalizer)
+	// check initial labels and finalizer
+	if r.initLabelsAndFinalizers(&manifestObj) {
 		return ctrl.Result{}, r.updateManifest(ctx, &manifestObj)
 	}
 
@@ -479,4 +471,24 @@ func (r *ManifestReconciler) finalizeDeletion(ctx context.Context, manifestObj *
 	}
 
 	return r.updateManifest(ctx, manifestObj)
+}
+
+// initLabelsAndFinalizers adds initial labels and finalizer to Manifest.
+func (r *ManifestReconciler) initLabelsAndFinalizers(manifestObj *v1alpha1.Manifest) bool {
+	var labelAdded, finalizerAdded bool
+	if manifestObj.Labels != nil {
+		if manifestObj.Labels[labels.CacheKey] == "" && manifestObj.Labels[labels.ComponentOwner] != "" {
+			// this label ensures caching of manifest rendering clients
+			// by the module-manager library
+			manifestObj.Labels[labels.CacheKey] = manifestObj.Labels[labels.ComponentOwner]
+			labelAdded = true
+		}
+	}
+
+	// check finalizer on native object
+	if !controllerutil.ContainsFinalizer(manifestObj, labels.ManifestFinalizer) {
+		finalizerAdded = controllerutil.AddFinalizer(manifestObj, labels.ManifestFinalizer)
+	}
+
+	return labelAdded || finalizerAdded
 }
