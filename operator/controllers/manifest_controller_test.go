@@ -22,7 +22,8 @@ import (
 )
 
 func createManifestAndCheckState(desiredState v1alpha1.ManifestState, specBytes []byte, installName string,
-	remote bool) *v1alpha1.Manifest {
+	remote bool,
+) *v1alpha1.Manifest {
 	installs := make([]v1alpha1.InstallInfo, 0)
 	if specBytes != nil {
 		installs = append(installs, v1alpha1.InstallInfo{

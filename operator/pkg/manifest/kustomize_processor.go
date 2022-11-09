@@ -43,7 +43,7 @@ func NewKustomizeProcessor(dynamicClient dynamic.Interface, discoveryMapper *res
 }
 
 // GetRawManifest returns processed resource manifest using kustomize client.
-func (k *kustomize) GetRawManifest(deployInfo types.InstallInfo) (string, error) {
+func (k *kustomize) GetRawManifest(deployInfo types.InstallInfo) *types.ParsedFile {
 	opts := krusty.MakeDefaultOptions()
 	kustomizer := krusty.MakeKustomizer(opts)
 
@@ -56,18 +56,19 @@ func (k *kustomize) GetRawManifest(deployInfo types.InstallInfo) (string, error)
 	resMap, err := kustomizer.Run(fileSystem, path)
 	if err != nil {
 		k.logger.Error(err, "running kustomize to create final manifest")
-		return "", fmt.Errorf("error running kustomize: %w", err)
+		return types.NewParsedFile("", fmt.Errorf("error running kustomize: %w", err))
 	}
 
+	var manifestStringified string
 	manifestYaml, err := resMap.AsYaml()
 	if err != nil {
 		k.logger.Error(err, "creating final manifest yaml")
-		return "", fmt.Errorf("error converting kustomize output to yaml: %w", err)
+		err = fmt.Errorf("error converting kustomize output to yaml: %w", err)
+	} else {
+		manifestStringified = string(manifestYaml)
 	}
 
-	manifestStringified := string(manifestYaml)
-
-	return manifestStringified, nil
+	return types.NewParsedFile(manifestStringified, err)
 }
 
 // Install transforms and applies the kustomize manifest using server side apply.

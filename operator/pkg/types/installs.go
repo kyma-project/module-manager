@@ -11,14 +11,14 @@ import (
 )
 
 type RenderSrc interface {
-	GetRawManifest(deployInfo InstallInfo) (string, error)
+	GetRawManifest(deployInfo InstallInfo) *ParsedFile
 	Install(manifest string, deployInfo InstallInfo, transforms []ObjectTransform) (bool, error)
 	Uninstall(manifest string, deployInfo InstallInfo, transforms []ObjectTransform) (bool, error)
 	IsConsistent(manifest string, deployInfo InstallInfo, transforms []ObjectTransform) (bool, error)
 	Transform(ctx context.Context, manifest string, base BaseCustomObject,
 		transforms []ObjectTransform) (*ManifestResources, error)
-	GetCachedResources(chartName, chartPath string) (string, error)
-	GetManifestResources(chartName, dirPath string) (string, error)
+	GetCachedResources(chartName, chartPath string) *ParsedFile
+	GetManifestResources(chartName, dirPath string) *ParsedFile
 }
 
 // +kubebuilder:validation:Enum=helm-chart;oci-ref;"kustomize";""
