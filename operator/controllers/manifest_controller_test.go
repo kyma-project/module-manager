@@ -175,14 +175,14 @@ func createManifestWithInsufficientExecutePerm() func() bool {
 			Path: kustomizeLocalPath,
 			Type: "kustomize",
 		}
-		user, err := user.Current()
-		Expect(err).ToNot(HaveOccurred())
+		//user, err := user.Current()
+		//Expect(err).ToNot(HaveOccurred())
 		// TODO run prow pipeline without root privileges
-		if user.Username == "root" {
-			Skip("")
-		}
+		//if user.Username == "root" {
+		//	Skip("")
+		//}
 		// should not be run as root user
-		Expect(user.Username).ToNot(Equal("root"))
+		//Expect(user.Username).ToNot(Equal("root"))
 		// giving read rights only!
 		Expect(os.Chmod(kustomizeLocalPath, 0o444)).ToNot(HaveOccurred())
 		specBytes, err := json.Marshal(kustomizeSpec)
