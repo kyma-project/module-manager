@@ -185,8 +185,10 @@ func GetResourceLabel(resource client.Object, labelName string) (string, error) 
 	labels := resource.GetLabels()
 	label, ok := labels[labelName]
 	if !ok {
-		return "", fmt.Errorf("label %s not found on resource %s", labelName,
-			client.ObjectKeyFromObject(resource).String())
+		return "", &LabelNotFoundError{
+			Resource:  resource,
+			LabelName: label,
+		}
 	}
 	return label, nil
 }
@@ -198,4 +200,14 @@ func GetStringifiedYamlFromFilePath(filePath string) (string, error) {
 	}
 
 	return string(file), err
+}
+
+type LabelNotFoundError struct {
+	Resource  client.Object
+	LabelName string
+}
+
+func (m *LabelNotFoundError) Error() string {
+	return fmt.Sprintf("label %s not found on resource %s", m.LabelName,
+		client.ObjectKeyFromObject(m.Resource).String())
 }
