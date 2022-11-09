@@ -9,8 +9,7 @@ import (
 
 type transformer struct{}
 
-//nolint:revive
-func NewTransformer() *transformer {
+func NewTransformer() *transformer { //nolint:revive
 	return &transformer{}
 }
 
