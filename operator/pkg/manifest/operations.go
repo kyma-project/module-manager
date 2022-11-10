@@ -1,6 +1,7 @@
 package manifest
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/go-logr/logr"
@@ -79,23 +80,14 @@ func ConsistencyCheck(logger *logr.Logger, deployInfo types.InstallInfo, resourc
 func newOperations(logger *logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
 	cache types.RendererCache,
 ) (*operations, error) {
-	var cacheKey client.ObjectKey
+	cacheKey := discoverCacheKey(deployInfo.BaseResource, logger)
 
-	if deployInfo.BaseResource != nil {
-		// cache HelmClient by Kyma name
-		// as there can be multiple Manifests belonging to the same Kyma resource
-		label, err := util.GetResourceLabel(deployInfo.BaseResource, labels.ComponentOwner)
-		if err != nil {
-			return nil, err
-		}
-		cacheKey = client.ObjectKey{Name: label, Namespace: deployInfo.BaseResource.GetNamespace()}
-	}
-	// TODO offer generic client creation, by deciding between Helm or Kustomize
 	var renderSrc types.RenderSrc
-	if cache != nil {
-		// read HelmClient from cache
+	if cache != nil && cacheKey.Name != "" {
+		// read manifest renderer from cache
 		renderSrc = cache.Get(cacheKey)
 	}
+	// cache entry not found
 	if renderSrc == nil {
 		memCacheClient, err := getMemCacheClient(deployInfo.Config)
 		if err != nil {
@@ -107,8 +99,8 @@ func newOperations(logger *logr.Logger, deployInfo types.InstallInfo, resourceTr
 		if err != nil {
 			return nil, fmt.Errorf("unable to create manifest processor: %w", err)
 		}
-		// cache render source
-		if cache != nil {
+		if cache != nil && cacheKey.Name != "" {
+			// cache manifest renderer
 			cache.Set(cacheKey, renderSrc)
 		}
 	}
@@ -121,6 +113,24 @@ func newOperations(logger *logr.Logger, deployInfo types.InstallInfo, resourceTr
 	}
 
 	return ops, nil
+}
+
+// discoverCacheKey returns cache key for caching of manifest renderer,
+// by label value operator.kyma-project.io/cache-key.
+// If label not found on base resource an empty cache key is returned.
+func discoverCacheKey(resource client.Object, logger *logr.Logger) client.ObjectKey {
+	if resource != nil {
+		label, err := util.GetResourceLabel(resource, labels.CacheKey)
+		var labelErr *util.LabelNotFoundError
+		if errors.As(err, &labelErr) {
+			logger.V(util.DebugLogLevel).Info("cache-key label missing, resource will not be cached. Resulted in",
+				"error", err.Error(),
+				"resource", client.ObjectKeyFromObject(resource))
+		}
+		// do not handle any other error if reported
+		return client.ObjectKey{Name: label, Namespace: resource.GetNamespace()}
+	}
+	return client.ObjectKey{}
 }
 
 // getManifestProcessor returns a new types.RenderSrc instance
@@ -190,7 +200,7 @@ func (o *operations) consistencyCheck(deployInfo types.InstallInfo) (bool, error
 	// process manifest
 	parsedFile := o.getManifestForChartPath(deployInfo)
 	if parsedFile.GetRawError() != nil {
-		return false, parsedFile.GetRawError()
+		return false, parsedFile
 	}
 
 	// consistency check
@@ -278,7 +288,7 @@ func (o *operations) getManifestForChartPath(deployInfo types.InstallInfo) *type
 	// which is assumed to contain a list of resources to be processed.
 	// If the location doesn't exist or has permission issues, it will be ignored.
 	parsedFile := o.renderSrc.GetManifestResources(deployInfo.ChartName, deployInfo.ChartPath)
-	if parsedFile.IsCachingProcessed() {
+	if parsedFile.IsResultConclusive() {
 		return parsedFile.FilterOsErrors()
 	}
 
@@ -286,13 +296,13 @@ func (o *operations) getManifestForChartPath(deployInfo types.InstallInfo) *type
 	// If the rendered manifest folder doesn't exist or has permission issues,
 	// it will be ignored.
 	parsedFile = o.renderSrc.GetCachedResources(deployInfo.ChartName, deployInfo.ChartPath)
-	if parsedFile.IsCachingProcessed() {
+	if parsedFile.IsResultConclusive() {
 		return parsedFile.FilterOsErrors()
 	}
 
 	// 3. render new manifests
 	// Depending upon the chart the request will be sent to a processor,
-	// either Helm or Kustomize
+	// either Helm or Kustomize.
 	parsedFile = o.renderSrc.GetRawManifest(deployInfo)
 	// If there is any type of error return from here, as there is nothing to be cached.
 	if parsedFile.GetRawError() != nil {

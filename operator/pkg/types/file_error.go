@@ -25,8 +25,8 @@ func (fe *ParsedFile) Error() string {
 	return ""
 }
 
-// IsCachingProcessed indicates if caching results are processed.
-func (fe *ParsedFile) IsCachingProcessed() bool {
+// IsResultConclusive indicates if caching results are processed.
+func (fe *ParsedFile) IsResultConclusive() bool {
 	return fe.content != "" || fe.getFilteredError() != nil
 }
 
