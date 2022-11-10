@@ -51,7 +51,7 @@ func (m mockLayer) Compressed() (io.ReadCloser, error) {
 	return io.NopCloser(f), nil
 }
 
-func GetImageSpecFromMockOCIRegistry() manifestTypes.ImageSpec {
+func GetImageSpecFromMockOCIRegistry() string {
 	// create registry and server
 	layer, err := partial.CompressedToLayer(mockLayer{})
 	Expect(err).ToNot(HaveOccurred())
@@ -76,15 +76,13 @@ func GetImageSpecFromMockOCIRegistry() manifestTypes.ImageSpec {
 	Expect(gotHash).To(Equal(digest))
 	hash, err := layer.Digest()
 	Expect(err).ToNot(HaveOccurred())
-
-	return getImageSpec(hash.String())
+	return hash.String()
 }
 
-func getImageSpec(digest string) manifestTypes.ImageSpec {
+func GetImageSpec() manifestTypes.ImageSpec {
 	return manifestTypes.ImageSpec{
 		Name: layerNameRef,
 		Repo: server.Listener.Addr().String(),
-		Ref:  digest,
 		Type: "oci-ref",
 	}
 }
@@ -121,6 +119,7 @@ func NewTestManifest(name string) *v1alpha1.Manifest {
 			Namespace: metav1.NamespaceDefault,
 			Labels: map[string]string{
 				labels.ComponentOwner: secretName,
+				labels.CacheKey:       RandString(8),
 			},
 		},
 	}

@@ -97,7 +97,7 @@ func GetStringifiedYamlFromDirPath(dirPath string, logger *logr.Logger) (string,
 	file := dirEntries[0]
 	allowedExtns := sets.NewString(".yaml", ".yml")
 	if !allowedExtns.Has(filepath.Ext(file.Name())) {
-		return "", fmt.Errorf("file extension unsupported %s in dir %s", file.Name(), dirPath)
+		return "", nil
 	}
 
 	stringifiedYaml, err := util.GetStringifiedYamlFromFilePath(filepath.Join(dirPath, file.Name()))
