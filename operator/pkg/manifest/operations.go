@@ -94,6 +94,9 @@ func newOperations(logger *logr.Logger, deployInfo types.InstallInfo, resourceTr
 	return ops, nil
 }
 
+// getRenderSrc checks if the manifest processor client is cached and returns if available.
+// If not available, it creates a new one based on deployInfo.
+// Additionally, it verifies cached configuration for the manifest processor and invalidates it if required.
 func getRenderSrc(cache types.RendererCache, deployInfo types.InstallInfo,
 	logger *logr.Logger,
 ) (types.RenderSrc, error) {

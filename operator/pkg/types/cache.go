@@ -4,6 +4,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// CacheManager contains ClusterInfoCache and RendererCache cached entries.
+// It offers utility methods to access the underlying caches as well as invalidate entries.
 type CacheManager interface {
 	InvalidateForOwner(key client.ObjectKey)
 	InvalidateSelf(key client.ObjectKey)
