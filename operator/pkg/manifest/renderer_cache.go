@@ -47,16 +47,16 @@ func (r *RendererCache) DeleteProcessor(key client.ObjectKey) {
 }
 
 // GetConfig loads the configuration from RendererCache for the passed client.ObjectKey.
-func (r *RendererCache) GetConfig(key client.ObjectKey) string {
+func (r *RendererCache) GetConfig(key client.ObjectKey) uint32 {
 	value, ok := r.config.Load(key)
 	if !ok {
-		return ""
+		return 0
 	}
-	return value.(string)
+	return value.(uint32)
 }
 
 // SetConfig saves the passed configuration into RendererCache for the client.ObjectKey.
-func (r *RendererCache) SetConfig(key client.ObjectKey, config string) {
+func (r *RendererCache) SetConfig(key client.ObjectKey, config uint32) {
 	r.config.Store(key, config)
 }
 

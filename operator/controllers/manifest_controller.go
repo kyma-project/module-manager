@@ -78,7 +78,7 @@ type ManifestReconciler struct {
 	DeployChan       chan OperationRequest
 	Workers          *ManifestWorkerPool
 	RequeueIntervals RequeueIntervals
-	CacheManager     *CacheManager
+	CacheManager     types.CacheManager
 	internalTypes.ReconcileFlagConfig
 }
 
@@ -175,7 +175,7 @@ func (r *ManifestReconciler) sendJobToInstallChannel(ctx context.Context, logger
 	// send deploy requests
 	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, types.ClusterInfo{
 		Client: r.Client, Config: r.RestConfig,
-	}, r.ReconcileFlagConfig, r.CacheManager.ClusterInfos)
+	}, r.ReconcileFlagConfig, r.CacheManager.GetClusterInfoCache())
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("cannot prepare install information for %s resource %s",
 			v1alpha1.ManifestKind, namespacedName))
@@ -219,13 +219,14 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 	// send deploy requests
 	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, types.ClusterInfo{
 		Client: r.Client, Config: r.RestConfig,
-	}, r.ReconcileFlagConfig, r.CacheManager.ClusterInfos)
+	}, r.ReconcileFlagConfig, r.CacheManager.GetClusterInfoCache())
 	if err != nil {
 		return err
 	}
 
 	for _, deployInfo := range deployInfos {
-		ready, err := manifest.ConsistencyCheck(logger, deployInfo, []types.ObjectTransform{}, r.CacheManager.RenderSources)
+		ready, err := manifest.ConsistencyCheck(logger, deployInfo, []types.ObjectTransform{},
+			r.CacheManager.GetRendererCache())
 
 		// prepare chart response object
 		chartResponse := &types.InstallResponse{
@@ -283,9 +284,11 @@ func (r *ManifestReconciler) HandleCharts(deployInfo types.InstallInfo, mode typ
 	var ready bool
 	var err error
 	if create {
-		ready, err = manifest.InstallChart(logger, deployInfo, []types.ObjectTransform{}, r.CacheManager.RenderSources)
+		ready, err = manifest.InstallChart(logger, deployInfo, []types.ObjectTransform{},
+			r.CacheManager.GetRendererCache())
 	} else {
-		ready, err = manifest.UninstallChart(logger, deployInfo, []types.ObjectTransform{}, r.CacheManager.RenderSources)
+		ready, err = manifest.UninstallChart(logger, deployInfo, []types.ObjectTransform{},
+			r.CacheManager.GetRendererCache())
 	}
 
 	return &types.InstallResponse{
@@ -441,14 +444,14 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 
 func (r *ManifestReconciler) finalizeDeletion(ctx context.Context, manifestObj *v1alpha1.Manifest) error {
 	// remove finalizer
-	finalizerRemoved := controllerutil.RemoveFinalizer(manifestObj, labels.ManifestFinalizer)
-
-	// finally update Manifest, if finalizer was removed
-	if !finalizerRemoved {
+	if !controllerutil.RemoveFinalizer(manifestObj, labels.ManifestFinalizer) {
 		return nil
 	}
 
-	kymaOwnerLabel, err := util.GetResourceLabel(manifestObj, labels.ComponentOwner)
+	// invalidate Manifest specific configuration
+	r.CacheManager.InvalidateSelf(client.ObjectKeyFromObject(manifestObj))
+
+	kymaOwnerLabel, err := util.GetResourceLabel(manifestObj, labels.CacheKey)
 	if err != nil {
 		return err
 	}
@@ -458,7 +461,7 @@ func (r *ManifestReconciler) finalizeDeletion(ctx context.Context, manifestObj *
 		return err
 	}
 	err = r.Client.List(ctx, manifestList, &client.ListOptions{
-		LabelSelector: k8slabels.SelectorFromSet(k8slabels.Set{labels.ComponentOwner: kymaOwnerLabel}),
+		LabelSelector: k8slabels.SelectorFromSet(k8slabels.Set{labels.CacheKey: kymaOwnerLabel}),
 		Namespace:     manifestObj.Namespace,
 	})
 	if err != nil {
@@ -467,7 +470,7 @@ func (r *ManifestReconciler) finalizeDeletion(ctx context.Context, manifestObj *
 	// delete cluster cache entry only if the Manifest being deleted is the only one
 	// with the corresponding kyma name
 	if len(manifestList.Items) == 1 {
-		r.CacheManager.Invalidate(client.ObjectKey{Name: kymaOwnerLabel, Namespace: manifestObj.Namespace})
+		r.CacheManager.InvalidateForOwner(client.ObjectKey{Name: kymaOwnerLabel, Namespace: manifestObj.Namespace})
 	}
 
 	return r.updateManifest(ctx, manifestObj)

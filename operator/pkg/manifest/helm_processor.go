@@ -525,18 +525,18 @@ func (h *helm) assignRestMapping(gvk schema.GroupVersionKind, info *resource.Inf
 	return nil
 }
 
-func (h *helm) InvalidateConfigAndRenderedManifest(deployInfo types.InstallInfo, currentHash string) (string, error) {
+func (h *helm) InvalidateConfigAndRenderedManifest(deployInfo types.InstallInfo, currentHash uint32) (uint32, error) {
 	newHash, err := util.CalculateHash(deployInfo.Flags)
 	if err != nil {
-		return "", err
+		return 0, err
 	}
-	if currentHash != "" && newHash != currentHash {
+	if currentHash != 0 && newHash != currentHash {
 		// delete rendered manifest if previous config hash was found
 		if parsedFile := h.DeleteCachedResources(deployInfo.ChartPath); parsedFile.GetRawError() != nil {
 			// errors os.IsNotExist and os.IsPermission are ignored
 			// since cached resources will be re-created if it doesn't exist
 			// and resources are not cached at all if not permitted
-			return "", parsedFile
+			return 0, parsedFile
 		}
 		// if cached and new hash doesn't match, reset flag
 		return newHash, h.resetFlags(deployInfo)

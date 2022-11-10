@@ -115,7 +115,7 @@ func (k *kustomize) IsConsistent(manifest string, deployInfo types.InstallInfo,
 	return k.Install(manifest, deployInfo, transforms)
 }
 
-func (k *kustomize) InvalidateConfigAndRenderedManifest(_ types.InstallInfo, _ string) (string, error) {
+func (k *kustomize) InvalidateConfigAndRenderedManifest(_ types.InstallInfo, _ uint32) (uint32, error) {
 	// TODO implement invalidation logic
-	return "", nil
+	return 0, nil
 }

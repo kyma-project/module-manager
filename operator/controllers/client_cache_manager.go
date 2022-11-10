@@ -8,19 +8,31 @@ import (
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 )
 
-type CacheManager struct {
-	RenderSources types.RendererCache
-	ClusterInfos  types.ClusterInfoCache
+type ManifestClientCache struct {
+	renderSources types.RendererCache
+	clusterInfos  types.ClusterInfoCache
 }
 
-func NewCacheManager() *CacheManager {
-	return &CacheManager{
-		RenderSources: manifest.NewRendererCache(),
-		ClusterInfos:  custom.NewRemoteClusterCache(),
+func NewCacheManager() types.CacheManager {
+	return &ManifestClientCache{
+		renderSources: manifest.NewRendererCache(),
+		clusterInfos:  custom.NewRemoteClusterCache(),
 	}
 }
 
-func (c *CacheManager) Invalidate(key client.ObjectKey) {
-	c.RenderSources.DeleteProcessor(key)
-	c.ClusterInfos.Delete(key)
+func (mc *ManifestClientCache) GetRendererCache() types.RendererCache {
+	return mc.renderSources
+}
+
+func (mc *ManifestClientCache) GetClusterInfoCache() types.ClusterInfoCache {
+	return mc.clusterInfos
+}
+
+func (mc *ManifestClientCache) InvalidateForOwner(key client.ObjectKey) {
+	mc.renderSources.DeleteProcessor(key)
+	mc.clusterInfos.Delete(key)
+}
+
+func (mc *ManifestClientCache) InvalidateSelf(key client.ObjectKey) {
+	mc.renderSources.DeleteConfig(key)
 }

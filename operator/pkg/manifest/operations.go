@@ -95,7 +95,8 @@ func newOperations(logger *logr.Logger, deployInfo types.InstallInfo, resourceTr
 }
 
 func getRenderSrc(cache types.RendererCache, deployInfo types.InstallInfo,
-	logger *logr.Logger) (types.RenderSrc, error) {
+	logger *logr.Logger,
+) (types.RenderSrc, error) {
 	/* Manifest processor handling */
 	clusterCacheKey := discoverCacheKey(deployInfo.BaseResource, logger)
 	var renderSrc types.RenderSrc
@@ -125,11 +126,11 @@ func getRenderSrc(cache types.RendererCache, deployInfo types.InstallInfo,
 		return nil, err
 	}
 	// no update on config - return from here
-	if configHash == "" && renderSrc != nil {
+	if configHash == 0 && renderSrc != nil {
 		return renderSrc, nil
 	}
 
-	// update hash config for processor client
+	// update hash config each time
 	// e.g. in case of Helm the passed flags could lead to invalidation
 	cache.SetConfig(nsNameBaseResource, configHash)
 

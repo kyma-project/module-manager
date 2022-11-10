@@ -4,13 +4,20 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+type CacheManager interface {
+	InvalidateForOwner(key client.ObjectKey)
+	InvalidateSelf(key client.ObjectKey)
+	GetClusterInfoCache() ClusterInfoCache
+	GetRendererCache() RendererCache
+}
+
 // RendererCache offers utility methods to access RenderSrc cached instances.
 type RendererCache interface {
 	GetProcessor(key client.ObjectKey) RenderSrc
 	SetProcessor(key client.ObjectKey, renderSrc RenderSrc)
 	DeleteProcessor(key client.ObjectKey)
-	GetConfig(key client.ObjectKey) string
-	SetConfig(key client.ObjectKey, cfg string)
+	GetConfig(key client.ObjectKey) uint32
+	SetConfig(key client.ObjectKey, cfg uint32)
 	DeleteConfig(key client.ObjectKey)
 }
 

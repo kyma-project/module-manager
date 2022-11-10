@@ -20,7 +20,7 @@ type RenderSrc interface {
 	GetCachedResources(chartName, chartPath string) *ParsedFile
 	DeleteCachedResources(chartPath string) *ParsedFile
 	GetManifestResources(chartName, dirPath string) *ParsedFile
-	InvalidateConfigAndRenderedManifest(deployInfo InstallInfo, cachedHash string) (string, error)
+	InvalidateConfigAndRenderedManifest(deployInfo InstallInfo, cachedHash uint32) (uint32, error)
 }
 
 // +kubebuilder:validation:Enum=helm-chart;oci-ref;"kustomize";""
