@@ -114,3 +114,8 @@ func (k *kustomize) IsConsistent(manifest string, deployInfo types.InstallInfo,
 	// TODO evaluate a better consistency check
 	return k.Install(manifest, deployInfo, transforms)
 }
+
+func (k *kustomize) InvalidateConfigAndRenderedManifest(_ types.InstallInfo, _ string) (string, error) {
+	// TODO implement invalidation logic
+	return "", nil
+}

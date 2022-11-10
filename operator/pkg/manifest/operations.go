@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	"helm.sh/helm/v3/pkg/cli"
 	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -80,29 +79,9 @@ func ConsistencyCheck(logger *logr.Logger, deployInfo types.InstallInfo, resourc
 func newOperations(logger *logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
 	cache types.RendererCache,
 ) (*operations, error) {
-	cacheKey := discoverCacheKey(deployInfo.BaseResource, logger)
-
-	var renderSrc types.RenderSrc
-	if cache != nil && cacheKey.Name != "" {
-		// read manifest renderer from cache
-		renderSrc = cache.Get(cacheKey)
-	}
-	// cache entry not found
-	if renderSrc == nil {
-		memCacheClient, err := getMemCacheClient(deployInfo.Config)
-		if err != nil {
-			return nil, err
-		}
-		render := NewRendered(logger)
-		txformer := NewTransformer()
-		renderSrc, err = getManifestProcessor(deployInfo, memCacheClient, logger, render, txformer)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create manifest processor: %w", err)
-		}
-		if cache != nil && cacheKey.Name != "" {
-			// cache manifest renderer
-			cache.Set(cacheKey, renderSrc)
-		}
+	renderSrc, err := getRenderSrc(cache, deployInfo, logger)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create manifest processor: %w", err)
 	}
 
 	ops := &operations{
@@ -115,15 +94,57 @@ func newOperations(logger *logr.Logger, deployInfo types.InstallInfo, resourceTr
 	return ops, nil
 }
 
-// discoverCacheKey returns cache key for caching of manifest renderer,
-// by label value operator.kyma-project.io/cache-key.
-// If label not found on base resource an empty cache key is returned.
+func getRenderSrc(cache types.RendererCache, deployInfo types.InstallInfo,
+	logger *logr.Logger) (types.RenderSrc, error) {
+	/* Manifest processor handling */
+	clusterCacheKey := discoverCacheKey(deployInfo.BaseResource, logger)
+	var renderSrc types.RenderSrc
+	var err error
+	if cache == nil || clusterCacheKey.Name == "" {
+		// no processor entries
+		return getManifestProcessor(deployInfo, logger)
+	}
+
+	// look for existing processor entries
+	// read manifest renderer from processor
+	if renderSrc = cache.GetProcessor(clusterCacheKey); renderSrc == nil {
+		renderSrc, err = getManifestProcessor(deployInfo, logger)
+		if err != nil {
+			return nil, err
+		}
+
+		// update new manifest processor
+		cache.SetProcessor(clusterCacheKey, renderSrc)
+	}
+
+	/* Configuration handling */
+	// if there is no update on config - return from here
+	nsNameBaseResource := client.ObjectKeyFromObject(deployInfo.BaseResource)
+	configHash, err := renderSrc.InvalidateConfigAndRenderedManifest(deployInfo, cache.GetConfig(nsNameBaseResource))
+	if err != nil {
+		return nil, err
+	}
+	// no update on config - return from here
+	if configHash == "" && renderSrc != nil {
+		return renderSrc, nil
+	}
+
+	// update hash config for processor client
+	// e.g. in case of Helm the passed flags could lead to invalidation
+	cache.SetConfig(nsNameBaseResource, configHash)
+
+	return renderSrc, nil
+}
+
+// discoverCacheKey returns processor key for caching of manifest renderer,
+// by label value operator.kyma-project.io/processor-key.
+// If label not found on base resource an empty processor key is returned.
 func discoverCacheKey(resource client.Object, logger *logr.Logger) client.ObjectKey {
 	if resource != nil {
 		label, err := util.GetResourceLabel(resource, labels.CacheKey)
 		var labelErr *util.LabelNotFoundError
 		if errors.As(err, &labelErr) {
-			logger.V(util.DebugLogLevel).Info("cache-key label missing, resource will not be cached. Resulted in",
+			logger.V(util.DebugLogLevel).Info("processor-key label missing, resource will not be cached. Resulted in",
 				"error", err.Error(),
 				"resource", client.ObjectKeyFromObject(resource))
 		}
@@ -135,9 +156,13 @@ func discoverCacheKey(resource client.Object, logger *logr.Logger) client.Object
 
 // getManifestProcessor returns a new types.RenderSrc instance
 // this render source will handle subsequent operations for manifest resources based on types.InstallInfo.
-func getManifestProcessor(deployInfo types.InstallInfo, memCacheClient discovery.CachedDiscoveryInterface,
-	logger *logr.Logger, render *rendered, txformer *transformer,
-) (types.RenderSrc, error) {
+func getManifestProcessor(deployInfo types.InstallInfo, logger *logr.Logger) (types.RenderSrc, error) {
+	memCacheClient, err := getMemCacheClient(deployInfo.Config)
+	if err != nil {
+		return nil, err
+	}
+	render := NewRendered(logger)
+	txformer := NewTransformer()
 	// use deferred discovery client here as GVs applicable to the client are inconsistent at this moment
 	discoveryMapper := restmapper.NewDeferredDiscoveryRESTMapper(memCacheClient)
 
@@ -151,8 +176,7 @@ func getManifestProcessor(deployInfo types.InstallInfo, memCacheClient discovery
 		restGetter := manifestRest.NewRESTClientGetter(deployInfo.Config, memCacheClient)
 
 		// create HelmClient instance
-		return NewHelmProcessor(restGetter, discoveryMapper, deployInfo.Config, cli.New(), logger,
-			render, txformer)
+		return NewHelmProcessor(restGetter, discoveryMapper, logger, render, txformer, deployInfo)
 	case resource.KustomizeKind:
 		// create dynamic client for rest config
 		dynamicClient, err := dynamic.NewForConfig(deployInfo.Config)

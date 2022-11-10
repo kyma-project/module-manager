@@ -21,6 +21,6 @@ func NewCacheManager() *CacheManager {
 }
 
 func (c *CacheManager) Invalidate(key client.ObjectKey) {
-	c.RenderSources.Delete(key)
+	c.RenderSources.DeleteProcessor(key)
 	c.ClusterInfos.Delete(key)
 }

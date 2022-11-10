@@ -3,6 +3,9 @@ package util
 import (
 	"bufio"
 	"bytes"
+	"crypto/md5"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -200,6 +203,16 @@ func GetStringifiedYamlFromFilePath(filePath string) (string, error) {
 	}
 
 	return string(file), err
+}
+
+// CalculateHash returns hash for interfaceToBeHashed
+func CalculateHash(interfaceToBeHashed any) (string, error) {
+	data, err := json.Marshal(interfaceToBeHashed)
+	if err != nil {
+		return "", err
+	}
+	hash := md5.Sum(data)
+	return hex.EncodeToString(hash[:]), nil
 }
 
 type LabelNotFoundError struct {

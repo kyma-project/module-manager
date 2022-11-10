@@ -18,7 +18,9 @@ type RenderSrc interface {
 	Transform(ctx context.Context, manifest string, base BaseCustomObject,
 		transforms []ObjectTransform) (*ManifestResources, error)
 	GetCachedResources(chartName, chartPath string) *ParsedFile
+	DeleteCachedResources(chartPath string) *ParsedFile
 	GetManifestResources(chartName, dirPath string) *ParsedFile
+	InvalidateConfigAndRenderedManifest(deployInfo InstallInfo, cachedHash string) (string, error)
 }
 
 // +kubebuilder:validation:Enum=helm-chart;oci-ref;"kustomize";""
