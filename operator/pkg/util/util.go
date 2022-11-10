@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -31,7 +32,6 @@ const (
 	manifestFile                    = "manifest.yaml"
 	configFileName                  = "installConfig.yaml"
 	YamlDecodeBufferSize            = 2048
-	OwnerFilePermission             = 0o770
 	OthersReadExecuteFilePermission = 0o755
 	DebugLogLevel                   = 2
 )
@@ -164,7 +164,7 @@ func GetYamlFileContent(filePath string) (interface{}, error) {
 
 func WriteToFile(filePath string, bytes []byte) error {
 	// create directory
-	if err := os.MkdirAll(filepath.Dir(filePath), OwnerFilePermission); err != nil {
+	if err := os.MkdirAll(filepath.Dir(filePath), fs.ModePerm); err != nil {
 		return err
 	}
 
