@@ -2,10 +2,9 @@ package controllers_test
 
 import (
 	"encoding/json"
-	"io/fs"
+
 	"os"
-	"os/user"
-	"path/filepath"
+
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -13,52 +12,12 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/uuid"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"errors"
 	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 )
-
-func createManifestAndCheckState(desiredState v1alpha1.ManifestState, specBytes []byte, installName string,
-	remote bool,
-) *v1alpha1.Manifest {
-	installs := make([]v1alpha1.InstallInfo, 0)
-	if specBytes != nil {
-		installs = append(installs, v1alpha1.InstallInfo{
-			Source: runtime.RawExtension{
-				Raw: specBytes,
-			},
-			Name: installName,
-		})
-	}
-	manifestObj := createManifestObj(string(uuid.NewUUID()), v1alpha1.ManifestSpec{
-		Remote:   remote,
-		Installs: installs,
-	})
-	Expect(k8sClient.Create(ctx, manifestObj)).Should(Succeed())
-	Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
-		Should(BeEquivalentTo(desiredState))
-	return manifestObj
-}
-
-func createManifestWithHelmRepo() func() bool {
-	return func() bool {
-		By("having transitioned the CR State to Ready with a Helm Chart")
-		helmChartSpec := types.HelmChartSpec{
-			ChartName: "nginx-ingress",
-			URL:       "https://helm.nginx.com/stable",
-			Type:      "helm-chart",
-		}
-		specBytes, err := json.Marshal(helmChartSpec)
-		Expect(err).ToNot(HaveOccurred())
-		manifestObj := createManifestAndCheckState(v1alpha1.ManifestStateReady, specBytes,
-			"nginx-stable", false)
-		deleteManifestResource(manifestObj, nil)
-		return true
-	}
-}
 
 const (
 	Timeout  = time.Second * 60
@@ -144,13 +103,13 @@ var _ = Describe("given manifest with install specs", func() {
 		//Entry("When manifestCR contains a valid helm repo, expect state in ready",
 		//	addSpec(validHelmChartSpecBytes), expectManifestStateIn(v1alpha1.ManifestStateReady)),
 		Entry("When manifestCR contains a valid OCI image specification, expect state in ready",
-			addValidImageSpec(), expectManifestStateIn(v1alpha1.ManifestStateReady)),
+			addValidImageSpec(true), expectManifestStateIn(v1alpha1.ManifestStateReady)),
 		//Entry("When manifestCR contains an invalid OCI image specification, expect state in error",
 		//	addInvalidImageSpec(), expectManifestStateIn(v1alpha1.ManifestStateError)),
 	)
 })
 
-func addInvalidImageSpec() func(manifest *v1alpha1.Manifest) error {
+func addInvalidImageSpec(remote bool) func(manifest *v1alpha1.Manifest) error {
 	return func(manifest *v1alpha1.Manifest) error {
 		invalidImageSpec := types.ImageSpec{
 			Name: layerNameRef,
@@ -160,11 +119,11 @@ func addInvalidImageSpec() func(manifest *v1alpha1.Manifest) error {
 		invalidImageSpec.Ref = GetImageSpecFromMockOCIRegistry()
 		imageSpecByte, err := json.Marshal(invalidImageSpec)
 		Expect(err).ToNot(HaveOccurred())
-		return installManifest(manifest, imageSpecByte)
+		return installManifest(manifest, imageSpecByte, remote)
 	}
 }
 
-func addValidImageSpec() func(manifest *v1alpha1.Manifest) error {
+func addValidImageSpec(remote bool) func(manifest *v1alpha1.Manifest) error {
 	return func(manifest *v1alpha1.Manifest) error {
 		validImageSpec := types.ImageSpec{
 			Name: layerNameRef,
@@ -174,11 +133,12 @@ func addValidImageSpec() func(manifest *v1alpha1.Manifest) error {
 		validImageSpec.Ref = GetImageSpecFromMockOCIRegistry()
 		imageSpecByte, err := json.Marshal(validImageSpec)
 		Expect(err).ToNot(HaveOccurred())
-		return installManifest(manifest, imageSpecByte)
+		return installManifest(manifest, imageSpecByte, remote)
 	}
 }
 
-func installManifest(manifest *v1alpha1.Manifest, specByte []byte) error {
+func installManifest(manifest *v1alpha1.Manifest, specByte []byte, remote bool) error {
+	manifest.Spec.Remote = remote
 	manifest.Spec.Installs = []v1alpha1.InstallInfo{
 		{
 			Source: runtime.RawExtension{
@@ -200,8 +160,8 @@ func expectManifestStateIn(state v1alpha1.ManifestState) func(manifestName strin
 	}
 }
 
-func addSpec(specBytes []byte) func(manifest *v1alpha1.Manifest) error {
+func addSpec(specBytes []byte, remote bool) func(manifest *v1alpha1.Manifest) error {
 	return func(manifest *v1alpha1.Manifest) error {
-		return installManifest(manifest, specBytes)
+		return installManifest(manifest, specBytes, remote)
 	}
 }
