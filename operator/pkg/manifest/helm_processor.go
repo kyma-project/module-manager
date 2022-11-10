@@ -87,12 +87,12 @@ func NewHelmProcessor(restGetter *manifestRest.ManifestRESTClientGetter,
 }
 
 // GetRawManifest returns processed resource manifest using helm client.
-func (h *helm) GetRawManifest(deployInfo types.InstallInfo) (string, error) {
+func (h *helm) GetRawManifest(deployInfo types.InstallInfo) *types.ParsedFile {
 	// always override existing flags config
 	// to ensure CR updates are reflected on the action client
 	err := h.resetFlags(deployInfo)
 	if err != nil {
-		return "", err
+		return types.NewParsedFile("", err)
 	}
 
 	chartPath := deployInfo.ChartPath
@@ -100,20 +100,14 @@ func (h *helm) GetRawManifest(deployInfo types.InstallInfo) (string, error) {
 		// legacy case - download chart from helm repo
 		chartPath, err = h.downloadChart(deployInfo.RepoName, deployInfo.URL, deployInfo.ChartName)
 		if err != nil {
-			return "", err
+			return types.NewParsedFile("", err)
 		}
 	}
 	h.logger.V(util.DebugLogLevel).Info("chart located", "path", chartPath)
 
 	// if rendered manifest doesn't exist
-	stringifiedManifest, err := h.renderManifestFromChartPath(chartPath, deployInfo.Flags.SetFlags)
-	if err != nil {
-		return "", err
-	}
-
-	// optional: Uncomment below to print manifest
-	// fmt.Println(release.Manifest)
-	return stringifiedManifest, err
+	// check newly rendered manifest here
+	return types.NewParsedFile(h.renderManifestFromChartPath(chartPath, deployInfo.Flags.SetFlags))
 }
 
 // Install transforms and applies Helm based manifest using helm client.
@@ -195,7 +189,7 @@ func (h *helm) Uninstall(stringifedManifest string, deployInfo types.InstallInfo
 func (h *helm) IsConsistent(stringifedManifest string, deployInfo types.InstallInfo, transforms []types.ObjectTransform,
 ) (bool, error) {
 	// verify manifest resources - by count
-	// TODO: better strategy for resource verification?
+	// TODO better strategy for resource verification?
 	// convert for Helm processing
 	resourceLists, err := h.parseToResourceLists(stringifedManifest, deployInfo, transforms)
 	if err != nil {

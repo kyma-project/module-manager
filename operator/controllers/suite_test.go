@@ -61,12 +61,13 @@ var (
 )
 
 const (
-	helmCacheHomeEnv = "HELM_CACHE_HOME"
-	helmCacheHome    = "/tmp/caches"
-	helmCacheRepoEnv = "HELM_REPOSITORY_CACHE"
-	helmRepoEnv      = "HELM_REPOSITORY_CONFIG"
-	layerNameRef     = "some/name"
-	secretName       = "some-kyma-name"
+	helmCacheHomeEnv   = "HELM_CACHE_HOME"
+	helmCacheHome      = "/tmp/caches"
+	helmCacheRepoEnv   = "HELM_REPOSITORY_CACHE"
+	helmRepoEnv        = "HELM_REPOSITORY_CONFIG"
+	layerNameRef       = "some/name"
+	secretName         = "some-kyma-name"
+	kustomizeLocalPath = "./test_samples/kustomize"
 )
 
 func TestAPIs(t *testing.T) {

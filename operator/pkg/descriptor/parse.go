@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -60,7 +61,7 @@ func GetPathFromExtractedTarGz(imageSpec types.ImageSpec, insecureRegistry bool)
 
 func writeTarGzContent(installPath string, tarReader *tar.Reader, layerReference string) error {
 	// create dir for uncompressed chart
-	if err := os.MkdirAll(installPath, util.OwnerFilePermission); err != nil {
+	if err := os.MkdirAll(installPath, fs.ModePerm); err != nil {
 		return fmt.Errorf("failure in MkdirAll() while extracting TarGz %s: %w", layerReference, err)
 	}
 

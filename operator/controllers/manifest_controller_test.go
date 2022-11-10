@@ -2,7 +2,10 @@ package controllers_test
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
+	"os/user"
+	"path/filepath"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -10,12 +13,52 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"errors"
 	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 )
+
+func createManifestAndCheckState(desiredState v1alpha1.ManifestState, specBytes []byte, installName string,
+	remote bool,
+) *v1alpha1.Manifest {
+	installs := make([]v1alpha1.InstallInfo, 0)
+	if specBytes != nil {
+		installs = append(installs, v1alpha1.InstallInfo{
+			Source: runtime.RawExtension{
+				Raw: specBytes,
+			},
+			Name: installName,
+		})
+	}
+	manifestObj := createManifestObj(string(uuid.NewUUID()), v1alpha1.ManifestSpec{
+		Remote:   remote,
+		Installs: installs,
+	})
+	Expect(k8sClient.Create(ctx, manifestObj)).Should(Succeed())
+	Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
+		Should(BeEquivalentTo(desiredState))
+	return manifestObj
+}
+
+func createManifestWithHelmRepo() func() bool {
+	return func() bool {
+		By("having transitioned the CR State to Ready with a Helm Chart")
+		helmChartSpec := types.HelmChartSpec{
+			ChartName: "nginx-ingress",
+			URL:       "https://helm.nginx.com/stable",
+			Type:      "helm-chart",
+		}
+		specBytes, err := json.Marshal(helmChartSpec)
+		Expect(err).ToNot(HaveOccurred())
+		manifestObj := createManifestAndCheckState(v1alpha1.ManifestStateReady, specBytes,
+			"nginx-stable", false)
+		deleteManifestResource(manifestObj, nil)
+		return true
+	}
+}
 
 const (
 	Timeout  = time.Second * 60
