@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -31,7 +32,6 @@ const (
 	manifestFile                    = "manifest.yaml"
 	configFileName                  = "installConfig.yaml"
 	YamlDecodeBufferSize            = 2048
-	OwnerFilePermission             = 0o770
 	OthersReadExecuteFilePermission = 0o755
 	DebugLogLevel                   = 2
 )
@@ -164,7 +164,7 @@ func GetYamlFileContent(filePath string) (interface{}, error) {
 
 func WriteToFile(filePath string, bytes []byte) error {
 	// create directory
-	if err := os.MkdirAll(filepath.Dir(filePath), OwnerFilePermission); err != nil {
+	if err := os.MkdirAll(filepath.Dir(filePath), fs.ModePerm); err != nil {
 		return err
 	}
 
@@ -185,8 +185,10 @@ func GetResourceLabel(resource client.Object, labelName string) (string, error) 
 	labels := resource.GetLabels()
 	label, ok := labels[labelName]
 	if !ok {
-		return "", fmt.Errorf("label %s not found on resource %s", labelName,
-			client.ObjectKeyFromObject(resource).String())
+		return "", &LabelNotFoundError{
+			Resource:  resource,
+			LabelName: label,
+		}
 	}
 	return label, nil
 }
@@ -198,4 +200,14 @@ func GetStringifiedYamlFromFilePath(filePath string) (string, error) {
 	}
 
 	return string(file), err
+}
+
+type LabelNotFoundError struct {
+	Resource  client.Object
+	LabelName string
+}
+
+func (m *LabelNotFoundError) Error() string {
+	return fmt.Sprintf("label %s not found on resource %s", m.LabelName,
+		client.ObjectKeyFromObject(m.Resource).String())
 }
