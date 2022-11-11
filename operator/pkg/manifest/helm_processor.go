@@ -219,8 +219,8 @@ func (h *helm) installResources(resourceLists types.ResourceLists) (*kube.Result
 		return h.kubeClient.Create(resourceLists.Target)
 	}
 
-	// missing resources - update with force
-	return h.kubeClient.Update(resourceLists.Installed, resourceLists.Target, true)
+	// missing resources - update with 3 way merge
+	return h.kubeClient.Update(resourceLists.Installed, resourceLists.Target, false)
 }
 
 func (h *helm) uninstallResources(resourceLists types.ResourceLists) (*kube.Result, error) {
