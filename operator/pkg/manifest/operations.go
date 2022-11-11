@@ -204,7 +204,7 @@ func (o *operations) consistencyCheck(deployInfo types.InstallInfo) (bool, error
 	}
 
 	// consistency check
-	consistent, err := o.renderSrc.IsConsistent(parsedFile.GetContent(), deployInfo, o.resourceTransforms)
+	consistent, err := o.renderSrc.Install(parsedFile.GetContent(), deployInfo, o.resourceTransforms)
 	if err != nil || !consistent {
 		return false, err
 	}
