@@ -118,6 +118,7 @@ func createTwoRemoteManifestsWithNoInstalls() func() bool {
 	}
 }
 
+//nolint:unused,deadcode
 func createManifestWithInvalidOCI() func() bool {
 	return func() bool {
 		By("having transitioned the CR State to Error with invalid OCI Specification")
@@ -302,7 +303,7 @@ var _ = Describe("given manifest with a helm repo", Ordered, func() {
 			Entry("when manifestCR contains invalid Kustomize specification", createManifestWithInvalidKustomize()),
 			Entry("when manifestCR contains a valid helm repo", createManifestWithHelmRepo()),
 			Entry("when two manifestCRs contain valid OCI Image specifications", createManifestWithOCI()),
-			//Entry("when manifestCR contains invalid OCI Image specification", createManifestWithInvalidOCI()),
+
 			Entry("when manifestCR contains a valid local Kustomize specification with "+
 				"insufficient execute permissions", createManifestWithInsufficientExecutePerm()),
 			Entry("when manifestCR contains a valid local Kustomize specification with "+
