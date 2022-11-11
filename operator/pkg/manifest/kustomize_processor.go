@@ -4,8 +4,6 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/restmapper"
 	"sigs.k8s.io/kustomize/api/krusty"
 	"sigs.k8s.io/kustomize/kyaml/filesys"
 
@@ -14,7 +12,7 @@ import (
 )
 
 type kustomize struct {
-	logger  *logr.Logger
+	logger  logr.Logger
 	applier *applier.SetApplier
 	*transformer
 	*rendered
@@ -25,11 +23,18 @@ type kustomize struct {
 // Additionally, it also transforms the manifest resources based on user defined input.
 // On the returned helm instance, installation, uninstallation and verification checks
 // can then be executed on the resource manifest.
-func NewKustomizeProcessor(dynamicClient dynamic.Interface, discoveryMapper *restmapper.DeferredDiscoveryRESTMapper,
-	logger *logr.Logger, render *rendered, txformer *transformer,
-) (types.RenderSrc, error) {
+func NewKustomizeProcessor(
+	clients *SingletonClients, logger logr.Logger, render *rendered, txformer *transformer) (types.RenderSrc, error) {
 	// TODO offer SSA as a generic installation and not only bound to Kustomize
-	ssaApplier := applier.NewSSAApplier(dynamicClient, logger, discoveryMapper)
+	dynclient, err := clients.DynamicClient()
+	if err != nil {
+		return nil, err
+	}
+	mapper, err := clients.ToRESTMapper()
+	if err != nil {
+		return nil, err
+	}
+	ssaApplier := applier.NewSSAApplier(dynclient, logger, mapper)
 
 	// verify compliance of interface
 	var kustomizeProcessor types.RenderSrc = &kustomize{

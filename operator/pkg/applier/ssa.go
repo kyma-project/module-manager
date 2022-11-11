@@ -11,7 +11,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/restmapper"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	manifestTypes "github.com/kyma-project/module-manager/operator/pkg/types"
@@ -25,13 +24,13 @@ const fieldManager = "manifest-lib"
 type SetApplier struct {
 	patchOptions  metav1.PatchOptions
 	deleteOptions metav1.DeleteOptions
-	logger        *logr.Logger
-	mapper        *restmapper.DeferredDiscoveryRESTMapper
+	logger        logr.Logger
+	mapper        meta.RESTMapper
 	dynamicClient dynamic.Interface
 }
 
-func NewSSAApplier(dynamicClient dynamic.Interface, logger *logr.Logger,
-	mapper *restmapper.DeferredDiscoveryRESTMapper,
+func NewSSAApplier(dynamicClient dynamic.Interface, logger logr.Logger,
+	mapper meta.RESTMapper,
 ) *SetApplier {
 	return &SetApplier{
 		patchOptions:  metav1.PatchOptions{FieldManager: fieldManager},

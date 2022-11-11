@@ -187,7 +187,7 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, objectIn
 		return err
 	}
 
-	ready, err := manifest.InstallChart(&logger, installInfo, r.options.objectTransforms, nil)
+	ready, err := manifest.InstallChart(logger, installInfo, r.options.objectTransforms, nil)
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("error while installing resource %s",
 			client.ObjectKeyFromObject(objectInstance)))
@@ -231,7 +231,7 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInst
 		return err
 	}
 
-	readyToBeDeleted, err := manifest.UninstallChart(&logger, installInfo, r.options.objectTransforms, nil)
+	readyToBeDeleted, err := manifest.UninstallChart(logger, installInfo, r.options.objectTransforms, nil)
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("error while deleting resource %s", client.ObjectKeyFromObject(objectInstance)))
 		status.State = types.StateError
@@ -277,7 +277,7 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, objectInstanc
 	}
 
 	// verify installed resources
-	ready, err := manifest.ConsistencyCheck(&logger, installInfo, r.options.objectTransforms, nil)
+	ready, err := manifest.ConsistencyCheck(logger, installInfo, r.options.objectTransforms, nil)
 
 	// update only if resources not ready OR an error occurred during chart verification
 	if err != nil {

@@ -13,17 +13,17 @@ type Workers interface {
 	GetWorkerPoolSize() int
 	SetWorkerPoolSize(newSize int)
 	StartWorkers(ctx context.Context, jobChan <-chan manifestTypes.InstallInfo,
-		handlerFn func(info manifestTypes.InstallInfo, logger *logr.Logger) *manifestTypes.InstallResponse)
+		handlerFn func(info manifestTypes.InstallInfo, logger logr.Logger) *manifestTypes.InstallResponse)
 }
 
 type ManifestWorkerPool struct {
 	Workers
-	logger      *logr.Logger
+	logger      logr.Logger
 	initialSize int
 	size        int
 }
 
-func NewManifestWorkers(logger *logr.Logger, workersConcurrentManifests int) *ManifestWorkerPool {
+func NewManifestWorkers(logger logr.Logger, workersConcurrentManifests int) *ManifestWorkerPool {
 	return &ManifestWorkerPool{
 		logger:      logger,
 		initialSize: workersConcurrentManifests,
@@ -32,7 +32,7 @@ func NewManifestWorkers(logger *logr.Logger, workersConcurrentManifests int) *Ma
 }
 
 func (mw *ManifestWorkerPool) StartWorkers(ctx context.Context, jobChan <-chan OperationRequest,
-	handlerFn func(manifestTypes.InstallInfo, manifestTypes.Mode, *logr.Logger) *manifestTypes.InstallResponse,
+	handlerFn func(manifestTypes.InstallInfo, manifestTypes.Mode, logr.Logger) *manifestTypes.InstallResponse,
 ) {
 	for worker := 1; worker <= mw.GetWorkerPoolSize(); worker++ {
 		go func(ctx context.Context, workerId int, deployJob <-chan OperationRequest) {

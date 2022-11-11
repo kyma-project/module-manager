@@ -114,7 +114,7 @@ var _ = BeforeSuite(func() {
 		NewCache:           util.GetCacheFunc(),
 	})
 	Expect(err).ToNot(HaveOccurred())
-	manifestWorkers := controllers.NewManifestWorkers(&logger, 1)
+	manifestWorkers := controllers.NewManifestWorkers(logger, 1)
 	codec, err := types.NewCodec()
 	Expect(err).ToNot(HaveOccurred())
 

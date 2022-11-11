@@ -118,42 +118,42 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// state handling
 	switch manifestObj.Status.State {
 	case "":
-		return ctrl.Result{}, r.HandleInitialState(ctx, &logger, &manifestObj)
+		return ctrl.Result{}, r.HandleInitialState(ctx, logger, &manifestObj)
 	case v1alpha1.ManifestStateProcessing:
 		return ctrl.Result{Requeue: true},
-			r.HandleProcessingState(ctx, &logger, &manifestObj)
+			r.HandleProcessingState(ctx, logger, &manifestObj)
 	case v1alpha1.ManifestStateDeleting:
-		return ctrl.Result{Requeue: true}, r.HandleDeletingState(ctx, &logger, &manifestObj)
+		return ctrl.Result{Requeue: true}, r.HandleDeletingState(ctx, logger, &manifestObj)
 	case v1alpha1.ManifestStateError:
 		return ctrl.Result{Requeue: true},
 			r.HandleErrorState(ctx, &manifestObj)
 	case v1alpha1.ManifestStateReady:
 		return ctrl.Result{RequeueAfter: r.RequeueIntervals.Success},
-			r.HandleReadyState(ctx, &logger, &manifestObj)
+			r.HandleReadyState(ctx, logger, &manifestObj)
 	}
 
 	// should not be reconciled again
 	return ctrl.Result{}, nil
 }
 
-func (r *ManifestReconciler) HandleInitialState(ctx context.Context, _ *logr.Logger, manifestObj *v1alpha1.Manifest,
+func (r *ManifestReconciler) HandleInitialState(ctx context.Context, _ logr.Logger, manifestObj *v1alpha1.Manifest,
 ) error {
 	return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing, "initial state")
 }
 
-func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, logger *logr.Logger,
+func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, logger logr.Logger,
 	manifestObj *v1alpha1.Manifest,
 ) error {
 	return r.sendJobToInstallChannel(ctx, logger, manifestObj, types.CreateMode)
 }
 
-func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, logger *logr.Logger,
+func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, logger logr.Logger,
 	manifestObj *v1alpha1.Manifest,
 ) error {
 	return r.sendJobToInstallChannel(ctx, logger, manifestObj, types.DeletionMode)
 }
 
-func (r *ManifestReconciler) sendJobToInstallChannel(ctx context.Context, logger *logr.Logger,
+func (r *ManifestReconciler) sendJobToInstallChannel(ctx context.Context, logger logr.Logger,
 	manifestObj *v1alpha1.Manifest, mode types.Mode,
 ) error {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
@@ -200,7 +200,7 @@ func (r *ManifestReconciler) HandleErrorState(ctx context.Context, manifestObj *
 		"observed generation change")
 }
 
-func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest,
+func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger logr.Logger, manifestObj *v1alpha1.Manifest,
 ) error {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 	if manifestObj.IsSpecUpdated() {
@@ -273,7 +273,7 @@ func (r *ManifestReconciler) updateManifestStatus(ctx context.Context, manifestO
 }
 
 func (r *ManifestReconciler) HandleCharts(deployInfo types.InstallInfo, mode types.Mode,
-	logger *logr.Logger,
+	logger logr.Logger,
 ) *types.InstallResponse {
 	// evaluate create or delete chart
 	create := mode == types.CreateMode
@@ -295,7 +295,7 @@ func (r *ManifestReconciler) HandleCharts(deployInfo types.InstallInfo, mode typ
 	}
 }
 
-func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *logr.Logger, chartCount int,
+func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger logr.Logger, chartCount int,
 	responseChan types.ResponseChan, namespacedName client.ObjectKey,
 ) {
 	// errorState takes precedence over processing
@@ -363,7 +363,7 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 }
 
 func (r *ManifestReconciler) setProcessedState(ctx context.Context, errorState bool, processing bool,
-	manifestObj *v1alpha1.Manifest, logger *logr.Logger,
+	manifestObj *v1alpha1.Manifest, logger logr.Logger,
 ) {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 	endState := v1alpha1.ManifestStateDeleting

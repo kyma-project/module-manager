@@ -10,16 +10,10 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/client-go/discovery"
-	"k8s.io/client-go/discovery/cached/memory"
-	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/restmapper"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kyma-project/module-manager/operator/pkg/labels"
 	"github.com/kyma-project/module-manager/operator/pkg/resource"
-	manifestRest "github.com/kyma-project/module-manager/operator/pkg/rest"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
 )
@@ -35,14 +29,14 @@ type ResourceInfo struct {
 }
 
 type operations struct {
-	logger             *logr.Logger
+	logger             logr.Logger
 	renderSrc          types.RenderSrc
 	flags              types.ChartFlags
 	resourceTransforms []types.ObjectTransform
 }
 
 // InstallChart installs the resources based on types.InstallInfo and an appropriate rendering mechanism.
-func InstallChart(logger *logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
+func InstallChart(logger logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
 	cache types.RendererCache,
 ) (bool, error) {
 	ops, err := newOperations(logger, deployInfo, resourceTransforms, cache)
@@ -54,7 +48,7 @@ func InstallChart(logger *logr.Logger, deployInfo types.InstallInfo, resourceTra
 }
 
 // UninstallChart uninstalls the resources based on types.InstallInfo and an appropriate rendering mechanism.
-func UninstallChart(logger *logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
+func UninstallChart(logger logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
 	cache types.RendererCache,
 ) (bool, error) {
 	ops, err := newOperations(logger, deployInfo, resourceTransforms, cache)
@@ -66,7 +60,7 @@ func UninstallChart(logger *logr.Logger, deployInfo types.InstallInfo, resourceT
 }
 
 // ConsistencyCheck verifies consistency of resources based on types.InstallInfo and an appropriate rendering mechanism.
-func ConsistencyCheck(logger *logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
+func ConsistencyCheck(logger logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
 	cache types.RendererCache,
 ) (bool, error) {
 	ops, err := newOperations(logger, deployInfo, resourceTransforms, cache)
@@ -77,7 +71,7 @@ func ConsistencyCheck(logger *logr.Logger, deployInfo types.InstallInfo, resourc
 	return ops.consistencyCheck(deployInfo)
 }
 
-func newOperations(logger *logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
+func newOperations(logger logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
 	cache types.RendererCache,
 ) (*operations, error) {
 	cacheKey := discoverCacheKey(deployInfo.BaseResource, logger)
@@ -89,13 +83,10 @@ func newOperations(logger *logr.Logger, deployInfo types.InstallInfo, resourceTr
 	}
 	// cache entry not found
 	if renderSrc == nil {
-		memCacheClient, err := getMemCacheClient(deployInfo.Config)
-		if err != nil {
-			return nil, err
-		}
+		var err error
 		render := NewRendered(logger)
 		txformer := NewTransformer()
-		renderSrc, err = getManifestProcessor(deployInfo, memCacheClient, logger, render, txformer)
+		renderSrc, err = getManifestProcessor(deployInfo, logger, render, txformer)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create manifest processor: %w", err)
 		}
@@ -118,7 +109,7 @@ func newOperations(logger *logr.Logger, deployInfo types.InstallInfo, resourceTr
 // discoverCacheKey returns cache key for caching of manifest renderer,
 // by label value operator.kyma-project.io/cache-key.
 // If label not found on base resource an empty cache key is returned.
-func discoverCacheKey(resource client.Object, logger *logr.Logger) client.ObjectKey {
+func discoverCacheKey(resource client.Object, logger logr.Logger) client.ObjectKey {
 	if resource != nil {
 		label, err := util.GetResourceLabel(resource, labels.CacheKey)
 		var labelErr *util.LabelNotFoundError
@@ -135,11 +126,13 @@ func discoverCacheKey(resource client.Object, logger *logr.Logger) client.Object
 
 // getManifestProcessor returns a new types.RenderSrc instance
 // this render source will handle subsequent operations for manifest resources based on types.InstallInfo.
-func getManifestProcessor(deployInfo types.InstallInfo, memCacheClient discovery.CachedDiscoveryInterface,
-	logger *logr.Logger, render *rendered, txformer *transformer,
+func getManifestProcessor(deployInfo types.InstallInfo,
+	logger logr.Logger, render *rendered, txformer *transformer,
 ) (types.RenderSrc, error) {
-	// use deferred discovery client here as GVs applicable to the client are inconsistent at this moment
-	discoveryMapper := restmapper.NewDeferredDiscoveryRESTMapper(memCacheClient)
+	singletonClients, err := NewSingletonClients(deployInfo.Config, logger)
+	if err != nil {
+		return nil, err
+	}
 
 	chartKind, err := resource.GetChartKind(deployInfo)
 	if err != nil {
@@ -147,35 +140,17 @@ func getManifestProcessor(deployInfo types.InstallInfo, memCacheClient discovery
 	}
 	switch chartKind {
 	case resource.HelmKind, resource.UnknownKind:
-		// create RESTGetter with cached memcached client
-		restGetter := manifestRest.NewRESTClientGetter(deployInfo.Config, memCacheClient)
-
 		// create HelmClient instance
-		return NewHelmProcessor(restGetter, discoveryMapper, deployInfo.Config, cli.New(), logger,
+		return NewHelmProcessor(singletonClients, cli.New(), logger,
 			render, txformer)
 	case resource.KustomizeKind:
 		// create dynamic client for rest config
-		dynamicClient, err := dynamic.NewForConfig(deployInfo.Config)
 		if err != nil {
 			return nil, fmt.Errorf("error creating dynamic client: %w", err)
 		}
-		return NewKustomizeProcessor(dynamicClient, discoveryMapper, logger,
-			render, txformer)
+		return NewKustomizeProcessor(singletonClients, logger, render, txformer)
 	}
 	return nil, nil
-}
-
-// getMemCacheClient creates and returns a new instance of MemCacheClient.
-func getMemCacheClient(config *rest.Config) (discovery.CachedDiscoveryInterface, error) {
-	// The more groups you have, the more discovery requests you need to make.
-	// given 25 groups (our groups + a few custom conf) with one-ish version each, discovery needs to make 50 requests
-	// double it just so we don't end up here again for a while.  This config is only used for discovery.
-	config.Burst = 100
-	discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
-	if err != nil {
-		return nil, err
-	}
-	return memory.NewMemCacheClient(discoveryClient), nil
 }
 
 func (o *operations) consistencyCheck(deployInfo types.InstallInfo) (bool, error) {

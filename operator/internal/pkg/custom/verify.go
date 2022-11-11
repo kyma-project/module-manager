@@ -19,13 +19,13 @@ type Resource struct {
 	types.Check
 }
 
-func (r *Resource) DefaultFn(context.Context, *unstructured.Unstructured, *logr.Logger,
+func (r *Resource) DefaultFn(context.Context, *unstructured.Unstructured, logr.Logger,
 	types.ClusterInfo,
 ) (bool, error) {
 	return true, nil
 }
 
-func (r *Resource) CheckFn(ctx context.Context, manifestObj *unstructured.Unstructured, logger *logr.Logger,
+func (r *Resource) CheckFn(ctx context.Context, manifestObj *unstructured.Unstructured, logger logr.Logger,
 	clusterInfo types.ClusterInfo,
 ) (bool, error) {
 	// if manifest resource is in deleting state - validate check
