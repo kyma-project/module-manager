@@ -24,7 +24,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           # Context for which we should look for the matching status
-          statusName: ${{ (github.event_name == 'pull_request') && 'pull-build' || 'main-module-mgr-build' }}
+          statusName: ${{ (github.event_name == 'pull_request') && 'pull-module-mgr-build' || 'main-module-mgr-build' }}
           timeoutSeconds: 180
           intervalSeconds: 10
       - name: Exit If Failing Build Requirement
