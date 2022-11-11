@@ -16,12 +16,17 @@ import (
 
 	"errors"
 	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
+	"github.com/kyma-project/module-manager/operator/pkg/labels"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 )
 
 const (
-	Timeout  = time.Second * 60
+	Timeout  = time.Second * 30
 	Interval = time.Millisecond * 250
+)
+
+var (
+	ErrManifestStateMisMatch = errors.New("ManifestState mismatch")
 )
 
 func getManifestState(manifestName string) v1alpha1.ManifestState {
@@ -59,78 +64,101 @@ func unsetHelmEnv() error {
 	return nil
 }
 
-var _ = Describe("given manifest with install specs", func() {
+var _ = Describe("Given manifest with oci specs", Ordered, func() {
+	name := "valid-image-spec"
+	BeforeAll(func() {
+		PushToRemoteOCIRegistry(name)
+	})
+	DescribeTable("Test ModuleStatus",
+		func(givenCondition func(manifest *v1alpha1.Manifest) error, expectManifestState func(manifestName string) error,
+			expectedHelmClientCache func(cacheKey string) bool) {
+			var manifest = NewTestManifest("manifest", "kyma")
+			Eventually(givenCondition, Timeout, Interval).WithArguments(manifest).Should(Succeed())
+			Eventually(expectManifestState, Timeout, Interval).WithArguments(manifest.GetName()).Should(Succeed())
+			Eventually(expectedHelmClientCache, Timeout, Interval).WithArguments(manifest.GetLabels()[labels.CacheKey]).Should(BeTrue())
+		},
+		Entry("When manifestCR contains a valid OCI image specification, expect state in ready",
+			addImageSpec(name, false), expectManifestStateIn(v1alpha1.ManifestStateReady), expectHelmClientCacheExist(true)),
+		Entry("When manifestCR contains an invalid OCI image specification, expect state in error",
+			addInvalidImageSpec(false), expectManifestStateIn(v1alpha1.ManifestStateError), expectHelmClientCacheExist(false)),
+	)
+})
+
+var _ = Describe("Given manifest with kustomize, helm specs", func() {
 	setHelmEnv()
-	//remoteKustomizeSpec := types.KustomizeSpec{
-	//	URL:  "https://github.com/kyma-project/module-manager//operator/config/default?ref=main",
-	//	Type: "kustomize",
-	//}
-	//remoteKustomizeSpecBytes, err := json.Marshal(remoteKustomizeSpec)
-	//Expect(err).ToNot(HaveOccurred())
-	//localKustomizeSpec := types.KustomizeSpec{
-	//	Path: "./test_samples/kustomize",
-	//	Type: "kustomize",
-	//}
-	//localKustomizeSpecBytes, err := json.Marshal(localKustomizeSpec)
-	//Expect(err).ToNot(HaveOccurred())
-	//invalidKustomizeSpec := types.KustomizeSpec{
-	//	Path: "./invalidPath",
-	//	Type: "kustomize",
-	//}
-	//invalidKustomizeSpecBytes, err := json.Marshal(invalidKustomizeSpec)
-	//Expect(err).ToNot(HaveOccurred())
-	//
-	//validHelmChartSpec := types.HelmChartSpec{
-	//	ChartName: "nginx-ingress",
-	//	URL:       "https://helm.nginx.com/stable",
-	//	Type:      "helm-chart",
-	//}
-	//validHelmChartSpecBytes, err := json.Marshal(validHelmChartSpec)
-	//Expect(err).ToNot(HaveOccurred())
+	remoteKustomizeSpec := types.KustomizeSpec{
+		URL:  "https://github.com/kyma-project/module-manager//operator/config/default?ref=main",
+		Type: "kustomize",
+	}
+	remoteKustomizeSpecBytes, err := json.Marshal(remoteKustomizeSpec)
+	Expect(err).ToNot(HaveOccurred())
+	localKustomizeSpec := types.KustomizeSpec{
+		Path: kustomizeLocalPath,
+		Type: "kustomize",
+	}
+	localKustomizeSpecBytes, err := json.Marshal(localKustomizeSpec)
+	Expect(err).ToNot(HaveOccurred())
+	invalidKustomizeSpec := types.KustomizeSpec{
+		Path: "./invalidPath",
+		Type: "kustomize",
+	}
+	invalidKustomizeSpecBytes, err := json.Marshal(invalidKustomizeSpec)
+	Expect(err).ToNot(HaveOccurred())
+
+	validHelmChartSpec := types.HelmChartSpec{
+		ChartName: "nginx-ingress",
+		URL:       "https://helm.nginx.com/stable",
+		Type:      "helm-chart",
+	}
+	validHelmChartSpecBytes, err := json.Marshal(validHelmChartSpec)
+	Expect(err).ToNot(HaveOccurred())
 
 	DescribeTable("Test ModuleStatus",
 		func(givenCondition func(manifest *v1alpha1.Manifest) error, expectedBehavior func(manifestName string) error) {
-			var manifest = NewTestManifest("manifest")
+			var manifest = NewTestManifest("manifest", "kyma")
 			Eventually(givenCondition, Timeout, Interval).WithArguments(manifest).Should(Succeed())
 			Eventually(expectedBehavior, Timeout, Interval).WithArguments(manifest.GetName()).Should(Succeed())
 		},
-		//Entry("When manifestCR contains a valid remote Kustomize specification, expect state in ready",
-		//	addSpec(remoteKustomizeSpecBytes), expectManifestStateIn(v1alpha1.ManifestStateReady)),
-		//Entry("When manifestCR contains a valid local Kustomize specification, expect state in ready",
-		//	addSpec(localKustomizeSpecBytes), expectManifestStateIn(v1alpha1.ManifestStateReady)),
-		//Entry("When manifestCR contains an invalid local Kustomize specification, expect state in error",
-		//	addSpec(invalidKustomizeSpecBytes), expectManifestStateIn(v1alpha1.ManifestStateError)),
-		//Entry("When manifestCR contains a valid helm repo, expect state in ready",
-		//	addSpec(validHelmChartSpecBytes), expectManifestStateIn(v1alpha1.ManifestStateReady)),
-		Entry("When manifestCR contains a valid OCI image specification, expect state in ready",
-			addValidImageSpec(true), expectManifestStateIn(v1alpha1.ManifestStateReady)),
-		//Entry("When manifestCR contains an invalid OCI image specification, expect state in error",
-		//	addInvalidImageSpec(), expectManifestStateIn(v1alpha1.ManifestStateError)),
+		Entry("When manifestCR contains a valid remote Kustomize specification, expect state in ready",
+			addSpec(remoteKustomizeSpecBytes, false), expectManifestStateIn(v1alpha1.ManifestStateReady)),
+		Entry("When manifestCR contains a valid local Kustomize specification, expect state in ready",
+			addSpec(localKustomizeSpecBytes, false), expectManifestStateIn(v1alpha1.ManifestStateReady)),
+		Entry("When manifestCR contains an invalid local Kustomize specification, expect state in error",
+			addSpec(invalidKustomizeSpecBytes, false), expectManifestStateIn(v1alpha1.ManifestStateError)),
+		Entry("When manifestCR contains a valid helm repo, expect state in ready",
+			addSpec(validHelmChartSpecBytes, false), expectManifestStateIn(v1alpha1.ManifestStateReady)),
 	)
 })
 
 func addInvalidImageSpec(remote bool) func(manifest *v1alpha1.Manifest) error {
 	return func(manifest *v1alpha1.Manifest) error {
+		name := "invalid-image-spec"
 		invalidImageSpec := types.ImageSpec{
-			Name: layerNameRef,
-			Repo: "invalid.com",
+			Name: name,
+			Repo: "domain.invalid",
 			Type: "oci-ref",
 		}
-		invalidImageSpec.Ref = GetImageSpecFromMockOCIRegistry()
+		layer := CreateImageSpecLayer()
+		digest, err := layer.Digest()
+		Expect(err).ToNot(HaveOccurred())
+		invalidImageSpec.Ref = digest.String()
 		imageSpecByte, err := json.Marshal(invalidImageSpec)
 		Expect(err).ToNot(HaveOccurred())
 		return installManifest(manifest, imageSpecByte, remote)
 	}
 }
 
-func addValidImageSpec(remote bool) func(manifest *v1alpha1.Manifest) error {
+func addImageSpec(name string, remote bool) func(manifest *v1alpha1.Manifest) error {
 	return func(manifest *v1alpha1.Manifest) error {
 		validImageSpec := types.ImageSpec{
-			Name: layerNameRef,
+			Name: name,
 			Repo: server.Listener.Addr().String(),
 			Type: "oci-ref",
 		}
-		validImageSpec.Ref = GetImageSpecFromMockOCIRegistry()
+		layer := CreateImageSpecLayer()
+		digest, err := layer.Digest()
+		Expect(err).ToNot(HaveOccurred())
+		validImageSpec.Ref = digest.String()
 		imageSpecByte, err := json.Marshal(validImageSpec)
 		Expect(err).ToNot(HaveOccurred())
 		return installManifest(manifest, imageSpecByte, remote)
@@ -154,9 +182,20 @@ func expectManifestStateIn(state v1alpha1.ManifestState) func(manifestName strin
 	return func(manifestName string) error {
 		manifestState := getManifestState(manifestName)
 		if state != manifestState {
-			return errors.New("ManifestState not match")
+			return ErrManifestStateMisMatch
 		}
 		return nil
+	}
+}
+
+func expectHelmClientCacheExist(expectExist bool) func(componentOwner string) bool {
+	return func(componentOwner string) bool {
+		key := client.ObjectKey{Name: componentOwner, Namespace: v1.NamespaceDefault}
+		renderSrc := reconciler.CacheManager.RenderSources.Get(key)
+		if expectExist {
+			return renderSrc != nil
+		}
+		return renderSrc == nil
 	}
 }
 

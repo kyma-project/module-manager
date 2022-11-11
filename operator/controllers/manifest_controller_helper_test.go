@@ -51,10 +51,14 @@ func (m mockLayer) Compressed() (io.ReadCloser, error) {
 	return io.NopCloser(f), nil
 }
 
-func GetImageSpecFromMockOCIRegistry() string {
+func CreateImageSpecLayer() v1.Layer {
 	// create registry and server
 	layer, err := partial.CompressedToLayer(mockLayer{})
 	Expect(err).ToNot(HaveOccurred())
+	return layer
+}
+func PushToRemoteOCIRegistry(layerName string) {
+	layer := CreateImageSpecLayer()
 	digest, err := layer.Digest()
 	Expect(err).ToNot(HaveOccurred())
 
@@ -62,7 +66,7 @@ func GetImageSpecFromMockOCIRegistry() string {
 	u, err := url.Parse(server.URL)
 	Expect(err).NotTo(HaveOccurred())
 
-	dst := fmt.Sprintf("%s/%s@%s", u.Host, layerNameRef, digest)
+	dst := fmt.Sprintf("%s/%s@%s", u.Host, layerName, digest)
 	ref, err := name.NewDigest(dst)
 	Expect(err).ToNot(HaveOccurred())
 
@@ -74,17 +78,6 @@ func GetImageSpecFromMockOCIRegistry() string {
 	gotHash, err := got.Digest()
 	Expect(err).ToNot(HaveOccurred())
 	Expect(gotHash).To(Equal(digest))
-	hash, err := layer.Digest()
-	Expect(err).ToNot(HaveOccurred())
-	return hash.String()
-}
-
-func GetImageSpec() manifestTypes.ImageSpec {
-	return manifestTypes.ImageSpec{
-		Name: layerNameRef,
-		Repo: server.Listener.Addr().String(),
-		Type: "oci-ref",
-	}
 }
 
 func createKymaSecret() *corev1.Secret {
@@ -99,26 +92,13 @@ func createKymaSecret() *corev1.Secret {
 	return kymaSecret
 }
 
-func createManifestObj(name string, spec v1alpha1.ManifestSpec) *v1alpha1.Manifest {
-	return &v1alpha1.Manifest{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: metav1.NamespaceDefault,
-			Labels: map[string]string{
-				labels.ComponentOwner: secretName,
-			},
-		},
-		Spec: spec,
-	}
-}
-
-func NewTestManifest(name string) *v1alpha1.Manifest {
+func NewTestManifest(name string, componentOwner string) *v1alpha1.Manifest {
 	return &v1alpha1.Manifest{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name + RandString(8),
 			Namespace: metav1.NamespaceDefault,
 			Labels: map[string]string{
-				labels.ComponentOwner: secretName,
+				labels.ComponentOwner: componentOwner,
 				labels.CacheKey:       RandString(8),
 			},
 		},
