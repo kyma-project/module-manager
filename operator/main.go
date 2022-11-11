@@ -40,11 +40,15 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	"github.com/go-logr/logr"
+	"github.com/go-logr/zapr"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
 var (
@@ -54,8 +58,6 @@ var (
 
 const (
 	requeueSuccessIntervalDefault = 20 * time.Second
-	requeueFailureIntervalDefault = 10 * time.Second
-	requeueWaitingIntervalDefault = 2 * time.Second
 	workersCountDefault           = 4
 	rateLimiterBurstDefault       = 200
 	rateLimiterFrequencyDefault   = 30
@@ -65,6 +67,7 @@ const (
 	clientQPSDefault              = 150
 	clientBurstDefault            = 150
 	defaultPprofServerTimeout     = 90 * time.Second
+	defaultCacheSyncTimeout       = 2 * time.Minute
 )
 
 //nolint:gochecknoinits
@@ -78,29 +81,25 @@ func init() {
 }
 
 type FlagVar struct {
-	metricsAddr, listenerAddr                                              string
-	enableLeaderElection, enablePProf, enableWebhooks                      bool
-	checkReadyStates, customStateCheck, insecureRegistry                   bool
-	probeAddr                                                              string
-	requeueSuccessInterval, requeueFailureInterval, requeueWaitingInterval time.Duration
-	failureBaseDelay, failureMaxDelay                                      time.Duration
-	concurrentReconciles, workersConcurrentManifests                       int
-	rateLimiterBurst, rateLimiterFrequency                                 int
-	clientQPS                                                              float64
-	clientBurst                                                            int
-	pprofAddr                                                              string
-	pprofServerTimeout                                                     time.Duration
+	metricsAddr, listenerAddr                            string
+	enableLeaderElection, enablePProf, enableWebhooks    bool
+	checkReadyStates, customStateCheck, insecureRegistry bool
+	probeAddr                                            string
+	requeueSuccessInterval                               time.Duration
+	failureBaseDelay, failureMaxDelay                    time.Duration
+	concurrentReconciles, workersConcurrentManifests     int
+	rateLimiterBurst, rateLimiterFrequency               int
+	clientQPS                                            float64
+	clientBurst                                          int
+	pprofAddr                                            string
+	pprofServerTimeout                                   time.Duration
+	cacheSyncTimeout                                     time.Duration
 }
 
 func main() {
 	flagVar := defineFlagVar()
-	opts := zap.Options{
-		Development: true,
-	}
-	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
-
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	ctrl.SetLogger(configLogger())
 
 	config := ctrl.GetConfigOrDie()
 	config.QPS = float32(flagVar.clientQPS)
@@ -109,6 +108,21 @@ func main() {
 		go pprofStartServer(flagVar.pprofAddr, flagVar.pprofServerTimeout)
 	}
 	setupWithManager(flagVar, util.GetCacheFunc(), scheme, config)
+}
+
+func configLogger() logr.Logger {
+	// The following settings is based on kyma community Improvement of log messages usability
+	//nolint:lll
+	// https://github.com/kyma-project/community/blob/main/concepts/observability-consistent-logging/improvement-of-log-messages-usability.md#log-structure
+	atomicLevel := zap.NewAtomicLevel()
+	encoderConfig := zap.NewProductionEncoderConfig()
+	encoderConfig.TimeKey = "date"
+	encoderConfig.EncodeTime = zapcore.RFC3339NanoTimeEncoder
+	encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
+	core := zapcore.NewCore(zapcore.NewJSONEncoder(encoderConfig), zapcore.Lock(os.Stdout), atomicLevel)
+	zapLog := zap.New(core, zap.AddCaller(), zap.AddStacktrace(zapcore.ErrorLevel))
+	logger := zapr.NewLogger(zapLog.With(zap.Namespace("context")))
+	return logger
 }
 
 func pprofStartServer(addr string, timeout time.Duration) {
@@ -155,9 +169,10 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 		os.Exit(1)
 	}
 	if err = (&controllers.ManifestReconciler{
-		Client:  mgr.GetClient(),
-		Scheme:  mgr.GetScheme(),
-		Workers: manifestWorkers,
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		Workers:          manifestWorkers,
+		CacheSyncTimeout: flagVar.cacheSyncTimeout,
 		ReconcileFlagConfig: internalTypes.ReconcileFlagConfig{
 			Codec:                   codec,
 			MaxConcurrentReconciles: flagVar.concurrentReconciles,
@@ -167,8 +182,6 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 		},
 		RequeueIntervals: controllers.RequeueIntervals{
 			Success: flagVar.requeueSuccessInterval,
-			Failure: flagVar.requeueFailureInterval,
-			Waiting: flagVar.requeueWaitingInterval,
 		},
 	}).SetupWithManager(context, mgr, flagVar.failureBaseDelay, flagVar.failureMaxDelay,
 		flagVar.rateLimiterFrequency, flagVar.rateLimiterBurst, flagVar.listenerAddr); err != nil {
@@ -214,13 +227,6 @@ func defineFlagVar() *FlagVar {
 	flag.DurationVar(&flagVar.requeueSuccessInterval, "requeue-success-interval", requeueSuccessIntervalDefault,
 		"Determines the duration after which an already successfully reconciled Manifest is "+
 			"enqueued for checking, if it's still in a consistent state.")
-	flag.DurationVar(&flagVar.requeueFailureInterval, "requeue-failure-interval", requeueFailureIntervalDefault,
-		"Determines the duration after which a failing reconciliation is retried and "+
-			"enqueued for a next try at recovering (e.g. because an Remote Synchronization Interaction failed).")
-	flag.DurationVar(&flagVar.requeueWaitingInterval, "requeue-waiting-interval", requeueWaitingIntervalDefault,
-		"Determines the duration after which a pending reconciliation is requeued, "+
-			"if the operator decides that it needs to wait for a certain state to update before it can proceed "+
-			"(e.g. because of pending finalizers in the deletion process).")
 	flag.IntVar(&flagVar.concurrentReconciles, "max-concurrent-reconciles", 1,
 		"Determines the number of concurrent reconciliations by the operator.")
 	flag.IntVar(&flagVar.workersConcurrentManifests, "workers-concurrent-manifest", workersCountDefault,
@@ -248,5 +254,7 @@ func defineFlagVar() *FlagVar {
 		"indicates if pprof should be enabled")
 	flag.DurationVar(&flagVar.pprofServerTimeout, "pprof-server-timeout", defaultPprofServerTimeout,
 		"Timeout of Read / Write for the pprof server.")
+	flag.DurationVar(&flagVar.cacheSyncTimeout, "cache-sync-timeout", defaultCacheSyncTimeout,
+		"Indicates the cache sync timeout in seconds")
 	return flagVar
 }

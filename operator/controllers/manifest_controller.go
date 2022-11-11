@@ -51,7 +51,6 @@ import (
 	internalUtil "github.com/kyma-project/module-manager/operator/internal/pkg/util"
 	"github.com/kyma-project/module-manager/operator/pkg/labels"
 	"github.com/kyma-project/module-manager/operator/pkg/manifest"
-	"github.com/kyma-project/module-manager/operator/pkg/ratelimit"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
 	listener "github.com/kyma-project/runtime-watcher/listener/pkg/event"
@@ -59,8 +58,6 @@ import (
 
 type RequeueIntervals struct {
 	Success time.Duration
-	Failure time.Duration
-	Waiting time.Duration
 }
 
 type OperationRequest struct {
@@ -80,6 +77,7 @@ type ManifestReconciler struct {
 	RequeueIntervals RequeueIntervals
 	CacheManager     *CacheManager
 	internalTypes.ReconcileFlagConfig
+	CacheSyncTimeout time.Duration
 }
 
 //+kubebuilder:rbac:groups=operator.kyma-project.io,resources=manifests,verbs=get;list;watch;create;update;patch;delete
@@ -91,7 +89,7 @@ type ManifestReconciler struct {
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx).WithName(req.NamespacedName.String())
+	logger := log.FromContext(ctx)
 	logger.Info("Reconciliation loop starting for", "resource", req.NamespacedName.String())
 
 	// get manifest object
@@ -104,12 +102,6 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	manifestObj = *manifestObj.DeepCopy()
-
-	randomizeDuration := func(input time.Duration) time.Duration {
-		millis := int(input / time.Millisecond)
-		res := ratelimit.RandomizeByTenPercent(millis)
-		return time.Duration(res) * time.Millisecond
-	}
 
 	// check if deletionTimestamp is set, retry until it gets fully deleted
 	if !manifestObj.DeletionTimestamp.IsZero() && manifestObj.Status.State != v1alpha1.ManifestStateDeleting {
@@ -128,15 +120,15 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	case "":
 		return ctrl.Result{}, r.HandleInitialState(ctx, &logger, &manifestObj)
 	case v1alpha1.ManifestStateProcessing:
-		return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Failure)},
+		return ctrl.Result{Requeue: true},
 			r.HandleProcessingState(ctx, &logger, &manifestObj)
 	case v1alpha1.ManifestStateDeleting:
-		return ctrl.Result{}, r.HandleDeletingState(ctx, &logger, &manifestObj)
+		return ctrl.Result{Requeue: true}, r.HandleDeletingState(ctx, &logger, &manifestObj)
 	case v1alpha1.ManifestStateError:
-		return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Failure)},
+		return ctrl.Result{Requeue: true},
 			r.HandleErrorState(ctx, &manifestObj)
 	case v1alpha1.ManifestStateReady:
-		return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Success)},
+		return ctrl.Result{RequeueAfter: r.RequeueIntervals.Success},
 			r.HandleReadyState(ctx, &logger, &manifestObj)
 	}
 
@@ -185,7 +177,10 @@ func (r *ManifestReconciler) sendJobToInstallChannel(ctx context.Context, logger
 			// so remove finalizer in this case, to process with Manifest deletion
 			return r.finalizeDeletion(ctx, manifestObj)
 		}
-		return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error())
+		if err := r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error()); err != nil {
+			return err
+		}
+		return err
 	}
 
 	// send processing requests (installation / uninstallation) to deployment channel
@@ -244,7 +239,10 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.
 		} else if err != nil {
 			logger.Error(err, fmt.Sprintf("error while performing consistency check on manifest %s", namespacedName))
 			internalUtil.AddReadyConditionForResponses([]*types.InstallResponse{chartResponse}, logger, manifestObj)
-			return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error())
+			if err := r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error()); err != nil {
+				return err
+			}
+			return err
 		}
 	}
 	return nil
@@ -435,6 +433,7 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 		WithOptions(controller.Options{
 			RateLimiter:             ManifestRateLimiter(failureBaseDelay, failureMaxDelay, frequency, burst),
 			MaxConcurrentReconciles: r.MaxConcurrentReconciles,
+			CacheSyncTimeout:        r.CacheSyncTimeout,
 		}).
 		Complete(r)
 }
