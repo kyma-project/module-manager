@@ -80,10 +80,12 @@ func (s *SetApplier) Delete(deployInfo manifestTypes.InstallInfo, objects *manif
 	deletionSuccess := true
 	deleteErrors := make([]error, 0)
 
-	for _, obj := range objects.Items {
-		name := obj.GetName()
+	for i := len(objects.Items) - 1; i >= 0; i-- {
+		// reverse order of install will ensure that CRDs last applied are uninstalled first
+		// followed by CRs / other resources
+		name := objects.Items[i].GetName()
 		// get dynamic client interface for object
-		resourceInterface, err := s.getDynamicResourceInterface(s.dynamicClient, obj)
+		resourceInterface, err := s.getDynamicResourceInterface(s.dynamicClient, objects.Items[i])
 		if err != nil {
 			return false, err
 		}

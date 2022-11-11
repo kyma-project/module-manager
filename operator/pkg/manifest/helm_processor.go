@@ -159,13 +159,12 @@ func (h *helm) Uninstall(stringifedManifest string, deployInfo types.InstallInfo
 	}
 
 	// uninstall resources
-	result, err := h.uninstallResources(resourceLists)
+	_, err = h.uninstallResources(resourceLists)
 	if err != nil {
 		return false, err
 	}
 
 	h.logger.V(util.DebugLogLevel).Info("uninstalled Helm chart resources",
-		"count", len(result.Deleted),
 		"chart", deployInfo.ChartName,
 		"release", deployInfo.ReleaseName,
 		"resource", client.ObjectKeyFromObject(deployInfo.BaseResource).String())
@@ -527,7 +526,7 @@ func (h *helm) assignRestMapping(gvk schema.GroupVersionKind, info *resource.Inf
 
 // InvalidateConfigAndRenderedManifest compares the cached hash with the processed hash for helm flags.
 // If the hashes are not equal it resets the flags on the helm action client.
-// Also, it deletes the persisted manifest resource on the file system at <chartPath>/manifest/manifest.yaml
+// Also, it deletes the persisted manifest resource on the file system at <chartPath>/manifest/manifest.yaml.
 func (h *helm) InvalidateConfigAndRenderedManifest(deployInfo types.InstallInfo, currentHash uint32) (uint32, error) {
 	newHash, err := util.CalculateHash(deployInfo.Flags)
 	if err != nil {

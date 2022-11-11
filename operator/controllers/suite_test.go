@@ -68,6 +68,8 @@ const (
 	layerNameRef       = "some/name"
 	secretName         = "some-kyma-name"
 	kustomizeLocalPath = "./test_samples/kustomize"
+	standardTimeout    = 2 * time.Minute
+	standardInterval   = 250 * time.Millisecond
 )
 
 func TestAPIs(t *testing.T) {

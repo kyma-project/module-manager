@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
-	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -38,7 +37,7 @@ func createManifestAndCheckState(desiredState v1alpha1.ManifestState, specBytes 
 		Installs: installs,
 	})
 	Expect(k8sClient.Create(ctx, manifestObj)).Should(Succeed())
-	Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
+	Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), standardTimeout, standardInterval).
 		Should(BeEquivalentTo(desiredState))
 	return manifestObj
 }
@@ -297,16 +296,16 @@ var _ = Describe("given manifest with a helm repo", Ordered, func() {
 		},
 		[]TableEntry{
 			Entry("when two remote manifestCRs contain no install specification", createTwoRemoteManifestsWithNoInstalls()),
-			Entry("when manifestCR contains a valid remote Kustomize specification", createManifestWithRemoteKustomize()),
-			Entry("when manifestCR contains a valid local Kustomize specification", createManifestWithLocalKustomize()),
 			Entry("when manifestCR contains invalid Kustomize specification", createManifestWithInvalidKustomize()),
 			Entry("when manifestCR contains a valid helm repo", createManifestWithHelmRepo()),
 			Entry("when two manifestCRs contain valid OCI Image specifications", createManifestWithOCI()),
 			Entry("when manifestCR contains invalid OCI Image specification", createManifestWithInvalidOCI()),
+			Entry("when manifestCR contains a valid local Kustomize specification", createManifestWithLocalKustomize()),
 			Entry("when manifestCR contains a valid local Kustomize specification with "+
 				"insufficient execute permissions", createManifestWithInsufficientExecutePerm()),
 			Entry("when manifestCR contains a valid local Kustomize specification with "+
 				"insufficient write permissions", createManifestWithInsufficientWritePermissions()),
+			Entry("when manifestCR contains a valid remote Kustomize specification", createManifestWithRemoteKustomize()),
 			// TODO write tests for pre-rendered Manifests
 		})
 

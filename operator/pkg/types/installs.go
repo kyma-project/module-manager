@@ -10,6 +10,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// RenderSrc offers utility methods for processing of manifest resources.
 type RenderSrc interface {
 	GetRawManifest(deployInfo InstallInfo) *ParsedFile
 	Install(manifest string, deployInfo InstallInfo, transforms []ObjectTransform) (bool, error)
@@ -23,6 +24,9 @@ type RenderSrc interface {
 	InvalidateConfigAndRenderedManifest(deployInfo InstallInfo, cachedHash uint32) (uint32, error)
 }
 
+// RefTypeMetadata specifies the type of installation specification
+// that could be provided as part of a custom resource.
+// This time is used in codec to successfully decode from raw extensions.
 // +kubebuilder:validation:Enum=helm-chart;oci-ref;"kustomize";""
 type RefTypeMetadata string
 
@@ -174,25 +178,3 @@ type ResourceInfo struct {
 	// Crds represents a set of additional custom resource definitions to be installed
 	Crds []*v1.CustomResourceDefinition
 }
-
-type ResponseChan chan *InstallResponse
-
-//nolint:errname
-type InstallResponse struct {
-	Ready             bool
-	ChartName         string
-	Flags             ChartFlags
-	ResNamespacedName client.ObjectKey
-	Err               error
-}
-
-func (r *InstallResponse) Error() string {
-	return r.Err.Error()
-}
-
-type Mode int
-
-const (
-	CreateMode Mode = iota
-	DeletionMode
-)
