@@ -82,11 +82,7 @@ func (k *kustomize) Install(manifest string, deployInfo types.InstallInfo,
 	}
 
 	// TODO fill namespace from user options
-	if err = k.applier.Apply(deployInfo, objects, ""); err != nil {
-		return false, err
-	}
-
-	return true, nil
+	return k.applier.Apply(deployInfo, objects, "")
 }
 
 // Uninstall transforms and deletes kustomize based manifest using dynamic client.

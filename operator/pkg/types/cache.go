@@ -29,10 +29,3 @@ type ClusterInfoCache interface {
 	Set(key client.ObjectKey, info ClusterInfo)
 	Delete(key client.ObjectKey)
 }
-
-// ManifestConfig offers utility methods to access resource relevant config.
-type ManifestConfig interface {
-	Get(key client.ObjectKey) ClusterInfo
-	Set(key client.ObjectKey, cfg any)
-	Delete(key client.ObjectKey)
-}

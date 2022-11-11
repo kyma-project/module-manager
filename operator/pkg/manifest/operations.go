@@ -5,10 +5,8 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/dynamic"
@@ -23,16 +21,6 @@ import (
 	"github.com/kyma-project/module-manager/operator/pkg/util"
 )
 
-// ResourceInfo represents additional resources.
-type ResourceInfo struct {
-	// BaseResource represents base custom resource that is being reconciled
-	BaseResource *unstructured.Unstructured
-	// CustomResources represents a set of additional custom resources to be installed
-	CustomResources []*unstructured.Unstructured
-	// Crds represents a set of additional custom resource definitions to be installed
-	Crds []*apiextensions.CustomResourceDefinition
-}
-
 type operations struct {
 	logger             *logr.Logger
 	renderSrc          types.RenderSrc
@@ -44,7 +32,7 @@ type operations struct {
 func InstallChart(logger *logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
 	cache types.RendererCache,
 ) (bool, error) {
-	ops, err := newOperations(logger, deployInfo, resourceTransforms, cache)
+	ops, err := NewOperations(logger, deployInfo, resourceTransforms, cache)
 	if err != nil {
 		return false, err
 	}
@@ -56,7 +44,7 @@ func InstallChart(logger *logr.Logger, deployInfo types.InstallInfo, resourceTra
 func UninstallChart(logger *logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
 	cache types.RendererCache,
 ) (bool, error) {
-	ops, err := newOperations(logger, deployInfo, resourceTransforms, cache)
+	ops, err := NewOperations(logger, deployInfo, resourceTransforms, cache)
 	if err != nil {
 		return false, err
 	}
@@ -68,7 +56,7 @@ func UninstallChart(logger *logr.Logger, deployInfo types.InstallInfo, resourceT
 func ConsistencyCheck(logger *logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
 	cache types.RendererCache,
 ) (bool, error) {
-	ops, err := newOperations(logger, deployInfo, resourceTransforms, cache)
+	ops, err := NewOperations(logger, deployInfo, resourceTransforms, cache)
 	if err != nil {
 		return false, err
 	}
@@ -76,7 +64,8 @@ func ConsistencyCheck(logger *logr.Logger, deployInfo types.InstallInfo, resourc
 	return ops.consistencyCheck(deployInfo)
 }
 
-func newOperations(logger *logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
+//nolint:revive
+func NewOperations(logger *logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
 	cache types.RendererCache,
 ) (*operations, error) {
 	renderSrc, err := getRenderSrc(cache, deployInfo, logger)
@@ -124,7 +113,8 @@ func getRenderSrc(cache types.RendererCache, deployInfo types.InstallInfo,
 	/* Configuration handling */
 	// if there is no update on config - return from here
 	nsNameBaseResource := client.ObjectKeyFromObject(deployInfo.BaseResource)
-	configHash, err := renderSrc.InvalidateConfigAndRenderedManifest(deployInfo, cache.GetConfig(nsNameBaseResource))
+	configHash, err := renderSrc.InvalidateConfigAndRenderedManifest(deployInfo,
+		cache.GetConfig(nsNameBaseResource))
 	if err != nil {
 		return nil, err
 	}
@@ -136,6 +126,8 @@ func getRenderSrc(cache types.RendererCache, deployInfo types.InstallInfo,
 	// update hash config each time
 	// e.g. in case of Helm the passed flags could lead to invalidation
 	cache.SetConfig(nsNameBaseResource, configHash)
+	// update manifest processor - since configuration could be reset
+	cache.SetProcessor(clusterCacheKey, renderSrc)
 
 	return renderSrc, nil
 }
@@ -293,7 +285,7 @@ func (o *operations) uninstall(deployInfo types.InstallInfo) (bool, error) {
 	}
 
 	// uninstall resources
-	consistent, err := o.renderSrc.Install(parsedFile.GetContent(), deployInfo, o.resourceTransforms)
+	consistent, err := o.renderSrc.Uninstall(parsedFile.GetContent(), deployInfo, o.resourceTransforms)
 	if err != nil || !consistent {
 		return false, err
 	}

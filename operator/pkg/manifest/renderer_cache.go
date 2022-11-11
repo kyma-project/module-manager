@@ -12,11 +12,12 @@ import (
 // to remote clusters. By using sync.Map for caching,
 // concurrent operations to the processor from diverse reconciliations are considered safe.
 //
-// Inside the processor component owner name (in Client.ObjectKey format)
+// Inside the processor cluster specific unique name (in Client.ObjectKey format)
 // is used as key and the types.RenderSrc instance is stored as the value.
+// Inside the config resource level configuration is stored by its key.
 type RendererCache struct {
-	processor sync.Map
-	config    sync.Map
+	processor sync.Map // Cluster specific
+	config    sync.Map // Resource specific
 }
 
 // NewRendererCache returns a new instance of RemoteClusterCache.

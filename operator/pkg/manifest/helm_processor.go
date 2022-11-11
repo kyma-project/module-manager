@@ -527,12 +527,17 @@ func (h *helm) assignRestMapping(gvk schema.GroupVersionKind, info *resource.Inf
 // InvalidateConfigAndRenderedManifest compares the cached hash with the processed hash for helm flags.
 // If the hashes are not equal it resets the flags on the helm action client.
 // Also, it deletes the persisted manifest resource on the file system at <chartPath>/manifest/manifest.yaml.
-func (h *helm) InvalidateConfigAndRenderedManifest(deployInfo types.InstallInfo, currentHash uint32) (uint32, error) {
+func (h *helm) InvalidateConfigAndRenderedManifest(deployInfo types.InstallInfo, cachedHash uint32) (uint32, error) {
 	newHash, err := util.CalculateHash(deployInfo.Flags)
 	if err != nil {
 		return 0, err
 	}
-	if currentHash != 0 && newHash != currentHash {
+	// no changes
+	if newHash == cachedHash {
+		return 0, nil
+	}
+	// not a new entry + hash change
+	if cachedHash != 0 && newHash != cachedHash {
 		// delete rendered manifest if previous config hash was found
 		if parsedFile := h.DeleteCachedResources(deployInfo.ChartPath); parsedFile.GetRawError() != nil {
 			// errors os.IsNotExist and os.IsPermission are ignored
@@ -543,6 +548,6 @@ func (h *helm) InvalidateConfigAndRenderedManifest(deployInfo types.InstallInfo,
 		// if cached and new hash doesn't match, reset flag
 		return newHash, h.resetFlags(deployInfo)
 	}
-
+	// new entry
 	return newHash, nil
 }
