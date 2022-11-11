@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/kyma-project/module-manager/operator/pkg/diff"
+	"github.com/pkg/errors"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/kube"
@@ -15,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/cli-runtime/pkg/resource"
 	"k8s.io/client-go/kubernetes"
@@ -188,15 +191,54 @@ func (h *helm) Uninstall(stringifedManifest string, deployInfo types.InstallInfo
 // IsConsistent indicates if helm installation is consistent with the desired manifest resources.
 func (h *helm) IsConsistent(stringifedManifest string, deployInfo types.InstallInfo, transforms []types.ObjectTransform,
 ) (bool, error) {
-	// verify manifest resources - by count
-	// TODO better strategy for resource verification?
-	// convert for Helm processing
-	resourceLists, err := h.parseToResourceLists(stringifedManifest, deployInfo, transforms)
+	desired, err := h.Transform(deployInfo.Ctx, stringifedManifest, deployInfo.BaseResource, transforms)
+	if err != nil {
+		return false, err
+	}
+	desiredResources := kube.ResourceList{}
+	for _, unstructuredObject := range desired.Items {
+		resourceInfo, err := h.convertToInfo(unstructuredObject)
+		if err != nil {
+			return false, err
+		}
+		desiredResources = append(desiredResources, resourceInfo)
+	}
+	live := make([]*unstructured.Unstructured, 0, len(desiredResources))
+	err = desiredResources.Visit(func(info *resource.Info, err error) error {
+		if err != nil {
+			return err
+		}
+
+		helper := resource.NewHelper(info.Client, info.Mapping)
+		_, err = helper.Get(info.Namespace, info.Name)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				live = append(live, nil)
+				return nil
+			}
+			return errors.Wrapf(err, "could not get information about the resource %s / %s", info.Name, info.Namespace)
+		}
+
+		unstructFromInfoObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&info.Object)
+		if err != nil {
+			return err
+		}
+		live = append(live, &unstructured.Unstructured{Object: unstructFromInfoObj})
+		return nil
+	})
 	if err != nil {
 		return false, err
 	}
 
-	return len(resourceLists.Target) == len(resourceLists.Installed), nil
+	resList, err := diff.Array(desired.Items, live)
+
+	h.logger.V(util.DebugLogLevel).Info("diffing completed",
+		"modified", resList.Modified)
+	if err != nil {
+		return false, err
+	}
+
+	return !resList.Modified, nil
 }
 
 func (h *helm) verifyResources(ctx context.Context, resourceLists types.ResourceLists, verifyReadyStates bool,
