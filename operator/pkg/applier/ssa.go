@@ -2,10 +2,11 @@ package applier
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -43,21 +44,24 @@ func NewSSAApplier(dynamicClient dynamic.Interface, logger *logr.Logger,
 
 func (s *SetApplier) Apply(deployInfo manifestTypes.InstallInfo, objects *manifestTypes.ManifestResources,
 	namespace string,
-) error {
+) (bool, error) {
 	// Populate the namespace on any namespace-scoped objects
 	err := s.adjustNs(objects, namespace)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	// TODO: implement trackers for object statuses
 	expectedLength := len(objects.Items)
 	results, err := s.execute(deployInfo, objects.Items, s.dynamicClient, s.patchOptions)
 	if err != nil {
-		return fmt.Errorf("error applying objects: %w", err)
+		return false, fmt.Errorf("error applying objects: %w", err)
 	}
 	actualLength := len(results)
 
+	// actualLength also includes resources with a conflict
+	// since they already exist and a no conflict resolution is followed
+	// we will assume they were applied correctly
 	if expectedLength != actualLength {
 		s.logger.Info("not all resources could be applied via SSA",
 			"expected", expectedLength,
@@ -66,7 +70,7 @@ func (s *SetApplier) Apply(deployInfo manifestTypes.InstallInfo, objects *manife
 		)
 	}
 
-	return nil
+	return expectedLength == actualLength, nil
 }
 
 func (s *SetApplier) Delete(deployInfo manifestTypes.InstallInfo, objects *manifestTypes.ManifestResources,
@@ -85,12 +89,14 @@ func (s *SetApplier) Delete(deployInfo manifestTypes.InstallInfo, objects *manif
 		// get dynamic client interface for object
 		resourceInterface, err := s.getDynamicResourceInterface(s.dynamicClient, obj)
 		if err != nil {
-			return false, err
+			deleteErrors = append(deleteErrors, fmt.Errorf("failed to get rest mapping for resource %s: %w",
+				client.ObjectKeyFromObject(obj).String(), err))
+			continue
 		}
 
-		if err = resourceInterface.Delete(deployInfo.Ctx, name, s.deleteOptions); err != nil && !errors.IsNotFound(err) {
+		if err = resourceInterface.Delete(deployInfo.Ctx, name, s.deleteOptions); err != nil && !apiErrors.IsNotFound(err) {
 			deleteErrors = append(deleteErrors, err)
-			deletionSuccess = true
+			deletionSuccess = false
 		}
 	}
 
@@ -139,7 +145,9 @@ func (s *SetApplier) execute(deployInfo manifestTypes.InstallInfo, objects []*un
 		// get dynamic client interface for object
 		resourceInterface, err := s.getDynamicResourceInterface(dynamicClient, obj)
 		if err != nil {
-			return nil, err
+			applyErrors = append(applyErrors, fmt.Errorf("failed to get rest mapping for resource %s: %w",
+				client.ObjectKeyFromObject(obj).String(), err))
+			continue
 		}
 
 		marshaledObject, err := json.Marshal(obj)
@@ -149,16 +157,15 @@ func (s *SetApplier) execute(deployInfo manifestTypes.InstallInfo, objects []*un
 			continue
 		}
 
-		lastApplied, err := resourceInterface.Patch(deployInfo.Ctx, name, types.ApplyPatchType,
+		_, err = resourceInterface.Patch(deployInfo.Ctx, name, types.ApplyPatchType,
 			marshaledObject, patchOptions)
 		if err != nil {
-			if !errors.IsConflict(err) {
+			if !apiErrors.IsConflict(err) {
 				return nil, err
 			}
 			applyErrors = append(applyErrors, fmt.Errorf("error from apply: %w", err))
-			continue
 		}
-		appliedObjects = append(appliedObjects, lastApplied)
+		appliedObjects = append(appliedObjects, obj)
 	}
 
 	var err error
@@ -180,6 +187,10 @@ func (s *SetApplier) getDynamicResourceInterface(dynamicClient dynamic.Interface
 
 	restMapping, err := s.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
+		if filterNoMatchErrors(err) == nil {
+			// reset if no rest mapping is available for the resource
+			s.mapper.Reset()
+		}
 		return nil, err
 	}
 	gvr := restMapping.Resource
@@ -204,4 +215,13 @@ func (s *SetApplier) getDynamicResourceInterface(dynamicClient dynamic.Interface
 		return nil, fmt.Errorf("unknown scope for gvk %s: %q", gvk, restMapping.Scope.Name())
 	}
 	return dynamicResource, nil
+}
+
+func filterNoMatchErrors(err error) error {
+	var resMatchErr *meta.NoResourceMatchError
+	var kindMatchErr *meta.NoKindMatchError
+	if err != nil && !apiErrors.IsNotFound(err) && !errors.As(err, &resMatchErr) && !errors.As(err, &kindMatchErr) {
+		return err
+	}
+	return nil
 }

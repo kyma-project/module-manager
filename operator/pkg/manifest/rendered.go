@@ -36,10 +36,20 @@ func (r *rendered) GetCachedResources(chartName, chartPath string) *types.Parsed
 	if _, err := os.Stat(chartPath); err != nil {
 		return types.NewParsedFile("", err)
 	}
-	r.logger.Info(fmt.Sprintf("chart dir %s found at path %s", chartName, chartPath))
+	r.logger.Info(fmt.Sprintf("chart dir %s found at path %s will be processed", chartName, chartPath))
 
 	// check if pre-rendered manifest already exists
 	return types.NewParsedFile(util.GetStringifiedYamlFromFilePath(util.GetFsManifestChartPath(chartPath)))
+}
+
+// DeleteCachedResources deletes cached manifest of resources.
+func (r *rendered) DeleteCachedResources(chartPath string) *types.ParsedFile {
+	if emptyPath(chartPath) {
+		return &types.ParsedFile{}
+	}
+
+	parsedFile := types.NewParsedFile("", os.RemoveAll(util.GetFsManifestChartPath(chartPath)))
+	return parsedFile.FilterOsErrors()
 }
 
 // GetManifestResources returns a pre-rendered resource manifest located at the passed chartPath.

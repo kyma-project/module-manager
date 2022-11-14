@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -43,7 +42,7 @@ func (m mockLayer) MediaType() (types.MediaType, error) {
 
 func (m mockLayer) Size() (int64, error) { return 137438691328, nil }
 func (m mockLayer) Compressed() (io.ReadCloser, error) {
-	f, err := os.Open("./test_samples/helm/compressed.tgz")
+	f, err := os.Open("../pkg/test_samples/oci/compressed.tgz")
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +132,7 @@ func verifyHelmResourcesDeletion(imageSpec manifestTypes.ImageSpec) {
 
 func deleteManifestResource(manifestObj *v1alpha1.Manifest, secret *corev1.Secret) {
 	Expect(k8sClient.Delete(ctx, manifestObj)).Should(Succeed())
-	Eventually(getManifest(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
+	Eventually(getManifest(client.ObjectKeyFromObject(manifestObj)), standardTimeout, standardInterval).
 		Should(BeTrue())
 	if secret != nil {
 		Expect(k8sClient.Delete(ctx, secret)).Should(Succeed())

@@ -82,11 +82,7 @@ func (k *kustomize) Install(manifest string, deployInfo types.InstallInfo,
 	}
 
 	// TODO fill namespace from user options
-	if err = k.applier.Apply(deployInfo, objects, ""); err != nil {
-		return false, err
-	}
-
-	return true, nil
+	return k.applier.Apply(deployInfo, objects, "")
 }
 
 // Uninstall transforms and deletes kustomize based manifest using dynamic client.
@@ -113,4 +109,9 @@ func (k *kustomize) IsConsistent(manifest string, deployInfo types.InstallInfo,
 ) (bool, error) {
 	// TODO evaluate a better consistency check
 	return k.Install(manifest, deployInfo, transforms)
+}
+
+func (k *kustomize) InvalidateConfigAndRenderedManifest(_ types.InstallInfo, _ uint32) (uint32, error) {
+	// TODO implement invalidation logic
+	return 0, nil
 }

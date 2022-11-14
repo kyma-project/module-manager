@@ -54,16 +54,17 @@ var accessor = meta.NewAccessor()
 // On the returned helm instance, installation, uninstallation and verification checks
 // can be executed on the resource manifest.
 func NewHelmProcessor(restGetter *manifestRest.ManifestRESTClientGetter,
-	discoveryMapper *restmapper.DeferredDiscoveryRESTMapper, restConfig *rest.Config, settings *cli.EnvSettings,
-	logger *logr.Logger, render *rendered, txformer *transformer,
+	discoveryMapper *restmapper.DeferredDiscoveryRESTMapper, logger *logr.Logger, render *rendered,
+	txformer *transformer, deployInfo types.InstallInfo,
 ) (types.RenderSrc, error) {
 	var err error
+	settings := cli.New()
 	helmClient := &helm{
 		logger:      logger,
 		repoHandler: NewRepoHandler(logger, settings),
 		settings:    settings,
 		restGetter:  restGetter,
-		restConfig:  restConfig,
+		restConfig:  deployInfo.Config,
 		mapper:      discoveryMapper,
 		transformer: txformer,
 		rendered:    render,
@@ -72,6 +73,12 @@ func NewHelmProcessor(restGetter *manifestRest.ManifestRESTClientGetter,
 	helmClient.actionClient, helmClient.kubeClient, err = helmClient.newInstallActionClient(
 		v1.NamespaceDefault, restGetter)
 	if err != nil {
+		return nil, err
+	}
+
+	// always override existing flags config
+	// to ensure CR updates are reflected on the action client
+	if err = helmClient.resetFlags(deployInfo); err != nil {
 		return nil, err
 	}
 
@@ -88,13 +95,7 @@ func NewHelmProcessor(restGetter *manifestRest.ManifestRESTClientGetter,
 
 // GetRawManifest returns processed resource manifest using helm client.
 func (h *helm) GetRawManifest(deployInfo types.InstallInfo) *types.ParsedFile {
-	// always override existing flags config
-	// to ensure CR updates are reflected on the action client
-	err := h.resetFlags(deployInfo)
-	if err != nil {
-		return types.NewParsedFile("", err)
-	}
-
+	var err error
 	chartPath := deployInfo.ChartPath
 	if chartPath == "" {
 		// legacy case - download chart from helm repo
@@ -158,13 +159,12 @@ func (h *helm) Uninstall(stringifedManifest string, deployInfo types.InstallInfo
 	}
 
 	// uninstall resources
-	result, err := h.uninstallResources(resourceLists)
+	_, err = h.uninstallResources(resourceLists)
 	if err != nil {
 		return false, err
 	}
 
 	h.logger.V(util.DebugLogLevel).Info("uninstalled Helm chart resources",
-		"count", len(result.Deleted),
 		"chart", deployInfo.ChartName,
 		"release", deployInfo.ReleaseName,
 		"resource", client.ObjectKeyFromObject(deployInfo.BaseResource).String())
@@ -495,7 +495,7 @@ func (h *helm) transformManifestResources(ctx context.Context, manifest string,
 }
 
 func (h *helm) convertToInfo(unstructuredObj *unstructured.Unstructured) (*resource.Info, error) {
-	// TODO:  manual invalidation of mem cache client to maintain current state of server mapping for API resources
+	// TODO:  manual invalidation of mem processor client to maintain current state of server mapping for API resources
 	info := &resource.Info{}
 	gvk := unstructuredObj.GroupVersionKind()
 	gv := gvk.GroupVersion()
@@ -522,4 +522,32 @@ func (h *helm) assignRestMapping(gvk schema.GroupVersionKind, info *resource.Inf
 	}
 	info.Mapping = restMapping
 	return nil
+}
+
+// InvalidateConfigAndRenderedManifest compares the cached hash with the processed hash for helm flags.
+// If the hashes are not equal it resets the flags on the helm action client.
+// Also, it deletes the persisted manifest resource on the file system at <chartPath>/manifest/manifest.yaml.
+func (h *helm) InvalidateConfigAndRenderedManifest(deployInfo types.InstallInfo, cachedHash uint32) (uint32, error) {
+	newHash, err := util.CalculateHash(deployInfo.Flags)
+	if err != nil {
+		return 0, err
+	}
+	// no changes
+	if newHash == cachedHash {
+		return 0, nil
+	}
+	// not a new entry + hash change
+	if cachedHash != 0 && newHash != cachedHash {
+		// delete rendered manifest if previous config hash was found
+		if parsedFile := h.DeleteCachedResources(deployInfo.ChartPath); parsedFile.GetRawError() != nil {
+			// errors os.IsNotExist and os.IsPermission are ignored
+			// since cached resources will be re-created if it doesn't exist
+			// and resources are not cached at all if not permitted
+			return 0, parsedFile
+		}
+		// if cached and new hash doesn't match, reset flag
+		return newHash, h.resetFlags(deployInfo)
+	}
+	// new entry
+	return newHash, nil
 }
