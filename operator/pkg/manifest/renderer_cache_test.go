@@ -175,8 +175,7 @@ var _ = Describe("given manifest with a helm repo", Ordered, func() {
 
 	DescribeTable("given renderer cache for manifest processing",
 		func(testCaseFn func(resourceName string, parentKey string, flags types.ChartFlags, cache types.RendererCache,
-		) (string, string, uint32),
-		) {
+		) (string, string, uint32)) {
 			// first call for operations for same parent resource and configuration
 			verifyCacheEntries(testCaseFn(testResourceName, parentCacheKey, chartFlagsVariantOne, rendererCache))
 			// second call for operations for same parent resource and configuration
