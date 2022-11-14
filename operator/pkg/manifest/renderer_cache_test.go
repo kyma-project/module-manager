@@ -176,55 +176,55 @@ var _ = Describe("given manifest with a helm repo", Ordered, func() {
 	DescribeTable("given renderer cache for manifest processing",
 		func(testCaseFn func(resourceName string, parentKey string, flags types.ChartFlags, cache types.RendererCache,
 		) (string, string, uint32)) {
-			// first call for operations for same parent resource and configuration
+			// first call for operations for same parent resource and configuration.
 			verifyCacheEntries(testCaseFn(testResourceName, parentCacheKey, chartFlagsVariantOne, rendererCache))
-			// second call for operations for same parent resource and configuration
+			// second call for operations for same parent resource and configuration.
 			verifyCacheEntries(testCaseFn(testResourceName, parentCacheKey, chartFlagsVariantOne, rendererCache))
-			// third call for operations for same parent resource and configuration
+			// third call for operations for same parent resource and configuration.
 			verifyCacheEntries(testCaseFn(testResourceName, parentCacheKey, chartFlagsVariantOne, rendererCache))
-			// fourth call for operations for same parent resource and configuration
+			// fourth call for operations for same parent resource and configuration.
 			verifyCacheEntries(testCaseFn(testResourceName, parentCacheKey, chartFlagsVariantOne, rendererCache))
 			// check set count
 			Expect(setProcessorCount).To(Equal(2)) // new processor + new flags
 			Expect(setConfigCount).To(Equal(1))    // new flags
 
-			// fifth call for operations for same parent resource and DIFFERENT configuration
+			// fifth call for operations for SAME parent and DIFFERENT configuration.
+			// Configuration contains both types.SetFlags and types.ConfigFlags as part of types.ChartFlags
 			verifyCacheEntries(testCaseFn(testResourceName, parentCacheKey, chartFlagsVariantTwo, rendererCache))
 			// check set count
 			Expect(setProcessorCount).To(Equal(3)) // ^above + updated flags
 			Expect(setConfigCount).To(Equal(2))    // ^above + updated flags
 
-			// sixth call for operations for same parent DIFFERENT resource and configuration
+			// sixth call for operations for SAME parent, DIFFERENT resource, SAME configuration.
 			verifyCacheEntries(testCaseFn(testResourceName2, parentCacheKey, chartFlagsVariantOne, rendererCache))
 			// check set count
 			Expect(setProcessorCount).To(Equal(4)) // ^above + flags of new resource
 			Expect(setConfigCount).To(Equal(3))    // ^above + flags of new resource
 
-			// seventh call for operations for a resource and new parent and configuration
+			// seventh call for operations for a resource and new parent and configuration.
 			verifyCacheEntries(testCaseFn(testResourceName3, parentCacheKey2, chartFlagsVariantOne, rendererCache))
 			// check set count
 			Expect(setProcessorCount).To(Equal(6)) // ^above + new parent + new flags
 			Expect(setConfigCount).To(Equal(4))    // ^above + new flags
 		},
 		[]TableEntry{
-			Entry("when local helm chart path is provided", remoteHelm()),
-			Entry("when local kustomize chart is provided", localHelm()),
+			Entry("when remote helm chart path is provided", remoteHelm()),
+			Entry("when local helm chart is provided", localHelm()),
 		})
 
 	DescribeTable("given nil cache for manifest processing",
 		func(testCaseFn func(resourceName string, parentKey string, flags types.ChartFlags, cache types.RendererCache,
-		) (string, string, uint32),
-		) {
-			// first call for operations for same parent resource and configuration
+		) (string, string, uint32)) {
+			// first call for operations for same parent resource and configuration.
 			verifyNilCacheEntries(testCaseFn(testResourceName, parentCacheKey, chartFlagsVariantOne, nil))
-			// second call for operations for same parent resource and configuration
+			// second call for operations for same parent resource and configuration.
 			verifyNilCacheEntries(testCaseFn(testResourceName, parentCacheKey, chartFlagsVariantOne, nil))
 			// check set count
 			Expect(setProcessorCount).To(Equal(0))
 			Expect(setConfigCount).To(Equal(0))
 		},
 		[]TableEntry{
-			Entry("when local helm chart path is provided", remoteHelm()),
-			Entry("when local kustomize chart is provided", localHelm()),
+			Entry("when remote helm chart path is provided", remoteHelm()),
+			Entry("when local helm chart is provided", localHelm()),
 		})
 })
