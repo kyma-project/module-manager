@@ -1,4 +1,4 @@
-package manifest
+package client
 
 import (
 	"fmt"
@@ -186,7 +186,7 @@ func (f *SingletonClients) NewBuilder() *resource.Builder {
 }
 
 func (f *SingletonClients) RESTClient() (*rest.RESTClient, error) {
-	return rest.RESTClientFor(f.config)
+	return rest.RESTClientForConfigAndClient(f.config, f.httpClient)
 }
 
 func (f *SingletonClients) clientCacheKeyForMapping(mapping *meta.RESTMapping) string {
@@ -223,6 +223,40 @@ func (f *SingletonClients) ClientForMapping(mapping *meta.RESTMapping) (resource
 
 	f.structuredRestClientCache[key] = client
 	return client, err
+}
+
+func (f *SingletonClients) DynamicResourceInterface(obj *unstructured.Unstructured) (dynamic.ResourceInterface, error) {
+	gvk := obj.GroupVersionKind()
+	mapping, err := f.discoveryShortcutExpander.RESTMapping(gvk.GroupKind(), gvk.Version)
+	if err != nil {
+		if meta.IsNoMatchError(err) {
+			f.discoveryRESTMapper.Reset()
+		}
+		return nil, err
+	}
+
+	var dynamicResource dynamic.ResourceInterface
+
+	namespace := obj.GetNamespace()
+
+	switch mapping.Scope.Name() {
+	case meta.RESTScopeNameNamespace:
+		if namespace == "" {
+			return nil, fmt.Errorf("namespace was not provided for namespace-scoped object %v", gvk)
+		}
+		dynamicResource = f.dynamicClient.Resource(mapping.Resource).Namespace(namespace)
+	case meta.RESTScopeNameRoot:
+		if namespace != "" {
+			// TODO: Differentiate between server-fixable vs client-fixable errors?
+			return nil, fmt.Errorf(
+				"namespace %q was provided for cluster-scoped object %v", obj.GetNamespace(), gvk)
+		}
+		dynamicResource = f.dynamicClient.Resource(mapping.Resource)
+	default:
+		// Internal error ... this is panic-level
+		return nil, fmt.Errorf("unknown scope for gvk %s: %q", gvk, mapping.Scope.Name())
+	}
+	return dynamicResource, nil
 }
 
 func (f *SingletonClients) UnstructuredClientForMapping(mapping *meta.RESTMapping) (resource.RESTClient, error) {
@@ -271,7 +305,8 @@ func (f *SingletonClients) ResourceInfo(obj *unstructured.Unstructured) (*resour
 	info.Mapping = mapping
 	info.Namespace = obj.GetNamespace()
 	info.Name = obj.GetName()
-	info.Object = obj.DeepCopyObject()
+	info.Object = obj
+	info.ResourceVersion = obj.GetResourceVersion()
 	return info, nil
 }
 

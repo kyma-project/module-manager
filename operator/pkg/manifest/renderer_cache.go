@@ -8,38 +8,60 @@ import (
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 )
 
-// RendererCache provides an in-memory cache to store types.RenderSrc instances applicable
+// RendererCacheImpl provides an in-memory processor to store types.RenderSrc instances applicable
 // to remote clusters. By using sync.Map for caching,
-// concurrent operations to the cache from diverse reconciliations are considered safe.
+// concurrent operations to the processor from diverse reconciliations are considered safe.
 //
-// Inside the cache component owner name (in Client.ObjectKey format)
+// Inside the processor cluster specific unique name (in Client.ObjectKey format)
 // is used as key and the types.RenderSrc instance is stored as the value.
-type RendererCache struct {
-	cache sync.Map
+// Inside the config resource level configuration is stored by its key.
+type RendererCacheImpl struct {
+	processor sync.Map // Cluster specific
+	config    sync.Map // Resource specific
 }
 
 // NewRendererCache returns a new instance of RemoteClusterCache.
-func NewRendererCache() *RendererCache {
-	return &RendererCache{
-		cache: sync.Map{},
+func NewRendererCache() *RendererCacheImpl {
+	return &RendererCacheImpl{
+		processor: sync.Map{},
+		config:    sync.Map{},
 	}
 }
 
-// Get loads the types.RenderSrc from RendererCache for the passed client.ObjectKey.
-func (r *RendererCache) Get(key client.ObjectKey) types.RenderSrc {
-	value, ok := r.cache.Load(key)
+// GetProcessor loads the types.RenderSrc from RendererCacheImpl for the passed client.ObjectKey.
+func (r *RendererCacheImpl) GetProcessor(key client.ObjectKey) types.RenderSrc {
+	value, ok := r.processor.Load(key)
 	if !ok {
 		return nil
 	}
 	return value.(types.RenderSrc)
 }
 
-// Set saves the passed types.RenderSrc into RendererCache for the client.ObjectKey.
-func (r *RendererCache) Set(key client.ObjectKey, helmClient types.RenderSrc) {
-	r.cache.Store(key, helmClient)
+// SetProcessor saves the passed types.RenderSrc into RendererCacheImpl for the client.ObjectKey.
+func (r *RendererCacheImpl) SetProcessor(key client.ObjectKey, helmClient types.RenderSrc) {
+	r.processor.Store(key, helmClient)
 }
 
-// Delete deletes the types.RenderSrc from RendererCache for the passed client.ObjectKey.
-func (r *RendererCache) Delete(key client.ObjectKey) {
-	r.cache.Delete(key)
+// DeleteProcessor deletes the types.RenderSrc from RendererCacheImpl for the passed client.ObjectKey.
+func (r *RendererCacheImpl) DeleteProcessor(key client.ObjectKey) {
+	r.processor.Delete(key)
+}
+
+// GetConfig loads the configuration from RendererCacheImpl for the passed client.ObjectKey.
+func (r *RendererCacheImpl) GetConfig(key client.ObjectKey) uint32 {
+	value, ok := r.config.Load(key)
+	if !ok {
+		return 0
+	}
+	return value.(uint32)
+}
+
+// SetConfig saves the passed configuration into RendererCacheImpl for the client.ObjectKey.
+func (r *RendererCacheImpl) SetConfig(key client.ObjectKey, config uint32) {
+	r.config.Store(key, config)
+}
+
+// DeleteConfig deletes the configuration from RendererCacheImpl for the passed client.ObjectKey.
+func (r *RendererCacheImpl) DeleteConfig(key client.ObjectKey) {
+	r.config.Delete(key)
 }

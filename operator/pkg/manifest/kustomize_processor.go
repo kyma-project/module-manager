@@ -4,10 +4,11 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
+	"github.com/kyma-project/module-manager/operator/pkg/applier"
+	"github.com/kyma-project/module-manager/operator/pkg/client"
 	"sigs.k8s.io/kustomize/api/krusty"
 	"sigs.k8s.io/kustomize/kyaml/filesys"
 
-	"github.com/kyma-project/module-manager/operator/pkg/applier"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 )
 
@@ -24,18 +25,10 @@ type kustomize struct {
 // On the returned helm instance, installation, uninstallation and verification checks
 // can then be executed on the resource manifest.
 func NewKustomizeProcessor(
-	clients *SingletonClients, logger logr.Logger, render *Rendered, txformer *Transformer,
+	clients *client.SingletonClients, logger logr.Logger, render *Rendered, txformer *Transformer,
 ) (types.RenderSrc, error) {
 	// TODO offer SSA as a generic installation and not only bound to Kustomize
-	dynclient, err := clients.DynamicClient()
-	if err != nil {
-		return nil, err
-	}
-	mapper, err := clients.ToRESTMapper()
-	if err != nil {
-		return nil, err
-	}
-	ssaApplier := applier.NewSSAApplier(dynclient, logger, mapper)
+	ssaApplier := applier.NewSSAApplier(clients, logger)
 
 	// verify compliance of interface
 	var kustomizeProcessor types.RenderSrc = &kustomize{
@@ -88,11 +81,7 @@ func (k *kustomize) Install(manifest string, deployInfo types.InstallInfo,
 	}
 
 	// TODO fill namespace from user options
-	if err = k.applier.Apply(deployInfo, objects, ""); err != nil {
-		return false, err
-	}
-
-	return true, nil
+	return k.applier.Apply(deployInfo, objects, "")
 }
 
 // Uninstall transforms and deletes kustomize based manifest using dynamic client.
@@ -119,4 +108,9 @@ func (k *kustomize) IsConsistent(manifest string, deployInfo types.InstallInfo,
 ) (bool, error) {
 	// TODO evaluate a better consistency check
 	return k.Install(manifest, deployInfo, transforms)
+}
+
+func (k *kustomize) InvalidateConfigAndRenderedManifest(_ types.InstallInfo, _ uint32) (uint32, error) {
+	// TODO implement invalidation logic
+	return 0, nil
 }

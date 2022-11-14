@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
-	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -38,7 +37,7 @@ func createManifestAndCheckState(desiredState v1alpha1.ManifestState, specBytes 
 		Installs: installs,
 	})
 	Expect(k8sClient.Create(ctx, manifestObj)).Should(Succeed())
-	Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), 5*time.Minute, 250*time.Millisecond).
+	Eventually(getManifestState(client.ObjectKeyFromObject(manifestObj)), standardTimeout, standardInterval).
 		Should(BeEquivalentTo(desiredState))
 	return manifestObj
 }
@@ -69,12 +68,12 @@ func createManifestWithOCI() func() bool {
 		Expect(err).ToNot(HaveOccurred())
 		// initial HelmClient cache entry
 		kymaNsName := client.ObjectKey{Name: secretName, Namespace: v1.NamespaceDefault}
-		Expect(reconciler.CacheManager.RenderSources.Get(kymaNsName)).Should(BeNil())
+		Expect(reconciler.CacheManager.GetRendererCache().GetProcessor(kymaNsName)).Should(BeNil())
 		// resource
 		manifestObj := createManifestAndCheckState(v1alpha1.ManifestStateReady, specBytes,
 			"oci-image", false)
 		// intermediate HelmClient cache entry
-		Expect(reconciler.CacheManager.RenderSources.Get(kymaNsName)).ShouldNot(BeNil())
+		Expect(reconciler.CacheManager.GetRendererCache().GetProcessor(kymaNsName)).ShouldNot(BeNil())
 		deleteHelmChartResources(imageSpec)
 		deleteManifestResource(manifestObj, nil)
 		// create another manifest with same image specification
@@ -83,7 +82,7 @@ func createManifestWithOCI() func() bool {
 		verifyHelmResourcesDeletion(imageSpec)
 		deleteManifestResource(manifestObj2, nil)
 		// final HelmClient cache entry
-		Expect(reconciler.CacheManager.RenderSources.Get(kymaNsName)).Should(BeNil())
+		Expect(reconciler.CacheManager.GetRendererCache().GetProcessor(kymaNsName)).Should(BeNil())
 		Expect(os.RemoveAll(util.GetFsChartPath(imageSpec))).Should(Succeed())
 		return true
 	}
@@ -94,31 +93,33 @@ func createTwoRemoteManifestsWithNoInstalls() func() bool {
 		By("having transitioned the CR State to Ready with an OCI spec and no installs")
 		kymaNsName := client.ObjectKey{Name: secretName, Namespace: v1.NamespaceDefault}
 		// verify cluster cache empty
-		Expect(reconciler.CacheManager.ClusterInfos.Get(kymaNsName).IsEmpty()).To(BeTrue())
+		Expect(reconciler.CacheManager.GetClusterInfoCache().Get(kymaNsName).IsEmpty()).To(BeTrue())
 		// creating cluster cache entry
-		reconciler.CacheManager.ClusterInfos.Set(kymaNsName, types.ClusterInfo{Config: cfg})
+		reconciler.CacheManager.GetClusterInfoCache().Set(kymaNsName, types.ClusterInfo{Config: cfg})
 		kymaSecret := createKymaSecret()
 		manifestObj := createManifestAndCheckState(v1alpha1.ManifestStateReady, nil,
 			"", true)
 		// check client cache entries after 1st resource creation
-		Expect(reconciler.CacheManager.ClusterInfos.Get(kymaNsName).Config).To(BeEquivalentTo(cfg))
-		Expect(reconciler.CacheManager.RenderSources.Get(kymaNsName)).Should(BeNil()) // no Installs exist
+		Expect(reconciler.CacheManager.GetClusterInfoCache().Get(kymaNsName).Config).To(BeEquivalentTo(cfg))
+		Expect(reconciler.CacheManager.GetRendererCache().GetProcessor(kymaNsName)).Should(BeNil()) // no Installs exist
 		// create another manifest with same image specification
 		manifestObj2 := createManifestAndCheckState(v1alpha1.ManifestStateReady, nil,
 			"", true)
 		deleteManifestResource(manifestObj, nil)
 		// check client cache entries after 2nd resource creation
-		Expect(reconciler.CacheManager.ClusterInfos.Get(kymaNsName).Config).To(BeEquivalentTo(cfg))
-		Expect(reconciler.CacheManager.RenderSources.Get(kymaNsName)).Should(BeNil()) // no Installs exist
+		Expect(reconciler.CacheManager.GetClusterInfoCache().Get(kymaNsName).Config).To(BeEquivalentTo(cfg))
+		Expect(reconciler.CacheManager.GetRendererCache().GetProcessor(kymaNsName)).Should(BeNil()) // no Installs exist
 		deleteManifestResource(manifestObj2, kymaSecret)
 		// verify client cache deleted
-		Expect(reconciler.CacheManager.ClusterInfos.Get(kymaNsName).IsEmpty()).To(BeTrue())
-		Expect(reconciler.CacheManager.RenderSources.Get(kymaNsName)).Should(BeNil()) // no Installs exist
+		Expect(reconciler.CacheManager.GetClusterInfoCache().Get(kymaNsName).IsEmpty()).To(BeTrue())
+		Expect(reconciler.CacheManager.GetRendererCache().GetProcessor(kymaNsName)).Should(BeNil()) // no Installs exist
 		return true
 	}
 }
 
-//nolint:unused,deadcode
+// TODO: Enable again once Test Refactoring stops race condition from occurring with other OCI test
+//
+//nolint:deadcode,unused
 func createManifestWithInvalidOCI() func() bool {
 	return func() bool {
 		By("having transitioned the CR State to Error with invalid OCI Specification")
@@ -298,16 +299,16 @@ var _ = Describe("given manifest with a helm repo", Ordered, func() {
 		},
 		[]TableEntry{
 			Entry("when two remote manifestCRs contain no install specification", createTwoRemoteManifestsWithNoInstalls()),
-			Entry("when manifestCR contains a valid remote Kustomize specification", createManifestWithRemoteKustomize()),
-			Entry("when manifestCR contains a valid local Kustomize specification", createManifestWithLocalKustomize()),
 			Entry("when manifestCR contains invalid Kustomize specification", createManifestWithInvalidKustomize()),
 			Entry("when manifestCR contains a valid helm repo", createManifestWithHelmRepo()),
 			Entry("when two manifestCRs contain valid OCI Image specifications", createManifestWithOCI()),
 
+			Entry("when manifestCR contains a valid local Kustomize specification", createManifestWithLocalKustomize()),
 			Entry("when manifestCR contains a valid local Kustomize specification with "+
 				"insufficient execute permissions", createManifestWithInsufficientExecutePerm()),
 			Entry("when manifestCR contains a valid local Kustomize specification with "+
 				"insufficient write permissions", createManifestWithInsufficientWritePermissions()),
+			Entry("when manifestCR contains a valid remote Kustomize specification", createManifestWithRemoteKustomize()),
 			// TODO write tests for pre-rendered Manifests
 		})
 

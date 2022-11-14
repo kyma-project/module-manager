@@ -17,8 +17,6 @@ type Rendered struct {
 
 // NewRendered returns a new instance on Rendered.
 // Using Rendered instance, pre-Rendered and cached manifest can be identified and retrieved.
-//
-
 func NewRendered(logger logr.Logger) *Rendered {
 	return &Rendered{
 		logger: logger,
@@ -36,13 +34,23 @@ func (r *Rendered) GetCachedResources(chartName, chartPath string) *types.Parsed
 	if _, err := os.Stat(chartPath); err != nil {
 		return types.NewParsedFile("", err)
 	}
-	r.logger.Info(fmt.Sprintf("chart dir %s found at path %s", chartName, chartPath))
+	r.logger.Info(fmt.Sprintf("chart dir %s found at path %s will be processed", chartName, chartPath))
 
 	// check if pre-Rendered manifest already exists
 	return types.NewParsedFile(util.GetStringifiedYamlFromFilePath(util.GetFsManifestChartPath(chartPath)))
 }
 
-// GetManifestResources returns a pre-Rendered resource manifest located at the passed chartPath.
+// DeleteCachedResources deletes cached manifest of resources.
+func (r *Rendered) DeleteCachedResources(chartPath string) *types.ParsedFile {
+	if emptyPath(chartPath) {
+		return &types.ParsedFile{}
+	}
+
+	parsedFile := types.NewParsedFile("", os.RemoveAll(util.GetFsManifestChartPath(chartPath)))
+	return parsedFile.FilterOsErrors()
+}
+
+// GetManifestResources returns a pre-rendered resource manifest located at the passed chartPath.
 func (r *Rendered) GetManifestResources(chartName, chartPath string) *types.ParsedFile {
 	if emptyPath(chartPath) {
 		return &types.ParsedFile{}

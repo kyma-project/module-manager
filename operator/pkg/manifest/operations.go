@@ -5,11 +5,10 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
+	client2 "github.com/kyma-project/module-manager/operator/pkg/client"
 	"helm.sh/helm/v3/pkg/cli"
-	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kyma-project/module-manager/operator/pkg/labels"
@@ -18,17 +17,7 @@ import (
 	"github.com/kyma-project/module-manager/operator/pkg/util"
 )
 
-// ResourceInfo represents additional resources.
-type ResourceInfo struct {
-	// BaseResource represents base custom resource that is being reconciled
-	BaseResource *unstructured.Unstructured
-	// CustomResources represents a set of additional custom resources to be installed
-	CustomResources []*unstructured.Unstructured
-	// Crds represents a set of additional custom resource definitions to be installed
-	Crds []*apiextensions.CustomResourceDefinition
-}
-
-type operations struct {
+type Operations struct {
 	logger             logr.Logger
 	renderSrc          types.RenderSrc
 	flags              types.ChartFlags
@@ -39,7 +28,7 @@ type operations struct {
 func InstallChart(logger logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
 	cache types.RendererCache,
 ) (bool, error) {
-	ops, err := newOperations(logger, deployInfo, resourceTransforms, cache)
+	ops, err := NewOperations(logger, deployInfo, resourceTransforms, cache)
 	if err != nil {
 		return false, err
 	}
@@ -51,7 +40,7 @@ func InstallChart(logger logr.Logger, deployInfo types.InstallInfo, resourceTran
 func UninstallChart(logger logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
 	cache types.RendererCache,
 ) (bool, error) {
-	ops, err := newOperations(logger, deployInfo, resourceTransforms, cache)
+	ops, err := NewOperations(logger, deployInfo, resourceTransforms, cache)
 	if err != nil {
 		return false, err
 	}
@@ -63,7 +52,7 @@ func UninstallChart(logger logr.Logger, deployInfo types.InstallInfo, resourceTr
 func ConsistencyCheck(logger logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
 	cache types.RendererCache,
 ) (bool, error) {
-	ops, err := newOperations(logger, deployInfo, resourceTransforms, cache)
+	ops, err := NewOperations(logger, deployInfo, resourceTransforms, cache)
 	if err != nil {
 		return false, err
 	}
@@ -71,32 +60,15 @@ func ConsistencyCheck(logger logr.Logger, deployInfo types.InstallInfo, resource
 	return ops.consistencyCheck(deployInfo)
 }
 
-func newOperations(logger logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
+func NewOperations(logger logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
 	cache types.RendererCache,
-) (*operations, error) {
-	cacheKey := discoverCacheKey(deployInfo.BaseResource, logger)
-
-	var renderSrc types.RenderSrc
-	if cache != nil && cacheKey.Name != "" {
-		// read manifest renderer from cache
-		renderSrc = cache.Get(cacheKey)
-	}
-	// cache entry not found
-	if renderSrc == nil {
-		var err error
-		render := NewRendered(logger)
-		txformer := NewTransformer()
-		renderSrc, err = getManifestProcessor(deployInfo, logger, render, txformer)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create manifest processor: %w", err)
-		}
-		if cache != nil && cacheKey.Name != "" {
-			// cache manifest renderer
-			cache.Set(cacheKey, renderSrc)
-		}
+) (*Operations, error) {
+	renderSrc, err := getRenderSrc(cache, deployInfo, logger)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create manifest processor: %w", err)
 	}
 
-	ops := &operations{
+	ops := &Operations{
 		logger:             logger,
 		renderSrc:          renderSrc,
 		flags:              deployInfo.Flags,
@@ -106,15 +78,64 @@ func newOperations(logger logr.Logger, deployInfo types.InstallInfo, resourceTra
 	return ops, nil
 }
 
-// discoverCacheKey returns cache key for caching of manifest renderer,
-// by label value operator.kyma-project.io/cache-key.
-// If label not found on base resource an empty cache key is returned.
+// getRenderSrc checks if the manifest processor client is cached and returns if available.
+// If not available, it creates a new one based on deployInfo.
+// Additionally, it verifies cached configuration for the manifest processor and invalidates it if required.
+func getRenderSrc(cache types.RendererCache, deployInfo types.InstallInfo,
+	logger logr.Logger,
+) (types.RenderSrc, error) {
+	/* Manifest processor handling */
+	clusterCacheKey := discoverCacheKey(deployInfo.BaseResource, logger)
+	var renderSrc types.RenderSrc
+	var err error
+	if cache == nil || clusterCacheKey.Name == "" {
+		// no processor entries
+		return getManifestProcessor(deployInfo, logger)
+	}
+
+	// look for existing processor entries
+	// read manifest renderer from processor
+	if renderSrc = cache.GetProcessor(clusterCacheKey); renderSrc == nil {
+		renderSrc, err = getManifestProcessor(deployInfo, logger)
+		if err != nil {
+			return nil, err
+		}
+
+		// update new manifest processor
+		cache.SetProcessor(clusterCacheKey, renderSrc)
+	}
+
+	/* Configuration handling */
+	// if there is no update on config - return from here
+	nsNameBaseResource := client.ObjectKeyFromObject(deployInfo.BaseResource)
+	configHash, err := renderSrc.InvalidateConfigAndRenderedManifest(deployInfo,
+		cache.GetConfig(nsNameBaseResource))
+	if err != nil {
+		return nil, err
+	}
+	// no update on config - return from here
+	if configHash == 0 && renderSrc != nil {
+		return renderSrc, nil
+	}
+
+	// update hash config each time
+	// e.g. in case of Helm the passed flags could lead to invalidation
+	cache.SetConfig(nsNameBaseResource, configHash)
+	// update manifest processor - since configuration could be reset
+	cache.SetProcessor(clusterCacheKey, renderSrc)
+
+	return renderSrc, nil
+}
+
+// discoverCacheKey returns processor key for caching of manifest renderer,
+// by label value operator.kyma-project.io/processor-key.
+// If label not found on base resource an empty processor key is returned.
 func discoverCacheKey(resource client.Object, logger logr.Logger) client.ObjectKey {
 	if resource != nil {
 		label, err := util.GetResourceLabel(resource, labels.CacheKey)
 		var labelErr *util.LabelNotFoundError
 		if errors.As(err, &labelErr) {
-			logger.V(util.DebugLogLevel).Info("cache-key label missing, resource will not be cached. Resulted in",
+			logger.V(util.DebugLogLevel).Info("processor-key label missing, resource will not be cached. Resulted in",
 				"error", err.Error(),
 				"resource", client.ObjectKeyFromObject(resource))
 		}
@@ -125,11 +146,12 @@ func discoverCacheKey(resource client.Object, logger logr.Logger) client.ObjectK
 }
 
 // getManifestProcessor returns a new types.RenderSrc instance
-// this render source will handle subsequent operations for manifest resources based on types.InstallInfo.
-func getManifestProcessor(deployInfo types.InstallInfo,
-	logger logr.Logger, render *Rendered, txformer *Transformer,
-) (types.RenderSrc, error) {
-	singletonClients, err := NewSingletonClients(deployInfo.Config, logger)
+// this render source will handle subsequent Operations for manifest resources based on types.InstallInfo.
+func getManifestProcessor(deployInfo types.InstallInfo, logger logr.Logger) (types.RenderSrc, error) {
+	txformer := NewTransformer()
+	render := NewRendered(logger)
+
+	singletonClients, err := client2.NewSingletonClients(deployInfo.Config, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +164,7 @@ func getManifestProcessor(deployInfo types.InstallInfo,
 	case resource.HelmKind, resource.UnknownKind:
 		// create HelmClient instance
 		return NewHelmProcessor(singletonClients, cli.New(), logger,
-			render, txformer)
+			render, txformer, deployInfo)
 	case resource.KustomizeKind:
 		// create dynamic client for rest config
 		if err != nil {
@@ -153,7 +175,7 @@ func getManifestProcessor(deployInfo types.InstallInfo,
 	return nil, nil
 }
 
-func (o *operations) consistencyCheck(deployInfo types.InstallInfo) (bool, error) {
+func (o *Operations) consistencyCheck(deployInfo types.InstallInfo) (bool, error) {
 	// verify CRDs
 	if err := resource.CheckCRDs(deployInfo.Ctx, deployInfo.Crds, deployInfo.ClusterInfo.Client,
 		false); err != nil {
@@ -191,7 +213,7 @@ func (o *operations) consistencyCheck(deployInfo types.InstallInfo) (bool, error
 	return true, nil
 }
 
-func (o *operations) install(deployInfo types.InstallInfo) (bool, error) {
+func (o *Operations) install(deployInfo types.InstallInfo) (bool, error) {
 	// install crds first - if present do not update!
 	if err := resource.CheckCRDs(deployInfo.Ctx, deployInfo.Crds, deployInfo.ClusterInfo.Client,
 		true); err != nil {
@@ -223,7 +245,7 @@ func (o *operations) install(deployInfo types.InstallInfo) (bool, error) {
 	return true, nil
 }
 
-func (o *operations) uninstall(deployInfo types.InstallInfo) (bool, error) {
+func (o *Operations) uninstall(deployInfo types.InstallInfo) (bool, error) {
 	// delete crs first - proceed only if not found
 	// proceed if CR type doesn't exist anymore - since associated CRDs might be deleted from resource uninstallation
 	// since there might be a deletion process to be completed by other manifest resources
@@ -240,7 +262,7 @@ func (o *operations) uninstall(deployInfo types.InstallInfo) (bool, error) {
 	}
 
 	// uninstall resources
-	consistent, err := o.renderSrc.Install(parsedFile.GetContent(), deployInfo, o.resourceTransforms)
+	consistent, err := o.renderSrc.Uninstall(parsedFile.GetContent(), deployInfo, o.resourceTransforms)
 	if err != nil || !consistent {
 		return false, err
 	}
@@ -257,7 +279,7 @@ func (o *operations) uninstall(deployInfo types.InstallInfo) (bool, error) {
 	return true, err
 }
 
-func (o *operations) getManifestForChartPath(deployInfo types.InstallInfo) *types.ParsedFile {
+func (o *Operations) getManifestForChartPath(deployInfo types.InstallInfo) *types.ParsedFile {
 	// 1. check provided manifest file
 	// It is expected for deployInfo.ChartPath to contain ONE .yaml or .yml file,
 	// which is assumed to contain a list of resources to be processed.

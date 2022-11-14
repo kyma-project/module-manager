@@ -76,7 +76,19 @@ out.txt
 
 # ignore workspace sub-directory
 .workspace
-© 2022 GitHub, Inc.
-Terms
-Privacy
-Security
+
+# ignore vscode delve debug binary
+**/__debug_bin
+
+.run/
+/operator/config/crd/bases/operator.kyma-project.io*
+.test.env
+**/**.code-workspace
+
+**/dry-run
+**/bin
+**/go.work
+**/go.work.sum
+
+# rendered manifest
+**/manifest.yaml

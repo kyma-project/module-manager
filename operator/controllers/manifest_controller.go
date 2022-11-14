@@ -62,8 +62,8 @@ type RequeueIntervals struct {
 
 type OperationRequest struct {
 	Info         types.InstallInfo
-	Mode         types.Mode
-	ResponseChan types.ResponseChan
+	Mode         internalTypes.Mode
+	ResponseChan internalTypes.ResponseChan
 }
 
 // ManifestReconciler reconciles a Manifest object.
@@ -75,7 +75,7 @@ type ManifestReconciler struct {
 	DeployChan       chan OperationRequest
 	Workers          *ManifestWorkerPool
 	RequeueIntervals RequeueIntervals
-	CacheManager     *CacheManager
+	CacheManager     types.CacheManager
 	internalTypes.ReconcileFlagConfig
 	CacheSyncTimeout time.Duration
 }
@@ -144,20 +144,20 @@ func (r *ManifestReconciler) HandleInitialState(ctx context.Context, _ logr.Logg
 func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, logger logr.Logger,
 	manifestObj *v1alpha1.Manifest,
 ) error {
-	return r.sendJobToInstallChannel(ctx, logger, manifestObj, types.CreateMode)
+	return r.sendJobToInstallChannel(ctx, logger, manifestObj, internalTypes.CreateMode)
 }
 
 func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, logger logr.Logger,
 	manifestObj *v1alpha1.Manifest,
 ) error {
-	return r.sendJobToInstallChannel(ctx, logger, manifestObj, types.DeletionMode)
+	return r.sendJobToInstallChannel(ctx, logger, manifestObj, internalTypes.DeletionMode)
 }
 
 func (r *ManifestReconciler) sendJobToInstallChannel(ctx context.Context, logger logr.Logger,
-	manifestObj *v1alpha1.Manifest, mode types.Mode,
+	manifestObj *v1alpha1.Manifest, mode internalTypes.Mode,
 ) error {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
-	responseChan := make(types.ResponseChan)
+	responseChan := make(internalTypes.ResponseChan)
 
 	chartCount := len(manifestObj.Spec.Installs)
 
@@ -167,11 +167,11 @@ func (r *ManifestReconciler) sendJobToInstallChannel(ctx context.Context, logger
 	// send deploy requests
 	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, types.ClusterInfo{
 		Client: r.Client, Config: r.RestConfig,
-	}, r.ReconcileFlagConfig, r.CacheManager.ClusterInfos)
+	}, r.ReconcileFlagConfig, r.CacheManager.GetClusterInfoCache())
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("cannot prepare install information for %s resource %s",
 			v1alpha1.ManifestKind, namespacedName))
-		if mode == types.DeletionMode {
+		if mode == internalTypes.DeletionMode {
 			// when installation info cannot not be determined in deletion mode
 			// reconciling this resource again will not fix itself
 			// so remove finalizer in this case, to process with Manifest deletion
@@ -214,16 +214,17 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger logr.L
 	// send deploy requests
 	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, types.ClusterInfo{
 		Client: r.Client, Config: r.RestConfig,
-	}, r.ReconcileFlagConfig, r.CacheManager.ClusterInfos)
+	}, r.ReconcileFlagConfig, r.CacheManager.GetClusterInfoCache())
 	if err != nil {
 		return err
 	}
 
 	for _, deployInfo := range deployInfos {
-		ready, err := manifest.ConsistencyCheck(logger, deployInfo, []types.ObjectTransform{}, r.CacheManager.RenderSources)
+		ready, err := manifest.ConsistencyCheck(logger, deployInfo, []types.ObjectTransform{},
+			r.CacheManager.GetRendererCache())
 
 		// prepare chart response object
-		chartResponse := &types.InstallResponse{
+		chartResponse := &internalTypes.InstallResponse{
 			Ready:             ready,
 			ResNamespacedName: client.ObjectKeyFromObject(manifestObj),
 			Err:               err,
@@ -233,16 +234,16 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger logr.L
 
 		// update only if resources not ready OR an error occurred during chart verification
 		if !ready {
-			internalUtil.AddReadyConditionForResponses([]*types.InstallResponse{chartResponse}, logger, manifestObj)
+			internalUtil.AddReadyConditionForResponses([]*internalTypes.InstallResponse{chartResponse}, logger,
+				manifestObj)
 			return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing,
 				"resources not ready")
 		} else if err != nil {
-			logger.Error(err, fmt.Sprintf("error while performing consistency check on manifest %s", namespacedName))
-			internalUtil.AddReadyConditionForResponses([]*types.InstallResponse{chartResponse}, logger, manifestObj)
-			if err := r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error()); err != nil {
-				return err
-			}
-			return err
+			logger.Error(err, fmt.Sprintf("error while performing consistency check on manifest %s",
+				namespacedName))
+			internalUtil.AddReadyConditionForResponses([]*internalTypes.InstallResponse{chartResponse}, logger,
+				manifestObj)
+			return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error())
 		}
 	}
 	return nil
@@ -272,21 +273,23 @@ func (r *ManifestReconciler) updateManifestStatus(ctx context.Context, manifestO
 	return r.Status().Update(ctx, manifestObj.SetObservedGeneration())
 }
 
-func (r *ManifestReconciler) HandleCharts(deployInfo types.InstallInfo, mode types.Mode,
+func (r *ManifestReconciler) HandleCharts(deployInfo types.InstallInfo, mode internalTypes.Mode,
 	logger logr.Logger,
-) *types.InstallResponse {
+) *internalTypes.InstallResponse {
 	// evaluate create or delete chart
-	create := mode == types.CreateMode
+	create := mode == internalTypes.CreateMode
 
 	var ready bool
 	var err error
 	if create {
-		ready, err = manifest.InstallChart(logger, deployInfo, []types.ObjectTransform{}, r.CacheManager.RenderSources)
+		ready, err = manifest.InstallChart(logger, deployInfo, []types.ObjectTransform{},
+			r.CacheManager.GetRendererCache())
 	} else {
-		ready, err = manifest.UninstallChart(logger, deployInfo, []types.ObjectTransform{}, r.CacheManager.RenderSources)
+		ready, err = manifest.UninstallChart(logger, deployInfo, []types.ObjectTransform{},
+			r.CacheManager.GetRendererCache())
 	}
 
-	return &types.InstallResponse{
+	return &internalTypes.InstallResponse{
 		Ready:             ready,
 		ResNamespacedName: client.ObjectKeyFromObject(deployInfo.BaseResource),
 		Err:               err,
@@ -296,7 +299,7 @@ func (r *ManifestReconciler) HandleCharts(deployInfo types.InstallInfo, mode typ
 }
 
 func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger logr.Logger, chartCount int,
-	responseChan types.ResponseChan, namespacedName client.ObjectKey,
+	responseChan internalTypes.ResponseChan, namespacedName client.ObjectKey,
 ) {
 	// errorState takes precedence over processing
 	errorState := false
@@ -304,7 +307,7 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger log
 	// pathError indicates an unfixable error
 	// a true value signifies finalizer removal
 	pathError := false
-	responses := make([]*types.InstallResponse, 0)
+	responses := make([]*internalTypes.InstallResponse, 0)
 
 	for a := 1; a <= chartCount; a++ {
 		select {
@@ -440,14 +443,14 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 
 func (r *ManifestReconciler) finalizeDeletion(ctx context.Context, manifestObj *v1alpha1.Manifest) error {
 	// remove finalizer
-	finalizerRemoved := controllerutil.RemoveFinalizer(manifestObj, labels.ManifestFinalizer)
-
-	// finally update Manifest, if finalizer was removed
-	if !finalizerRemoved {
+	if !controllerutil.RemoveFinalizer(manifestObj, labels.ManifestFinalizer) {
 		return nil
 	}
 
-	kymaOwnerLabel, err := util.GetResourceLabel(manifestObj, labels.ComponentOwner)
+	// invalidate Manifest specific configuration
+	r.CacheManager.InvalidateSelf(client.ObjectKeyFromObject(manifestObj))
+
+	kymaOwnerLabel, err := util.GetResourceLabel(manifestObj, labels.CacheKey)
 	if err != nil {
 		return err
 	}
@@ -457,7 +460,7 @@ func (r *ManifestReconciler) finalizeDeletion(ctx context.Context, manifestObj *
 		return err
 	}
 	err = r.Client.List(ctx, manifestList, &client.ListOptions{
-		LabelSelector: k8slabels.SelectorFromSet(k8slabels.Set{labels.ComponentOwner: kymaOwnerLabel}),
+		LabelSelector: k8slabels.SelectorFromSet(k8slabels.Set{labels.CacheKey: kymaOwnerLabel}),
 		Namespace:     manifestObj.Namespace,
 	})
 	if err != nil {
@@ -466,7 +469,7 @@ func (r *ManifestReconciler) finalizeDeletion(ctx context.Context, manifestObj *
 	// delete cluster cache entry only if the Manifest being deleted is the only one
 	// with the corresponding kyma name
 	if len(manifestList.Items) == 1 {
-		r.CacheManager.Invalidate(client.ObjectKey{Name: kymaOwnerLabel, Namespace: manifestObj.Namespace})
+		r.CacheManager.InvalidateForOwner(client.ObjectKey{Name: kymaOwnerLabel, Namespace: manifestObj.Namespace})
 	}
 
 	return r.updateManifest(ctx, manifestObj)
