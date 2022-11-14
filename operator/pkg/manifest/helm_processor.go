@@ -8,17 +8,12 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/kyma-project/module-manager/operator/pkg/diff"
-	"github.com/pkg/errors"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/kube"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/cli-runtime/pkg/resource"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kyma-project/module-manager/operator/pkg/types"
@@ -100,7 +95,7 @@ func (h *helm) Install(stringifedManifest string, deployInfo types.InstallInfo, 
 	}
 
 	// install resources
-	result, err := h.installResources(resourceLists)
+	result, err := h.installResources(resourceLists, false)
 	if err != nil {
 		return false, err
 	}
@@ -168,54 +163,42 @@ func (h *helm) Uninstall(stringifedManifest string, deployInfo types.InstallInfo
 // IsConsistent indicates if helm installation is consistent with the desired manifest resources.
 func (h *helm) IsConsistent(stringifedManifest string, deployInfo types.InstallInfo, transforms []types.ObjectTransform,
 ) (bool, error) {
-	desired, err := h.Transform(deployInfo.Ctx, stringifedManifest, deployInfo.BaseResource, transforms)
+	// convert for Helm processing
+	resourceLists, err := h.parseToResourceLists(stringifedManifest, deployInfo, transforms)
 	if err != nil {
 		return false, err
 	}
-	desiredResources := kube.ResourceList{}
-	for _, unstructuredObject := range desired.Items {
-		resourceInfo, err := h.clients.ResourceInfo(unstructuredObject)
-		if err != nil {
+
+	// install resources without force, it will lead to 3 way merge / JSON apply patches
+	result, err := h.installResources(resourceLists, false)
+	if err != nil {
+		return false, err
+	}
+
+	// verify resources
+	ready, err := h.verifyResources(deployInfo.Ctx, resourceLists,
+		deployInfo.CheckReadyStates, types.OperationCreate)
+
+	h.logger.V(util.DebugLogLevel).Info("consistency check",
+		"consistent", ready,
+		"create count", len(result.Created),
+		"update count", len(result.Updated),
+		"chart", deployInfo.ChartName,
+		"release", deployInfo.ReleaseName,
+		"resource", client.ObjectKeyFromObject(deployInfo.BaseResource).String())
+
+	if !ready || err != nil {
+		return ready, err
+	}
+
+	// update helm repositories
+	if deployInfo.UpdateRepositories {
+		if err = h.updateRepos(deployInfo.Ctx); err != nil {
 			return false, err
 		}
-		desiredResources = append(desiredResources, resourceInfo)
-	}
-	live := make([]*unstructured.Unstructured, 0, len(desiredResources))
-	err = desiredResources.Visit(func(info *resource.Info, err error) error {
-		if err != nil {
-			return err
-		}
-
-		helper := resource.NewHelper(info.Client, info.Mapping)
-		_, err = helper.Get(info.Namespace, info.Name)
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				live = append(live, nil)
-				return nil
-			}
-			return errors.Wrapf(err, "could not get information about the resource %s / %s", info.Name, info.Namespace)
-		}
-
-		unstructFromInfoObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&info.Object)
-		if err != nil {
-			return err
-		}
-		live = append(live, &unstructured.Unstructured{Object: unstructFromInfoObj})
-		return nil
-	})
-	if err != nil {
-		return false, err
 	}
 
-	resList, err := diff.Array(desired.Items, live)
-
-	h.logger.V(util.DebugLogLevel).Info("diffing completed",
-		"modified", resList.Modified)
-	if err != nil {
-		return false, err
-	}
-
-	return !resList.Modified, nil
+	return true, nil
 }
 
 func (h *helm) verifyResources(ctx context.Context, resourceLists types.ResourceLists, verifyReadyStates bool,
@@ -225,7 +208,7 @@ func (h *helm) verifyResources(ctx context.Context, resourceLists types.Resource
 		verifyReadyStates)
 }
 
-func (h *helm) installResources(resourceLists types.ResourceLists) (*kube.Result, error) {
+func (h *helm) installResources(resourceLists types.ResourceLists, force bool) (*kube.Result, error) {
 	// create namespace resource first!
 	if len(resourceLists.Namespace) > 0 {
 		if _, err := h.clients.KubeClient().Create(resourceLists.Namespace); err != nil && !apierrors.IsAlreadyExists(err) {
@@ -239,7 +222,7 @@ func (h *helm) installResources(resourceLists types.ResourceLists) (*kube.Result
 	}
 
 	// missing resources - update with 3 way merge
-	return h.clients.KubeClient().Update(resourceLists.Installed, resourceLists.Target, false)
+	return h.clients.KubeClient().Update(resourceLists.Installed, resourceLists.Target, force)
 }
 
 func (h *helm) uninstallResources(resourceLists types.ResourceLists) (*kube.Result, error) {

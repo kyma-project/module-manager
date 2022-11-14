@@ -24,7 +24,8 @@ type kustomize struct {
 // On the returned helm instance, installation, uninstallation and verification checks
 // can then be executed on the resource manifest.
 func NewKustomizeProcessor(
-	clients *SingletonClients, logger logr.Logger, render *rendered, txformer *transformer) (types.RenderSrc, error) {
+	clients *SingletonClients, logger logr.Logger, render *rendered, txformer *transformer,
+) (types.RenderSrc, error) {
 	// TODO offer SSA as a generic installation and not only bound to Kustomize
 	dynclient, err := clients.DynamicClient()
 	if err != nil {

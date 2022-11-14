@@ -125,7 +125,7 @@ func NewSingletonClients(config *rest.Config, logger logr.Logger) (*SingletonCli
 	clients.helmClient = &kube.Client{
 		Factory: clients,
 		Log: func(msg string, args ...interface{}) {
-			logger.V(util.DebugLogLevel).Info(msg+"\n", args)
+			logger.V(util.DebugLogLevel).Info(msg+"\n", args...)
 		},
 		Namespace: metav1.NamespaceDefault,
 	}
@@ -135,17 +135,17 @@ func NewSingletonClients(config *rest.Config, logger logr.Logger) (*SingletonCli
 	actionConfig.KubeClient = clients.helmClient
 	actionConfig.Log = clients.helmClient.Log
 	var store *storage.Storage
-	var d *driver.Memory
+	var drv *driver.Memory
 	if actionConfig.Releases != nil {
 		if mem, ok := actionConfig.Releases.Driver.(*driver.Memory); ok {
-			d = mem
+			drv = mem
 		}
 	}
-	if d == nil {
-		d = driver.NewMemory()
+	if drv == nil {
+		drv = driver.NewMemory()
 	}
-	d.SetNamespace(metav1.NamespaceDefault)
-	store = storage.Init(d)
+	drv.SetNamespace(metav1.NamespaceDefault)
+	store = storage.Init(drv)
 	actionConfig.Releases = store
 	actionConfig.RESTClientGetter = clients
 	clients.install = action.NewInstall(actionConfig)
@@ -276,7 +276,8 @@ func (f *SingletonClients) ResourceInfo(obj *unstructured.Unstructured) (*resour
 }
 
 func (f *SingletonClients) Validator(
-	validationDirective string, verifier *resource.QueryParamVerifier) (validation.Schema, error) {
+	validationDirective string, verifier *resource.QueryParamVerifier,
+) (validation.Schema, error) {
 	if validationDirective == metav1.FieldValidationIgnore {
 		return validation.NullSchema{}, nil
 	}
@@ -312,7 +313,8 @@ func (f *SingletonClients) Install() *action.Install {
 }
 
 func (f *SingletonClients) ReadyChecker(
-	log func(string, ...interface{}), opts ...kube.ReadyCheckerOption) kube.ReadyChecker {
+	log func(string, ...interface{}), opts ...kube.ReadyCheckerOption,
+) kube.ReadyChecker {
 	return kube.NewReadyChecker(f.kubernetesClient, log, opts...)
 }
 
