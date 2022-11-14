@@ -71,10 +71,12 @@ func getDeployInfo(resourceName, parentCacheKey, chartPath, url string, flags ty
 	}
 }
 
-func remoteHelm() func(resourceName string, parentKey string, flags types.ChartFlags) (string, string, uint32) {
-	return func(resourceName string, parentKey string, flags types.ChartFlags) (string, string, uint32) {
+func remoteHelm() func(resourceName string, parentKey string, flags types.ChartFlags, cache types.RendererCache,
+) (string, string, uint32) {
+	return func(resourceName string, parentKey string, flags types.ChartFlags, cache types.RendererCache,
+	) (string, string, uint32) {
 		_, err := manifest.NewOperations(&logger, getDeployInfo(resourceName, parentKey, "",
-			"https://helm.nginx.com/stable", flags), nil, rendererCache)
+			"https://helm.nginx.com/stable", flags), nil, cache)
 		Expect(err).ShouldNot(HaveOccurred())
 		flagsHash, err := util.CalculateHash(flags)
 		Expect(err).ShouldNot(HaveOccurred())
@@ -82,10 +84,12 @@ func remoteHelm() func(resourceName string, parentKey string, flags types.ChartF
 	}
 }
 
-func localHelm() func(resourceName string, parentKey string, flags types.ChartFlags) (string, string, uint32) {
-	return func(resourceName string, parentKey string, flags types.ChartFlags) (string, string, uint32) {
+func localHelm() func(resourceName string, parentKey string, flags types.ChartFlags, cache types.RendererCache,
+) (string, string, uint32) {
+	return func(resourceName string, parentKey string, flags types.ChartFlags, cache types.RendererCache,
+	) (string, string, uint32) {
 		_, err := manifest.NewOperations(&logger, getDeployInfo(resourceName, parentKey,
-			"../test_samples/helm", "", flags), nil, rendererCache)
+			"../test_samples/helm", "", flags), nil, cache)
 		Expect(err).ShouldNot(HaveOccurred())
 		flagsHash, err := util.CalculateHash(flags)
 		Expect(err).ShouldNot(HaveOccurred())
@@ -98,6 +102,13 @@ func verifyCacheEntries(resourceName string, parentKeyName string, flagVariantHa
 		ShouldNot(BeNil())
 	Expect(rendererCache.GetConfig(client.ObjectKey{Name: resourceName, Namespace: testNs})).
 		Should(Equal(flagVariantHash))
+}
+
+func verifyNilCacheEntries(resourceName string, parentKeyName string, flagVariantHash uint32) {
+	Expect(rendererCache.GetProcessor(client.ObjectKey{Name: parentKeyName, Namespace: testNs})).
+		Should(BeNil())
+	Expect(rendererCache.GetConfig(client.ObjectKey{Name: resourceName, Namespace: testNs})).
+		Should(BeZero())
 }
 
 type mockCache struct {
@@ -163,36 +174,55 @@ var _ = Describe("given manifest with a helm repo", Ordered, func() {
 	})
 
 	DescribeTable("given renderer cache for manifest processing",
-		func(testCaseFn func(resourceName string, parentKey string, flags types.ChartFlags) (string, string, uint32)) {
+		func(testCaseFn func(resourceName string, parentKey string, flags types.ChartFlags, cache types.RendererCache,
+		) (string, string, uint32),
+		) {
 			// first call for operations for same parent resource and configuration
-			verifyCacheEntries(testCaseFn(testResourceName, parentCacheKey, chartFlagsVariantOne))
+			verifyCacheEntries(testCaseFn(testResourceName, parentCacheKey, chartFlagsVariantOne, rendererCache))
 			// second call for operations for same parent resource and configuration
-			verifyCacheEntries(testCaseFn(testResourceName, parentCacheKey, chartFlagsVariantOne))
+			verifyCacheEntries(testCaseFn(testResourceName, parentCacheKey, chartFlagsVariantOne, rendererCache))
 			// third call for operations for same parent resource and configuration
-			verifyCacheEntries(testCaseFn(testResourceName, parentCacheKey, chartFlagsVariantOne))
+			verifyCacheEntries(testCaseFn(testResourceName, parentCacheKey, chartFlagsVariantOne, rendererCache))
 			// fourth call for operations for same parent resource and configuration
-			verifyCacheEntries(testCaseFn(testResourceName, parentCacheKey, chartFlagsVariantOne))
+			verifyCacheEntries(testCaseFn(testResourceName, parentCacheKey, chartFlagsVariantOne, rendererCache))
 			// check set count
 			Expect(setProcessorCount).To(Equal(2)) // new processor + new flags
 			Expect(setConfigCount).To(Equal(1))    // new flags
 
 			// fifth call for operations for same parent resource and DIFFERENT configuration
-			verifyCacheEntries(testCaseFn(testResourceName, parentCacheKey, chartFlagsVariantTwo))
+			verifyCacheEntries(testCaseFn(testResourceName, parentCacheKey, chartFlagsVariantTwo, rendererCache))
 			// check set count
 			Expect(setProcessorCount).To(Equal(3)) // ^above + updated flags
 			Expect(setConfigCount).To(Equal(2))    // ^above + updated flags
 
 			// sixth call for operations for same parent DIFFERENT resource and configuration
-			verifyCacheEntries(testCaseFn(testResourceName2, parentCacheKey, chartFlagsVariantOne))
+			verifyCacheEntries(testCaseFn(testResourceName2, parentCacheKey, chartFlagsVariantOne, rendererCache))
 			// check set count
 			Expect(setProcessorCount).To(Equal(4)) // ^above + flags of new resource
 			Expect(setConfigCount).To(Equal(3))    // ^above + flags of new resource
 
 			// seventh call for operations for a resource and new parent and configuration
-			verifyCacheEntries(testCaseFn(testResourceName3, parentCacheKey2, chartFlagsVariantOne))
+			verifyCacheEntries(testCaseFn(testResourceName3, parentCacheKey2, chartFlagsVariantOne, rendererCache))
 			// check set count
 			Expect(setProcessorCount).To(Equal(6)) // ^above + new parent + new flags
 			Expect(setConfigCount).To(Equal(4))    // ^above + new flags
+		},
+		[]TableEntry{
+			Entry("when local helm chart path is provided", remoteHelm()),
+			Entry("when local kustomize chart is provided", localHelm()),
+		})
+
+	DescribeTable("given nil cache for manifest processing",
+		func(testCaseFn func(resourceName string, parentKey string, flags types.ChartFlags, cache types.RendererCache,
+		) (string, string, uint32),
+		) {
+			// first call for operations for same parent resource and configuration
+			verifyNilCacheEntries(testCaseFn(testResourceName, parentCacheKey, chartFlagsVariantOne, nil))
+			// second call for operations for same parent resource and configuration
+			verifyNilCacheEntries(testCaseFn(testResourceName, parentCacheKey, chartFlagsVariantOne, nil))
+			// check set count
+			Expect(setProcessorCount).To(Equal(0))
+			Expect(setConfigCount).To(Equal(0))
 		},
 		[]TableEntry{
 			Entry("when local helm chart path is provided", remoteHelm()),
