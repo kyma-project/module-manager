@@ -26,8 +26,8 @@ type helm struct {
 	actionClient *action.Install
 	repoHandler  *RepoHandler
 	logger       logr.Logger
-	*transformer
-	*rendered
+	*Transformer
+	*Rendered
 }
 
 // verify compliance of interface.
@@ -43,15 +43,15 @@ var accessor = meta.NewAccessor()
 // On the returned helm instance, installation, uninstallation and verification checks
 // can be executed on the resource manifest.
 func NewHelmProcessor(clients *SingletonClients, settings *cli.EnvSettings,
-	logger logr.Logger, render *rendered, txformer *transformer,
+	logger logr.Logger, render *Rendered, txformer *Transformer,
 ) (types.RenderSrc, error) {
 	helmClient := &helm{
 		clients:      clients,
 		logger:       logger,
 		repoHandler:  NewRepoHandler(logger, settings),
 		settings:     settings,
-		transformer:  txformer,
-		rendered:     render,
+		Transformer:  txformer,
+		Rendered:     render,
 		actionClient: clients.Install(),
 	}
 
@@ -80,8 +80,8 @@ func (h *helm) GetRawManifest(deployInfo types.InstallInfo) *types.ParsedFile {
 	}
 	h.logger.V(util.DebugLogLevel).Info("chart located", "path", chartPath)
 
-	// if rendered manifest doesn't exist
-	// check newly rendered manifest here
+	// if Rendered manifest doesn't exist
+	// check newly Rendered manifest here
 	return types.NewParsedFile(h.renderManifestFromChartPath(chartPath, deployInfo.Flags.SetFlags))
 }
 
@@ -297,7 +297,7 @@ func (h *helm) downloadChart(repoName, url, chartName string) (string, error) {
 }
 
 func (h *helm) renderManifestFromChartPath(chartPath string, flags types.Flags) (string, error) {
-	// if rendered manifest doesn't exist
+	// if Rendered manifest doesn't exist
 	chartRequested, err := h.repoHandler.LoadChart(chartPath, h.clients.Install())
 	if err != nil {
 		return "", err

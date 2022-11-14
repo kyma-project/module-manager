@@ -127,7 +127,7 @@ func discoverCacheKey(resource client.Object, logger logr.Logger) client.ObjectK
 // getManifestProcessor returns a new types.RenderSrc instance
 // this render source will handle subsequent operations for manifest resources based on types.InstallInfo.
 func getManifestProcessor(deployInfo types.InstallInfo,
-	logger logr.Logger, render *rendered, txformer *transformer,
+	logger logr.Logger, render *Rendered, txformer *Transformer,
 ) (types.RenderSrc, error) {
 	singletonClients, err := NewSingletonClients(deployInfo.Config, logger)
 	if err != nil {
@@ -268,7 +268,7 @@ func (o *operations) getManifestForChartPath(deployInfo types.InstallInfo) *type
 	}
 
 	// 2. check cached manifest from previous processing
-	// If the rendered manifest folder doesn't exist or has permission issues,
+	// If the Rendered manifest folder doesn't exist or has permission issues,
 	// it will be ignored.
 	parsedFile = o.renderSrc.GetCachedResources(deployInfo.ChartName, deployInfo.ChartPath)
 	if parsedFile.IsResultConclusive() {
@@ -290,7 +290,7 @@ func (o *operations) getManifestForChartPath(deployInfo types.InstallInfo) *type
 	if deployInfo.ChartPath == "" {
 		return parsedFile
 	}
-	// Write rendered manifest static chart to deployInfo.ChartPath.
+	// Write Rendered manifest static chart to deployInfo.ChartPath.
 	// If the location doesn't exist or has permission issues, it will be ignored.
 	err := util.WriteToFile(util.GetFsManifestChartPath(deployInfo.ChartPath), []byte(parsedFile.GetContent()))
 	return types.NewParsedFile(parsedFile.GetContent(), err).FilterOsErrors()

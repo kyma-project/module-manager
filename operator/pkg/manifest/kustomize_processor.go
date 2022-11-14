@@ -14,8 +14,8 @@ import (
 type kustomize struct {
 	logger  logr.Logger
 	applier *applier.SetApplier
-	*transformer
-	*rendered
+	*Transformer
+	*Rendered
 }
 
 // NewKustomizeProcessor returns a new instance of the kustomize processor.
@@ -24,7 +24,7 @@ type kustomize struct {
 // On the returned helm instance, installation, uninstallation and verification checks
 // can then be executed on the resource manifest.
 func NewKustomizeProcessor(
-	clients *SingletonClients, logger logr.Logger, render *rendered, txformer *transformer,
+	clients *SingletonClients, logger logr.Logger, render *Rendered, txformer *Transformer,
 ) (types.RenderSrc, error) {
 	// TODO offer SSA as a generic installation and not only bound to Kustomize
 	dynclient, err := clients.DynamicClient()
@@ -40,8 +40,8 @@ func NewKustomizeProcessor(
 	// verify compliance of interface
 	var kustomizeProcessor types.RenderSrc = &kustomize{
 		logger:      logger,
-		transformer: txformer,
-		rendered:    render,
+		Transformer: txformer,
+		Rendered:    render,
 		applier:     ssaApplier,
 	}
 
