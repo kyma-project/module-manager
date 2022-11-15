@@ -25,7 +25,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           # Context for which we should look for the matching status
           statusName: ${{ (github.event_name == 'pull_request') && 'pull-module-mgr-build' || 'main-module-mgr-build' }}
-          timeoutSeconds: 180
+          timeoutSeconds: 300 # TODO verify the bump - since the image build usually takes more
           intervalSeconds: 10
       - name: Exit If Failing Build Requirement
         if: steps.wait-for-build.outputs.state != 'success'
@@ -102,6 +102,7 @@ jobs:
       - id: kyma
         uses: jakobmoellersap/kyma-cli-action@v0.0.1-alpha1
         with:
+          cache: false
           version: ${{ matrix.cli-stability }}
       - run: ln -s ${{ steps.kyma.outputs.path }} /usr/local/bin/kyma
       - name: Run Provision
@@ -114,7 +115,11 @@ jobs:
             --name $CLUSTER_NAME
           k3d kubeconfig merge $CLUSTER_NAME -o $GITHUB_WORKSPACE/kubeconfig.yaml
       - name: Run Deploy
-        run: kyma alpha deploy --source=local
+        run: |
+          kyma alpha deploy \
+            -k $(go env GOPATH)/src/github.com/$LIFECYCLE_MANAGER/config/default \
+            -k $(go env GOPATH)/src/github.com/$MODULE_MANAGER/operator/config/default
+
       - name: Inject GOPATH into go Setup
         run: echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
 
