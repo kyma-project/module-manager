@@ -167,13 +167,13 @@ func getManifestProcessor(deployInfo types.InstallInfo, logger *logr.Logger) (ty
 		return nil, err
 	}
 	switch chartKind {
-	case resource.HelmKind, resource.UnknownKind:
+	case resource.HelmKind:
 		// create RESTGetter with cached memcached client
 		restGetter := manifestRest.NewRESTClientGetter(deployInfo.Config, memCacheClient)
 
 		// create HelmClient instance
 		return NewHelmProcessor(restGetter, discoveryMapper, logger, render, txformer, deployInfo)
-	case resource.KustomizeKind:
+	case resource.KustomizeKind, resource.UnknownKind:
 		// create dynamic client for rest config
 		dynamicClient, err := dynamic.NewForConfig(deployInfo.Config)
 		if err != nil {

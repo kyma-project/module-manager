@@ -468,6 +468,7 @@ func (h *helm) getTargetResources(ctx context.Context, manifest string,
 	}
 
 	if err != nil {
+		//nolint:errorlint
 		errAggregate, ok := err.(apiMachineryErr.Aggregate)
 		if ok {
 			wrappedErr := resourceValidationErr
@@ -477,7 +478,6 @@ func (h *helm) getTargetResources(ctx context.Context, manifest string,
 			return nil, fmt.Errorf(wrappedErr)
 		}
 		return nil, fmt.Errorf("%s: %w", resourceValidationErr, err)
-
 	}
 	// verify namespace override if not done by kubeclient
 	if err = overrideNamespace(resourceList, h.actionClient.Namespace); err != nil {
