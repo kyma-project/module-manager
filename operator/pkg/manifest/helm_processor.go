@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	client2 "github.com/kyma-project/module-manager/operator/pkg/client"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/kube"
@@ -16,6 +15,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	client2 "github.com/kyma-project/module-manager/operator/pkg/client"
 
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
@@ -47,13 +48,12 @@ func NewHelmProcessor(clients *client2.SingletonClients, settings *cli.EnvSettin
 	logger logr.Logger, render *Rendered, txformer *Transformer, deployInfo types.InstallInfo,
 ) (types.RenderSrc, error) {
 	helmClient := &helm{
-		clients:      clients,
-		logger:       logger,
-		repoHandler:  NewRepoHandler(logger, settings),
-		settings:     settings,
-		Transformer:  txformer,
-		Rendered:     render,
-		actionClient: clients.Install(),
+		clients:     clients,
+		logger:      logger,
+		repoHandler: NewRepoHandler(logger, settings),
+		settings:    settings,
+		Transformer: txformer,
+		Rendered:    render,
 	}
 
 	// verify compliance of interface

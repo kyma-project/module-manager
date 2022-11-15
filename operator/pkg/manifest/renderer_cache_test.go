@@ -32,13 +32,13 @@ var (
 	//nolint:gochecknoglobals
 	chartFlagsVariantOne = types.ChartFlags{
 		ConfigFlags: types.Flags{
-			"key1": "value1",
+			"Namespace": "value1",
 		},
 	}
 	//nolint:gochecknoglobals
 	chartFlagsVariantTwo = types.ChartFlags{
 		ConfigFlags: types.Flags{
-			"key2": "value2",
+			"Namespace": "value2",
 		},
 	}
 )
