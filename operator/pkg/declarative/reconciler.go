@@ -126,6 +126,8 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 // HandleInitialState bootstraps state handling for the reconciled resource.
 func (r *ManifestReconciler) HandleInitialState(ctx context.Context, objectInstance types.BaseCustomObject) error {
+	// TODO: initial logic here
+
 	status, err := getStatusFromObjectInstance(objectInstance)
 	if err != nil {
 		return err
@@ -190,7 +192,7 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, objectIn
 		return err
 	}
 
-	ready, err := manifest.InstallChart(&logger, installInfo, r.options.objectTransforms, nil)
+	ready, err := manifest.InstallChart(logger, installInfo, r.options.objectTransforms, nil)
 	if err != nil {
 		logger.Error(nil, fmt.Sprintf("error while installing resource %s %s",
 			client.ObjectKeyFromObject(objectInstance), err.Error()))
@@ -236,7 +238,7 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInst
 		return err
 	}
 
-	readyToBeDeleted, err := manifest.UninstallChart(&logger, installInfo, r.options.objectTransforms, nil)
+	readyToBeDeleted, err := manifest.UninstallChart(logger, installInfo, r.options.objectTransforms, nil)
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("error while deleting resource %s", client.ObjectKeyFromObject(objectInstance)))
 		status.State = types.StateError
@@ -275,7 +277,7 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, objectInstanc
 	}
 
 	// verify installed resources
-	ready, err := manifest.ConsistencyCheck(&logger, installInfo, r.options.objectTransforms, nil)
+	ready, err := manifest.ConsistencyCheck(logger, installInfo, r.options.objectTransforms, nil)
 
 	// update only if resources not ready OR an error occurred during chart verification
 	if err != nil {
@@ -351,6 +353,7 @@ func (r *ManifestReconciler) setStatusForObjectInstance(ctx context.Context, obj
 ) error {
 	var err error
 	var unstructStatus map[string]interface{}
+
 	switch typedObject := objectInstance.(type) {
 	case types.CustomObject:
 		typedObject.SetStatus(status)

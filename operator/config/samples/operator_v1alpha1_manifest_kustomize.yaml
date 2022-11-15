@@ -21,8 +21,8 @@ spec:
   installs:
     - source:
         path: ""
-        url:       "https://github.com/kyma-project/lifecycle-manager//operator/config/default?ref=main"
-        type:      kustomize
+        url: "https://github.com/kyma-project/lifecycle-manager//operator/config/default?ref=main"
+        type: kustomize
       name: lifecycle-manager
     - source:
         path: "./pkg/test_samples/kustomize"

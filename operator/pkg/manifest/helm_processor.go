@@ -8,41 +8,30 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/kube"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	apiMachineryErr "k8s.io/apimachinery/pkg/util/errors"
-	"k8s.io/cli-runtime/pkg/resource"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/restmapper"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	manifestRest "github.com/kyma-project/module-manager/operator/pkg/rest"
+	client2 "github.com/kyma-project/module-manager/operator/pkg/client"
+
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
 )
 
-type helm struct {
-	kubeClient   *kube.Client
-	settings     *cli.EnvSettings
-	restGetter   *manifestRest.ManifestRESTClientGetter
-	clientSet    *kubernetes.Clientset
-	restConfig   *rest.Config
-	mapper       *restmapper.DeferredDiscoveryRESTMapper
-	actionClient *action.Install
-	repoHandler  *RepoHandler
-	logger       *logr.Logger
-	*transformer
-	*rendered
-}
-
 const resourceValidationErr = "validating manifest resources resulted in an error"
+
+type helm struct {
+	clients     *client2.SingletonClients
+	settings    *cli.EnvSettings
+	repoHandler *RepoHandler
+	logger      logr.Logger
+	*Transformer
+	*Rendered
+}
 
 // verify compliance of interface.
 var _ types.RenderSrc = &helm{}
@@ -56,42 +45,26 @@ var accessor = meta.NewAccessor()
 // Additionally, it also transforms the manifest resources based on user defined input.
 // On the returned helm instance, installation, uninstallation and verification checks
 // can be executed on the resource manifest.
-func NewHelmProcessor(restGetter *manifestRest.ManifestRESTClientGetter,
-	discoveryMapper *restmapper.DeferredDiscoveryRESTMapper, logger *logr.Logger, render *rendered,
-	txformer *transformer, deployInfo types.InstallInfo,
+func NewHelmProcessor(clients *client2.SingletonClients, settings *cli.EnvSettings,
+	logger logr.Logger, render *Rendered, txformer *Transformer, deployInfo types.InstallInfo,
 ) (types.RenderSrc, error) {
-	var err error
-	settings := cli.New()
 	helmClient := &helm{
+		clients:     clients,
 		logger:      logger,
 		repoHandler: NewRepoHandler(logger, settings),
 		settings:    settings,
-		restGetter:  restGetter,
-		restConfig:  deployInfo.Config,
-		mapper:      discoveryMapper,
-		transformer: txformer,
-		rendered:    render,
-	}
-
-	helmClient.actionClient, helmClient.kubeClient, err = helmClient.newInstallActionClient(
-		v1.NamespaceDefault, restGetter)
-	if err != nil {
-		return nil, err
-	}
-
-	// always override existing flags config
-	// to ensure CR updates are reflected on the action client
-	if err = helmClient.resetFlags(deployInfo); err != nil {
-		return nil, err
-	}
-
-	helmClient.clientSet, err = helmClient.kubeClient.Factory.KubernetesClientSet()
-	if err != nil {
-		return nil, err
+		Transformer: txformer,
+		Rendered:    render,
 	}
 
 	// verify compliance of interface
 	var helmProcessor types.RenderSrc = helmClient
+
+	// always override existing flags config
+	// to ensure CR updates are reflected on the action client
+	if err := helmClient.resetFlags(deployInfo); err != nil {
+		return nil, err
+	}
 
 	return helmProcessor, nil
 }
@@ -109,8 +82,8 @@ func (h *helm) GetRawManifest(deployInfo types.InstallInfo) *types.ParsedFile {
 	}
 	h.logger.V(util.DebugLogLevel).Info("chart located", "path", chartPath)
 
-	// if rendered manifest doesn't exist
-	// check newly rendered manifest here
+	// if Rendered manifest doesn't exist
+	// check newly Rendered manifest here
 	return types.NewParsedFile(h.renderManifestFromChartPath(chartPath, deployInfo.Flags.SetFlags))
 }
 
@@ -124,7 +97,7 @@ func (h *helm) Install(stringifedManifest string, deployInfo types.InstallInfo, 
 	}
 
 	// install resources
-	result, err := h.installResources(resourceLists)
+	result, err := h.installResources(resourceLists, false)
 	if err != nil {
 		return false, err
 	}
@@ -191,15 +164,42 @@ func (h *helm) Uninstall(stringifedManifest string, deployInfo types.InstallInfo
 // IsConsistent indicates if helm installation is consistent with the desired manifest resources.
 func (h *helm) IsConsistent(stringifedManifest string, deployInfo types.InstallInfo, transforms []types.ObjectTransform,
 ) (bool, error) {
-	// verify manifest resources - by count
-	// TODO better strategy for resource verification?
 	// convert for Helm processing
 	resourceLists, err := h.parseToResourceLists(stringifedManifest, deployInfo, transforms)
 	if err != nil {
 		return false, err
 	}
 
-	return len(resourceLists.Target) == len(resourceLists.Installed), nil
+	// install resources without force, it will lead to 3 way merge / JSON apply patches
+	result, err := h.installResources(resourceLists, false)
+	if err != nil {
+		return false, err
+	}
+
+	// verify resources
+	ready, err := h.verifyResources(deployInfo.Ctx, resourceLists,
+		deployInfo.CheckReadyStates, types.OperationCreate)
+
+	h.logger.V(util.DebugLogLevel).Info("consistency check",
+		"consistent", ready,
+		"create count", len(result.Created),
+		"update count", len(result.Updated),
+		"chart", deployInfo.ChartName,
+		"release", deployInfo.ReleaseName,
+		"resource", client.ObjectKeyFromObject(deployInfo.BaseResource).String())
+
+	if !ready || err != nil {
+		return ready, err
+	}
+
+	// update helm repositories
+	if deployInfo.UpdateRepositories {
+		if err = h.updateRepos(deployInfo.Ctx); err != nil {
+			return false, err
+		}
+	}
+
+	return true, nil
 }
 
 func (h *helm) verifyResources(ctx context.Context, resourceLists types.ResourceLists, verifyReadyStates bool,
@@ -209,21 +209,21 @@ func (h *helm) verifyResources(ctx context.Context, resourceLists types.Resource
 		verifyReadyStates)
 }
 
-func (h *helm) installResources(resourceLists types.ResourceLists) (*kube.Result, error) {
+func (h *helm) installResources(resourceLists types.ResourceLists, force bool) (*kube.Result, error) {
 	// create namespace resource first!
 	if len(resourceLists.Namespace) > 0 {
-		if _, err := h.kubeClient.Create(resourceLists.Namespace); err != nil && !apierrors.IsAlreadyExists(err) {
+		if _, err := h.clients.KubeClient().Create(resourceLists.Namespace); err != nil && !apierrors.IsAlreadyExists(err) {
 			return nil, err
 		}
 	}
 
 	// fresh install
 	if resourceLists.Installed == nil && len(resourceLists.Target) > 0 {
-		return h.kubeClient.Create(resourceLists.Target)
+		return h.clients.KubeClient().Create(resourceLists.Target)
 	}
 
-	// missing resources - update with force
-	return h.kubeClient.Update(resourceLists.Installed, resourceLists.Target, true)
+	// missing resources - update with 3 way merge
+	return h.clients.KubeClient().Update(resourceLists.Installed, resourceLists.Target, force)
 }
 
 func (h *helm) uninstallResources(resourceLists types.ResourceLists) (*kube.Result, error) {
@@ -231,7 +231,7 @@ func (h *helm) uninstallResources(resourceLists types.ResourceLists) (*kube.Resu
 	var delErrors []error
 	if resourceLists.Installed != nil {
 		// add namespace to deleted resources
-		response, delErrors = h.kubeClient.Delete(resourceLists.GetResourcesToBeDeleted())
+		response, delErrors = h.clients.KubeClient().Delete(resourceLists.GetResourcesToBeDeleted())
 		if len(delErrors) > 0 {
 			var wrappedError error
 			for _, err := range delErrors {
@@ -253,28 +253,28 @@ func (h *helm) checkWaitForResources(ctx context.Context, targetResources kube.R
 			return checkResourcesDeleted(targetResources)
 		}
 
-		readyChecker := kube.NewReadyChecker(h.clientSet, func(format string, v ...interface{}) {},
+		readyChecker := h.clients.ReadyChecker(func(format string, v ...interface{}) {},
 			kube.PausedAsReady(true), kube.CheckJobs(true))
 		return checkReady(ctx, targetResources, readyChecker)
 	}
 
 	// if Wait or WaitForJobs is enabled, resources are verified to be in ready state with a timeout
-	if !h.actionClient.Wait || h.actionClient.Timeout == 0 {
+	if !h.clients.Install().Wait || h.clients.Install().Timeout == 0 {
 		// return here as ready, since waiting flags were not set
 		return true, nil
 	}
 
 	if operation == types.OperationDelete {
 		// WaitForDelete reports an error if resources are not deleted in the specified timeout
-		return true, h.kubeClient.WaitForDelete(targetResources, h.actionClient.Timeout)
+		return true, h.clients.KubeClient().WaitForDelete(targetResources, h.clients.Install().Timeout)
 	}
 
-	if h.actionClient.WaitForJobs {
+	if h.clients.Install().WaitForJobs {
 		// WaitWithJobs reports an error if resources are not deleted in the specified timeout
-		return true, h.kubeClient.WaitWithJobs(targetResources, h.actionClient.Timeout)
+		return true, h.clients.KubeClient().WaitWithJobs(targetResources, h.clients.Install().Timeout)
 	}
 	// Wait reports an error if resources are not deleted in the specified timeout
-	return true, h.kubeClient.Wait(targetResources, h.actionClient.Timeout)
+	return true, h.clients.KubeClient().Wait(targetResources, h.clients.Install().Timeout)
 }
 
 func (h *helm) updateRepos(ctx context.Context) error {
@@ -294,18 +294,18 @@ func (h *helm) downloadChart(repoName, url, chartName string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return h.actionClient.ChartPathOptions.LocateChart(chartName, h.settings)
+	return h.clients.Install().ChartPathOptions.LocateChart(chartName, h.settings)
 }
 
 func (h *helm) renderManifestFromChartPath(chartPath string, flags types.Flags) (string, error) {
-	// if rendered manifest doesn't exist
-	chartRequested, err := h.repoHandler.LoadChart(chartPath, h.actionClient)
+	// if Rendered manifest doesn't exist
+	chartRequested, err := h.repoHandler.LoadChart(chartPath, h.clients.Install())
 	if err != nil {
 		return "", err
 	}
 
 	// retrieve manifest
-	release, err := h.actionClient.Run(chartRequested, flags)
+	release, err := h.clients.Install().Run(chartRequested, flags)
 	if err != nil {
 		return "", err
 	}
@@ -313,59 +313,33 @@ func (h *helm) renderManifestFromChartPath(chartPath string, flags types.Flags) 
 	return release.Manifest, nil
 }
 
-func (h *helm) newInstallActionClient(namespace string, restGetter *manifestRest.ManifestRESTClientGetter,
-) (*action.Install, *kube.Client, error) {
-	actionConfig, err := h.getGenericConfig(namespace, restGetter)
-	if err != nil {
-		return nil, nil, err
-	}
-	kubeClient, ok := actionConfig.KubeClient.(*kube.Client)
-	if !ok {
-		return nil, nil, fmt.Errorf("invalid kubeclient generation for helm installation")
-	}
-	return action.NewInstall(actionConfig), kubeClient, nil
-}
-
-func (h *helm) getGenericConfig(namespace string, restGetter *manifestRest.ManifestRESTClientGetter,
-) (*action.Configuration, error) {
-	actionConfig := new(action.Configuration)
-	if err := actionConfig.Init(restGetter, namespace, "secrets",
-		func(format string, v ...interface{}) {
-			format = fmt.Sprintf("%s\n", format)
-			h.logger.V(util.DebugLogLevel).Info(fmt.Sprintf(format, v...))
-		}); err != nil {
-		return nil, err
-	}
-	return actionConfig, nil
-}
-
 func (h *helm) setDefaultFlags(releaseName string) {
-	h.actionClient.DryRun = true
-	h.actionClient.Atomic = false
+	h.clients.Install().DryRun = true
+	h.clients.Install().Atomic = false
 
-	h.actionClient.WaitForJobs = false
+	h.clients.Install().WaitForJobs = false
 
-	h.actionClient.Replace = true     // Skip the name check
-	h.actionClient.IncludeCRDs = true // include CRDs in the templated output
-	h.actionClient.UseReleaseName = false
-	h.actionClient.ReleaseName = releaseName
+	h.clients.Install().Replace = true     // Skip the name check
+	h.clients.Install().IncludeCRDs = true // include CRDs in the templated output
+	h.clients.Install().UseReleaseName = false
+	h.clients.Install().ReleaseName = releaseName
 
 	// ClientOnly has no interaction with the API server
 	// So unless mentioned no additional API Versions can be used as part of helm chart installation
-	h.actionClient.ClientOnly = false
+	h.clients.Install().ClientOnly = false
 
-	h.actionClient.Namespace = v1.NamespaceDefault
+	h.clients.Install().Namespace = v1.NamespaceDefault
 	// this will prohibit resource conflict validation while uninstalling
-	h.actionClient.IsUpgrade = true
+	h.clients.Install().IsUpgrade = true
 
 	// default versioning if unspecified
-	if h.actionClient.Version == "" && h.actionClient.Devel {
-		h.actionClient.Version = ">0.0.0-0"
+	if h.clients.Install().Version == "" && h.clients.Install().Devel {
+		h.clients.Install().Version = ">0.0.0-0"
 	}
 }
 
 func (h *helm) setCustomFlags(flags types.ChartFlags) error {
-	clientValue := reflect.Indirect(reflect.ValueOf(h.actionClient))
+	clientValue := reflect.Indirect(reflect.ValueOf(h.clients.Install()))
 
 	// TODO: as per requirements add more Kind types
 	for flagKey, flagValue := range flags.ConfigFlags {
@@ -439,20 +413,21 @@ func (h *helm) parseToResourceLists(stringifiedManifest string, deployInfo types
 
 func (h *helm) GetNsResource() (kube.ResourceList, error) {
 	// set kubeclient namespace for override
-	h.kubeClient.Namespace = h.actionClient.Namespace
+	// TODO remove setting in kubeclient
+	h.clients.KubeClient().Namespace = h.clients.Install().Namespace
 
 	// validate namespace parameters
 	// proceed only if not default namespace since it already exists
-	if !h.actionClient.CreateNamespace || h.actionClient.Namespace == v1.NamespaceDefault {
+	if !h.clients.Install().CreateNamespace || h.clients.Install().Namespace == v1.NamespaceDefault {
 		return nil, nil
 	}
 
-	ns := h.actionClient.Namespace
+	ns := h.clients.Install().Namespace
 	nsBuf, err := util.GetNamespaceObjBytes(ns)
 	if err != nil {
 		return nil, err
 	}
-	return h.kubeClient.Build(bytes.NewBuffer(nsBuf), false)
+	return h.clients.KubeClient().Build(bytes.NewBuffer(nsBuf), false)
 }
 
 func (h *helm) getTargetResources(ctx context.Context, manifest string,
@@ -462,7 +437,7 @@ func (h *helm) getTargetResources(ctx context.Context, manifest string,
 	var err error
 
 	if len(transforms) == 0 {
-		resourceList, err = h.kubeClient.Build(bytes.NewBufferString(manifest), false)
+		resourceList, err = h.clients.KubeClient().Build(bytes.NewBufferString(manifest), false)
 	} else {
 		resourceList, err = h.transformManifestResources(ctx, manifest, transforms, object)
 	}
@@ -479,8 +454,9 @@ func (h *helm) getTargetResources(ctx context.Context, manifest string,
 		}
 		return nil, fmt.Errorf("%s: %w", resourceValidationErr, err)
 	}
+
 	// verify namespace override if not done by kubeclient
-	if err = overrideNamespace(resourceList, h.actionClient.Namespace); err != nil {
+	if err = overrideNamespace(resourceList, h.clients.Install().Namespace); err != nil {
 		return nil, err
 	}
 	return resourceList, nil
@@ -496,43 +472,13 @@ func (h *helm) transformManifestResources(ctx context.Context, manifest string,
 	}
 
 	for _, unstructuredObject := range objects.Items {
-		resourceInfo, err := h.convertToInfo(unstructuredObject)
+		resourceInfo, err := h.clients.ResourceInfo(unstructuredObject)
 		if err != nil {
 			return nil, err
 		}
 		resourceList = append(resourceList, resourceInfo)
 	}
 	return resourceList, err
-}
-
-func (h *helm) convertToInfo(unstructuredObj *unstructured.Unstructured) (*resource.Info, error) {
-	// TODO:  manual invalidation of mem processor client to maintain current state of server mapping for API resources
-	info := &resource.Info{}
-	gvk := unstructuredObj.GroupVersionKind()
-	gv := gvk.GroupVersion()
-	client, err := newRestClient(h.restConfig, gv)
-	if err != nil {
-		return nil, err
-	}
-	info.Client = client
-	if err = h.assignRestMapping(gvk, info); err != nil {
-		return nil, err
-	}
-
-	info.Namespace = unstructuredObj.GetNamespace()
-	info.Name = unstructuredObj.GetName()
-	info.Object = unstructuredObj.DeepCopyObject()
-	return info, nil
-}
-
-func (h *helm) assignRestMapping(gvk schema.GroupVersionKind, info *resource.Info) error {
-	restMapping, err := h.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
-	if err != nil {
-		h.mapper.Reset()
-		return err
-	}
-	info.Mapping = restMapping
-	return nil
 }
 
 // InvalidateConfigAndRenderedManifest compares the cached hash with the processed hash for helm flags.

@@ -7,14 +7,13 @@ import (
 	"github.com/kyma-project/module-manager/operator/pkg/util"
 )
 
-type transformer struct{}
+type Transformer struct{}
 
-//nolint:revive
-func NewTransformer() *transformer {
-	return &transformer{}
+func NewTransformer() *Transformer {
+	return &Transformer{}
 }
 
-func (t *transformer) Transform(ctx context.Context, manifestStringified string,
+func (t *Transformer) Transform(ctx context.Context, manifestStringified string,
 	object manifestTypes.BaseCustomObject, transforms []manifestTypes.ObjectTransform,
 ) (*manifestTypes.ManifestResources, error) {
 	objects, err := util.ParseManifestStringToObjects(manifestStringified)

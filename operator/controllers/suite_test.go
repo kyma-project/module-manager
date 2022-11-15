@@ -68,7 +68,7 @@ const (
 	layerNameRef       = "some/name"
 	secretName         = "some-kyma-name"
 	kustomizeLocalPath = "../pkg/test_samples/kustomize"
-	standardTimeout    = 2 * time.Minute
+	standardTimeout    = 1 * time.Minute
 	standardInterval   = 250 * time.Millisecond
 )
 
@@ -116,7 +116,7 @@ var _ = BeforeSuite(func() {
 		NewCache:           util.GetCacheFunc(),
 	})
 	Expect(err).ToNot(HaveOccurred())
-	manifestWorkers := controllers.NewManifestWorkers(&logger, 1)
+	manifestWorkers := controllers.NewManifestWorkers(logger, 1)
 	codec, err := types.NewCodec()
 	Expect(err).ToNot(HaveOccurred())
 
@@ -133,8 +133,6 @@ var _ = BeforeSuite(func() {
 		},
 		RequeueIntervals: controllers.RequeueIntervals{
 			Success: time.Second * 10,
-			Failure: time.Second * 2,
-			Waiting: time.Second * 2,
 		},
 	}
 	err = reconciler.SetupWithManager(ctx, k8sManager, 1*time.Second, 1000*time.Second,

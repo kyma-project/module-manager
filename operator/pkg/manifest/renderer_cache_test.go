@@ -32,13 +32,13 @@ var (
 	//nolint:gochecknoglobals
 	chartFlagsVariantOne = types.ChartFlags{
 		ConfigFlags: types.Flags{
-			"key1": "value1",
+			"Namespace": "value1",
 		},
 	}
 	//nolint:gochecknoglobals
 	chartFlagsVariantTwo = types.ChartFlags{
 		ConfigFlags: types.Flags{
-			"key2": "value2",
+			"Namespace": "value2",
 		},
 	}
 )
@@ -75,7 +75,7 @@ func remoteHelm() func(resourceName string, parentKey string, flags types.ChartF
 ) (string, string, uint32) {
 	return func(resourceName string, parentKey string, flags types.ChartFlags, cache types.RendererCache,
 	) (string, string, uint32) {
-		_, err := manifest.NewOperations(&logger, getDeployInfo(resourceName, parentKey, "",
+		_, err := manifest.NewOperations(logger, getDeployInfo(resourceName, parentKey, "",
 			"https://helm.nginx.com/stable", flags), nil, cache)
 		Expect(err).ShouldNot(HaveOccurred())
 		flagsHash, err := util.CalculateHash(flags)
@@ -88,7 +88,7 @@ func localHelm() func(resourceName string, parentKey string, flags types.ChartFl
 ) (string, string, uint32) {
 	return func(resourceName string, parentKey string, flags types.ChartFlags, cache types.RendererCache,
 	) (string, string, uint32) {
-		_, err := manifest.NewOperations(&logger, getDeployInfo(resourceName, parentKey,
+		_, err := manifest.NewOperations(logger, getDeployInfo(resourceName, parentKey,
 			"../test_samples/helm", "", flags), nil, cache)
 		Expect(err).ShouldNot(HaveOccurred())
 		flagsHash, err := util.CalculateHash(flags)
@@ -175,7 +175,8 @@ var _ = Describe("given manifest with a helm repo", Ordered, func() {
 
 	DescribeTable("given renderer cache for manifest processing",
 		func(testCaseFn func(resourceName string, parentKey string, flags types.ChartFlags, cache types.RendererCache,
-		) (string, string, uint32)) {
+		) (string, string, uint32),
+		) {
 			// first call for operations for same parent resource and configuration.
 			verifyCacheEntries(testCaseFn(testResourceName, parentCacheKey, chartFlagsVariantOne, rendererCache))
 			// second call for operations for same parent resource and configuration.
@@ -214,7 +215,8 @@ var _ = Describe("given manifest with a helm repo", Ordered, func() {
 
 	DescribeTable("given nil cache for manifest processing",
 		func(testCaseFn func(resourceName string, parentKey string, flags types.ChartFlags, cache types.RendererCache,
-		) (string, string, uint32)) {
+		) (string, string, uint32),
+		) {
 			// first call for operations for same parent resource and configuration.
 			verifyNilCacheEntries(testCaseFn(testResourceName, parentCacheKey, chartFlagsVariantOne, nil))
 			// second call for operations for same parent resource and configuration.
