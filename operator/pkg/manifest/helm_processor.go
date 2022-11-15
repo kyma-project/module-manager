@@ -16,6 +16,7 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	apiMachineryErr "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/cli-runtime/pkg/resource"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -40,6 +41,8 @@ type helm struct {
 	*transformer
 	*rendered
 }
+
+const resourceValidationErr = "validating manifest resources resulted in an error"
 
 // verify compliance of interface.
 var _ types.RenderSrc = &helm{}
@@ -465,9 +468,17 @@ func (h *helm) getTargetResources(ctx context.Context, manifest string,
 	}
 
 	if err != nil {
-		return nil, err
-	}
+		errAggregate, ok := err.(apiMachineryErr.Aggregate)
+		if ok {
+			wrappedErr := resourceValidationErr
+			for _, nestedErr := range errAggregate.Errors() {
+				wrappedErr = fmt.Sprintln(wrappedErr, nestedErr.Error())
+			}
+			return nil, fmt.Errorf(wrappedErr)
+		}
+		return nil, fmt.Errorf("%s: %w", resourceValidationErr, err)
 
+	}
 	// verify namespace override if not done by kubeclient
 	if err = overrideNamespace(resourceList, h.actionClient.Namespace); err != nil {
 		return nil, err

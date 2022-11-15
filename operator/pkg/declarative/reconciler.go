@@ -73,6 +73,8 @@ func (r *ManifestReconciler) Inject(mgr manager.Manager, customObject types.Base
 	return nil
 }
 
+// Reconcile is the entry point from the controller-runtime framework.
+// It performs a reconciliation based on the passed ctrl.Request object.
 func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
@@ -110,11 +112,11 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	case "":
 		return ctrl.Result{}, r.HandleInitialState(ctx, objectInstance)
 	case types.StateProcessing:
-		return ctrl.Result{RequeueAfter: requeueInterval}, r.HandleProcessingState(ctx, objectInstance)
+		return ctrl.Result{Requeue: true}, r.HandleProcessingState(ctx, objectInstance)
 	case types.StateDeleting:
-		return ctrl.Result{RequeueAfter: requeueInterval}, r.HandleDeletingState(ctx, objectInstance)
+		return ctrl.Result{Requeue: true}, r.HandleDeletingState(ctx, objectInstance)
 	case types.StateError:
-		return ctrl.Result{RequeueAfter: requeueInterval}, r.HandleErrorState(ctx, objectInstance)
+		return ctrl.Result{Requeue: true}, r.HandleProcessingState(ctx, objectInstance)
 	case types.StateReady:
 		return ctrl.Result{RequeueAfter: requeueInterval}, r.HandleReadyState(ctx, objectInstance)
 	}
@@ -122,9 +124,8 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	return ctrl.Result{}, nil
 }
 
+// HandleInitialState bootstraps state handling for the reconciled resource.
 func (r *ManifestReconciler) HandleInitialState(ctx context.Context, objectInstance types.BaseCustomObject) error {
-	// TODO: initial logic here
-
 	status, err := getStatusFromObjectInstance(objectInstance)
 	if err != nil {
 		return err
@@ -162,6 +163,8 @@ func (r *ManifestReconciler) applyLabels(objectInstance types.BaseCustomObject) 
 	return updateRequired
 }
 
+// HandleProcessingState processes the reconciled resource by processing the underlying resources.
+// Based on the processing either a success or failure state is set on the reconciled resource.
 func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, objectInstance types.BaseCustomObject) error {
 	// TODO: processing logic here
 	logger := log.FromContext(ctx)
@@ -189,8 +192,8 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, objectIn
 
 	ready, err := manifest.InstallChart(&logger, installInfo, r.options.objectTransforms, nil)
 	if err != nil {
-		logger.Error(err, fmt.Sprintf("error while installing resource %s",
-			client.ObjectKeyFromObject(objectInstance)))
+		logger.Error(nil, fmt.Sprintf("error while installing resource %s %s",
+			client.ObjectKeyFromObject(objectInstance), err.Error()))
 		return r.setStatusForObjectInstance(ctx, objectInstance, status.WithState(types.StateError))
 	}
 	if ready {
@@ -199,6 +202,8 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, objectIn
 	return nil
 }
 
+// HandleDeletingState processed the deletion on the reconciled resource.
+// Once the deletion if processed the relevant finalizers (if applied) are removed.
 func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInstance types.BaseCustomObject) error {
 	logger := log.FromContext(ctx)
 
@@ -245,14 +250,7 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInst
 	return nil
 }
 
-func (r *ManifestReconciler) HandleErrorState(ctx context.Context, objectInstance types.BaseCustomObject) error {
-	status, err := getStatusFromObjectInstance(objectInstance)
-	if err != nil {
-		return err
-	}
-	return r.setStatusForObjectInstance(ctx, objectInstance, status.WithState(types.StateProcessing))
-}
-
+// HandleReadyState checks for the consistency of reconciled resource, by verifying the underlying resources.
 func (r *ManifestReconciler) HandleReadyState(ctx context.Context, objectInstance types.BaseCustomObject) error {
 	logger := log.FromContext(ctx)
 	status, err := getStatusFromObjectInstance(objectInstance)
@@ -353,7 +351,6 @@ func (r *ManifestReconciler) setStatusForObjectInstance(ctx context.Context, obj
 ) error {
 	var err error
 	var unstructStatus map[string]interface{}
-
 	switch typedObject := objectInstance.(type) {
 	case types.CustomObject:
 		typedObject.SetStatus(status)
@@ -376,7 +373,10 @@ func (r *ManifestReconciler) setStatusForObjectInstance(ctx context.Context, obj
 		return err
 	}
 
-	return r.nativeClient.Status().Update(ctx, objectInstance)
+	if err = r.nativeClient.Status().Update(ctx, objectInstance); err != nil {
+		return fmt.Errorf("error while updating status %s to: %w", status.State, err)
+	}
+	return nil
 }
 
 func getTypeError(namespacedName string) error {
