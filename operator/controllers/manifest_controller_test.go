@@ -117,7 +117,7 @@ func createTwoRemoteManifestsWithNoInstalls() func() bool {
 	}
 }
 
-// TODO: Enable again once Test Refactoring stops race condition from occurring with other OCI test
+// TODO: Enable again once Test Refactoring stops conflict condition from occurring with other OCI test
 //
 //nolint:deadcode,unused
 func createManifestWithInvalidOCI() func() bool {

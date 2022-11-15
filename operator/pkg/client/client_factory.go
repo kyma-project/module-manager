@@ -75,7 +75,10 @@ type SingletonClients struct {
 	unstructuredRestClientCache map[string]resource.RESTClient
 }
 
+// Since we use the SingletonClients also as our Helm cients and redirect all Helm calls to this,
+// we check interface compliance with the necessary client interfaces here.
 var _ kube.Factory = &SingletonClients{}
+var _ action.RESTClientGetter = &SingletonClients{}
 
 func NewSingletonClients(config *rest.Config, logger logr.Logger) (*SingletonClients, error) {
 	if err := setKubernetesDefaults(config); err != nil {
