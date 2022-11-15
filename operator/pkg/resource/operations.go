@@ -80,7 +80,7 @@ func GetChartKind(deployInfo types.InstallInfo) (ChartKind, error) {
 	return kind, nil
 }
 
-func GetStringifiedYamlFromDirPath(dirPath string, logger *logr.Logger) (string, error) {
+func GetStringifiedYamlFromDirPath(dirPath string, logger logr.Logger) (string, error) {
 	dirEntries, err := getDirContent(dirPath)
 	if err != nil {
 		return "", err

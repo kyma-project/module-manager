@@ -110,11 +110,11 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	case "":
 		return ctrl.Result{}, r.HandleInitialState(ctx, objectInstance)
 	case types.StateProcessing:
-		return ctrl.Result{RequeueAfter: requeueInterval}, r.HandleProcessingState(ctx, objectInstance)
+		return ctrl.Result{Requeue: true}, r.HandleProcessingState(ctx, objectInstance)
 	case types.StateDeleting:
-		return ctrl.Result{RequeueAfter: requeueInterval}, r.HandleDeletingState(ctx, objectInstance)
+		return ctrl.Result{Requeue: true}, r.HandleDeletingState(ctx, objectInstance)
 	case types.StateError:
-		return ctrl.Result{RequeueAfter: requeueInterval}, r.HandleErrorState(ctx, objectInstance)
+		return ctrl.Result{Requeue: true}, r.HandleErrorState(ctx, objectInstance)
 	case types.StateReady:
 		return ctrl.Result{RequeueAfter: requeueInterval}, r.HandleReadyState(ctx, objectInstance)
 	}
@@ -187,7 +187,7 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, objectIn
 		return err
 	}
 
-	ready, err := manifest.InstallChart(&logger, installInfo, r.options.objectTransforms, nil)
+	ready, err := manifest.InstallChart(logger, installInfo, r.options.objectTransforms, nil)
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("error while installing resource %s",
 			client.ObjectKeyFromObject(objectInstance)))
@@ -231,7 +231,7 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInst
 		return err
 	}
 
-	readyToBeDeleted, err := manifest.UninstallChart(&logger, installInfo, r.options.objectTransforms, nil)
+	readyToBeDeleted, err := manifest.UninstallChart(logger, installInfo, r.options.objectTransforms, nil)
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("error while deleting resource %s", client.ObjectKeyFromObject(objectInstance)))
 		status.State = types.StateError
@@ -277,7 +277,7 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, objectInstanc
 	}
 
 	// verify installed resources
-	ready, err := manifest.ConsistencyCheck(&logger, installInfo, r.options.objectTransforms, nil)
+	ready, err := manifest.ConsistencyCheck(logger, installInfo, r.options.objectTransforms, nil)
 
 	// update only if resources not ready OR an error occurred during chart verification
 	if err != nil {

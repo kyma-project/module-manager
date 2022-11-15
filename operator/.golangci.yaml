@@ -26,6 +26,9 @@ linters:
     - wastedassign
     - ireturn
     - ifshort
+    - varcheck
+    - deadcode
+    - nosnakecase
 linters-settings:
   gci:
     sections:

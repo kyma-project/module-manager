@@ -51,7 +51,6 @@ import (
 	internalUtil "github.com/kyma-project/module-manager/operator/internal/pkg/util"
 	"github.com/kyma-project/module-manager/operator/pkg/labels"
 	"github.com/kyma-project/module-manager/operator/pkg/manifest"
-	"github.com/kyma-project/module-manager/operator/pkg/ratelimit"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
 	listener "github.com/kyma-project/runtime-watcher/listener/pkg/event"
@@ -59,8 +58,6 @@ import (
 
 type RequeueIntervals struct {
 	Success time.Duration
-	Failure time.Duration
-	Waiting time.Duration
 }
 
 type OperationRequest struct {
@@ -80,6 +77,7 @@ type ManifestReconciler struct {
 	RequeueIntervals RequeueIntervals
 	CacheManager     types.CacheManager
 	internalTypes.ReconcileFlagConfig
+	CacheSyncTimeout time.Duration
 }
 
 //+kubebuilder:rbac:groups=operator.kyma-project.io,resources=manifests,verbs=get;list;watch;create;update;patch;delete
@@ -91,7 +89,7 @@ type ManifestReconciler struct {
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx).WithName(req.NamespacedName.String())
+	logger := log.FromContext(ctx)
 	logger.Info("Reconciliation loop starting for", "resource", req.NamespacedName.String())
 
 	// get manifest object
@@ -104,12 +102,6 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	manifestObj = *manifestObj.DeepCopy()
-
-	randomizeDuration := func(input time.Duration) time.Duration {
-		millis := int(input / time.Millisecond)
-		res := ratelimit.RandomizeByTenPercent(millis)
-		return time.Duration(res) * time.Millisecond
-	}
 
 	// check if deletionTimestamp is set, retry until it gets fully deleted
 	if !manifestObj.DeletionTimestamp.IsZero() && manifestObj.Status.State != v1alpha1.ManifestStateDeleting {
@@ -126,42 +118,42 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// state handling
 	switch manifestObj.Status.State {
 	case "":
-		return ctrl.Result{}, r.HandleInitialState(ctx, &logger, &manifestObj)
+		return ctrl.Result{}, r.HandleInitialState(ctx, logger, &manifestObj)
 	case v1alpha1.ManifestStateProcessing:
-		return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Failure)},
-			r.HandleProcessingState(ctx, &logger, &manifestObj)
+		return ctrl.Result{Requeue: true},
+			r.HandleProcessingState(ctx, logger, &manifestObj)
 	case v1alpha1.ManifestStateDeleting:
-		return ctrl.Result{}, r.HandleDeletingState(ctx, &logger, &manifestObj)
+		return ctrl.Result{Requeue: true}, r.HandleDeletingState(ctx, logger, &manifestObj)
 	case v1alpha1.ManifestStateError:
-		return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Failure)},
+		return ctrl.Result{Requeue: true},
 			r.HandleErrorState(ctx, &manifestObj)
 	case v1alpha1.ManifestStateReady:
-		return ctrl.Result{RequeueAfter: randomizeDuration(r.RequeueIntervals.Success)},
-			r.HandleReadyState(ctx, &logger, &manifestObj)
+		return ctrl.Result{RequeueAfter: r.RequeueIntervals.Success},
+			r.HandleReadyState(ctx, logger, &manifestObj)
 	}
 
 	// should not be reconciled again
 	return ctrl.Result{}, nil
 }
 
-func (r *ManifestReconciler) HandleInitialState(ctx context.Context, _ *logr.Logger, manifestObj *v1alpha1.Manifest,
+func (r *ManifestReconciler) HandleInitialState(ctx context.Context, _ logr.Logger, manifestObj *v1alpha1.Manifest,
 ) error {
 	return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing, "initial state")
 }
 
-func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, logger *logr.Logger,
+func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, logger logr.Logger,
 	manifestObj *v1alpha1.Manifest,
 ) error {
 	return r.sendJobToInstallChannel(ctx, logger, manifestObj, internalTypes.CreateMode)
 }
 
-func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, logger *logr.Logger,
+func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, logger logr.Logger,
 	manifestObj *v1alpha1.Manifest,
 ) error {
 	return r.sendJobToInstallChannel(ctx, logger, manifestObj, internalTypes.DeletionMode)
 }
 
-func (r *ManifestReconciler) sendJobToInstallChannel(ctx context.Context, logger *logr.Logger,
+func (r *ManifestReconciler) sendJobToInstallChannel(ctx context.Context, logger logr.Logger,
 	manifestObj *v1alpha1.Manifest, mode internalTypes.Mode,
 ) error {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
@@ -185,7 +177,10 @@ func (r *ManifestReconciler) sendJobToInstallChannel(ctx context.Context, logger
 			// so remove finalizer in this case, to process with Manifest deletion
 			return r.finalizeDeletion(ctx, manifestObj)
 		}
-		return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error())
+		if err := r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error()); err != nil {
+			return err
+		}
+		return err
 	}
 
 	// send processing requests (installation / uninstallation) to deployment channel
@@ -205,7 +200,7 @@ func (r *ManifestReconciler) HandleErrorState(ctx context.Context, manifestObj *
 		"observed generation change")
 }
 
-func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger *logr.Logger, manifestObj *v1alpha1.Manifest,
+func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger logr.Logger, manifestObj *v1alpha1.Manifest,
 ) error {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 	if manifestObj.IsSpecUpdated() {
@@ -279,7 +274,7 @@ func (r *ManifestReconciler) updateManifestStatus(ctx context.Context, manifestO
 }
 
 func (r *ManifestReconciler) HandleCharts(deployInfo types.InstallInfo, mode internalTypes.Mode,
-	logger *logr.Logger,
+	logger logr.Logger,
 ) *internalTypes.InstallResponse {
 	// evaluate create or delete chart
 	create := mode == internalTypes.CreateMode
@@ -303,7 +298,7 @@ func (r *ManifestReconciler) HandleCharts(deployInfo types.InstallInfo, mode int
 	}
 }
 
-func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *logr.Logger, chartCount int,
+func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger logr.Logger, chartCount int,
 	responseChan internalTypes.ResponseChan, namespacedName client.ObjectKey,
 ) {
 	// errorState takes precedence over processing
@@ -371,7 +366,7 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger *lo
 }
 
 func (r *ManifestReconciler) setProcessedState(ctx context.Context, errorState bool, processing bool,
-	manifestObj *v1alpha1.Manifest, logger *logr.Logger,
+	manifestObj *v1alpha1.Manifest, logger logr.Logger,
 ) {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 	endState := v1alpha1.ManifestStateDeleting
@@ -441,6 +436,7 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 		WithOptions(controller.Options{
 			RateLimiter:             ManifestRateLimiter(failureBaseDelay, failureMaxDelay, frequency, burst),
 			MaxConcurrentReconciles: r.MaxConcurrentReconciles,
+			CacheSyncTimeout:        r.CacheSyncTimeout,
 		}).
 		Complete(r)
 }

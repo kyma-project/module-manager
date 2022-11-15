@@ -8,9 +8,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/cli-runtime/pkg/resource"
-	"k8s.io/client-go/rest"
 )
 
 func checkResourcesDeleted(targetResources kube.ResourceList) (bool, error) {
@@ -78,17 +76,4 @@ func checkReady(ctx context.Context, resourceList kube.ResourceList,
 		return nil
 	})
 	return resourcesReady, err
-}
-
-func newRestClient(restConfig *rest.Config, gv schema.GroupVersion) (resource.RESTClient, error) {
-	restConfig.ContentConfig = resource.UnstructuredPlusDefaultContentConfig()
-	restConfig.GroupVersion = &gv
-
-	if len(gv.Group) == 0 {
-		restConfig.APIPath = "/api"
-	} else {
-		restConfig.APIPath = "/apis"
-	}
-
-	return rest.RESTClientFor(restConfig)
 }

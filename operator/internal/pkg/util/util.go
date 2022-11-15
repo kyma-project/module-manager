@@ -61,7 +61,7 @@ func AddReadyConditionForObjects(manifest *v1alpha1.Manifest, installItems []v1a
 	}
 }
 
-func AddReadyConditionForResponses(responses []*types.InstallResponse, logger *logr.Logger,
+func AddReadyConditionForResponses(responses []*types.InstallResponse, logger logr.Logger,
 	manifest *v1alpha1.Manifest,
 ) {
 	namespacedName := client.ObjectKeyFromObject(manifest)

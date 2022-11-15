@@ -2,7 +2,6 @@ package applier
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"github.com/go-logr/logr"
@@ -10,39 +9,35 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/restmapper"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	machineryTypes "k8s.io/apimachinery/pkg/types"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	manifestTypes "github.com/kyma-project/module-manager/operator/pkg/types"
+	"github.com/kyma-project/module-manager/operator/pkg/client"
+	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
 )
 
-var _ manifestTypes.Applier = &SetApplier{}
+var _ types.Applier = &SetApplier{}
 
 const fieldManager = "manifest-lib"
 
 type SetApplier struct {
 	patchOptions  metav1.PatchOptions
 	deleteOptions metav1.DeleteOptions
-	logger        *logr.Logger
-	mapper        *restmapper.DeferredDiscoveryRESTMapper
-	dynamicClient dynamic.Interface
+	logger        logr.Logger
+	clients       *client.SingletonClients
 }
 
-func NewSSAApplier(dynamicClient dynamic.Interface, logger *logr.Logger,
-	mapper *restmapper.DeferredDiscoveryRESTMapper,
-) *SetApplier {
+func NewSSAApplier(clients *client.SingletonClients, logger logr.Logger) *SetApplier {
+	force := true
 	return &SetApplier{
-		patchOptions:  metav1.PatchOptions{FieldManager: fieldManager},
-		logger:        logger,
-		dynamicClient: dynamicClient,
-		mapper:        mapper,
+		patchOptions: metav1.PatchOptions{FieldManager: fieldManager, Force: &force},
+		logger:       logger,
+		clients:      clients,
 	}
 }
 
-func (s *SetApplier) Apply(deployInfo manifestTypes.InstallInfo, objects *manifestTypes.ManifestResources,
+func (s *SetApplier) Apply(deployInfo types.InstallInfo, objects *types.ManifestResources,
 	namespace string,
 ) (bool, error) {
 	// Populate the namespace on any namespace-scoped objects
@@ -53,27 +48,26 @@ func (s *SetApplier) Apply(deployInfo manifestTypes.InstallInfo, objects *manife
 
 	// TODO: implement trackers for object statuses
 	expectedLength := len(objects.Items)
-	results, err := s.execute(deployInfo, objects.Items, s.dynamicClient, s.patchOptions)
+	results, err := s.execute(deployInfo, objects.Items)
 	if err != nil {
-		return false, fmt.Errorf("error applying objects: %w", err)
+		return false, fmt.Errorf("error applying objects via SSA: %w", err)
 	}
-	actualLength := len(results)
 
 	// actualLength also includes resources with a conflict
 	// since they already exist and a no conflict resolution is followed
 	// we will assume they were applied correctly
-	if expectedLength != actualLength {
-		s.logger.Info("not all resources could be applied via SSA",
+	if expectedLength != len(results) {
+		s.logger.Info("not all resources were applied via SSA",
 			"expected", expectedLength,
-			"actual", actualLength,
-			"resource", client.ObjectKeyFromObject(deployInfo.BaseResource),
+			"actual", len(results),
+			"resource", ctrlclient.ObjectKeyFromObject(deployInfo.BaseResource),
 		)
 	}
 
-	return expectedLength == actualLength, nil
+	return expectedLength == len(results), nil
 }
 
-func (s *SetApplier) Delete(deployInfo manifestTypes.InstallInfo, objects *manifestTypes.ManifestResources,
+func (s *SetApplier) Delete(deployInfo types.InstallInfo, objects *types.ManifestResources,
 	namespace string,
 ) (bool, error) {
 	// Populate the namespace on any namespace-scoped objects
@@ -87,10 +81,10 @@ func (s *SetApplier) Delete(deployInfo manifestTypes.InstallInfo, objects *manif
 	for _, obj := range objects.Items {
 		name := obj.GetName()
 		// get dynamic client interface for object
-		resourceInterface, err := s.getDynamicResourceInterface(s.dynamicClient, obj)
+		resourceInterface, err := s.clients.DynamicResourceInterface(obj)
 		if err != nil {
 			deleteErrors = append(deleteErrors, fmt.Errorf("failed to get rest mapping for resource %s: %w",
-				client.ObjectKeyFromObject(obj).String(), err))
+				ctrlclient.ObjectKeyFromObject(obj).String(), err))
 			continue
 		}
 
@@ -109,32 +103,46 @@ func (s *SetApplier) Delete(deployInfo manifestTypes.InstallInfo, objects *manif
 	return deletionSuccess, nil
 }
 
-func (s *SetApplier) adjustNs(objects *manifestTypes.ManifestResources, namespace string) error {
+func (s *SetApplier) adjustNs(objects *types.ManifestResources, namespace string) error {
+	if namespace == "" {
+		return nil
+	}
+
 	// Populate the namespace on any namespace-scoped objects
-	if namespace != "" {
-		for _, obj := range objects.Items {
-			gvk := obj.GroupVersionKind()
-			restMapping, err := s.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
-			if err != nil {
-				return fmt.Errorf("error getting rest mapping for %v: %w", gvk, err)
-			}
+	mapper, err := s.clients.ToRESTMapper()
+	if err != nil {
+		return err
+	}
 
-			switch restMapping.Scope {
-			case meta.RESTScopeNamespace:
-				obj.SetNamespace(namespace)
+	for _, obj := range objects.Items {
+		gvk := obj.GroupVersionKind()
+		var restMapping *meta.RESTMapping
 
-			case meta.RESTScopeRoot:
-				// Don't set namespace
-			default:
-				return fmt.Errorf("unknown rest mapping scope %v", restMapping.Scope)
+		restMapping, err = mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+		if err != nil {
+			if resettableMapper, isResettable := mapper.(meta.ResettableRESTMapper); isResettable &&
+				meta.IsNoMatchError(err) {
+				resettableMapper.Reset()
 			}
+			return fmt.Errorf("error getting rest mapping for %v: %w", gvk, err)
+		}
+
+		switch restMapping.Scope {
+		case meta.RESTScopeNamespace:
+			obj.SetNamespace(namespace)
+		case meta.RESTScopeRoot:
+			// Don't set namespace
+		default:
+			return fmt.Errorf("unknown rest mapping scope %v", restMapping.Scope)
 		}
 	}
+
 	return nil
 }
 
-func (s *SetApplier) execute(deployInfo manifestTypes.InstallInfo, objects []*unstructured.Unstructured,
-	dynamicClient dynamic.Interface, patchOptions metav1.PatchOptions,
+func (s *SetApplier) execute(
+	deployInfo types.InstallInfo,
+	objects []*unstructured.Unstructured,
 ) ([]*unstructured.Unstructured, error) {
 	appliedObjects := make([]*unstructured.Unstructured, 0)
 
@@ -143,27 +151,24 @@ func (s *SetApplier) execute(deployInfo manifestTypes.InstallInfo, objects []*un
 		name := obj.GetName()
 
 		// get dynamic client interface for object
-		resourceInterface, err := s.getDynamicResourceInterface(dynamicClient, obj)
+		resourceInterface, err := s.clients.DynamicResourceInterface(obj)
 		if err != nil {
 			applyErrors = append(applyErrors, fmt.Errorf("failed to get rest mapping for resource %s: %w",
-				client.ObjectKeyFromObject(obj).String(), err))
+				ctrlclient.ObjectKeyFromObject(obj).String(), err))
 			continue
 		}
 
 		marshaledObject, err := json.Marshal(obj)
 		if err != nil {
-			// TODO: Differentiate between server-fixable vs client-fixable errors?
 			applyErrors = append(applyErrors, fmt.Errorf("failed to marshal object to JSON: %w", err))
 			continue
 		}
 
-		_, err = resourceInterface.Patch(deployInfo.Ctx, name, types.ApplyPatchType,
-			marshaledObject, patchOptions)
+		obj, err = resourceInterface.Patch(deployInfo.Ctx, name, machineryTypes.ApplyPatchType,
+			marshaledObject, s.patchOptions)
 		if err != nil {
-			if !apiErrors.IsConflict(err) {
-				return nil, err
-			}
 			applyErrors = append(applyErrors, fmt.Errorf("error from apply: %w", err))
+			continue
 		}
 		appliedObjects = append(appliedObjects, obj)
 	}
@@ -175,53 +180,9 @@ func (s *SetApplier) execute(deployInfo manifestTypes.InstallInfo, objects []*un
 			err.Error())
 	}
 
+	if len(applyErrors) > 0 {
+		return appliedObjects, types.NewMultiError(applyErrors)
+	}
+
 	return appliedObjects, nil
-}
-
-func (s *SetApplier) getDynamicResourceInterface(dynamicClient dynamic.Interface, obj *unstructured.Unstructured,
-) (dynamic.ResourceInterface, error) {
-	var dynamicResource dynamic.ResourceInterface
-
-	namespace := obj.GetNamespace()
-	gvk := obj.GroupVersionKind()
-
-	restMapping, err := s.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
-	if err != nil {
-		if filterNoMatchErrors(err) == nil {
-			// reset if no rest mapping is available for the resource
-			s.mapper.Reset()
-		}
-		return nil, err
-	}
-	gvr := restMapping.Resource
-
-	switch restMapping.Scope.Name() {
-	case meta.RESTScopeNameNamespace:
-		if namespace == "" {
-			return nil, fmt.Errorf("namespace was not provided for namespace-scoped object %v", gvk)
-		}
-		dynamicResource = dynamicClient.Resource(gvr).Namespace(namespace)
-
-	case meta.RESTScopeNameRoot:
-		if namespace != "" {
-			// TODO: Differentiate between server-fixable vs client-fixable errors?
-			return nil, fmt.Errorf(
-				"namespace %q was provided for cluster-scoped object %v", obj.GetNamespace(), gvk)
-		}
-		dynamicResource = dynamicClient.Resource(gvr)
-
-	default:
-		// Internal error ... this is panic-level
-		return nil, fmt.Errorf("unknown scope for gvk %s: %q", gvk, restMapping.Scope.Name())
-	}
-	return dynamicResource, nil
-}
-
-func filterNoMatchErrors(err error) error {
-	var resMatchErr *meta.NoResourceMatchError
-	var kindMatchErr *meta.NoKindMatchError
-	if err != nil && !apiErrors.IsNotFound(err) && !errors.As(err, &resMatchErr) && !errors.As(err, &kindMatchErr) {
-		return err
-	}
-	return nil
 }
