@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	"github.com/go-logr/logr"
-	"github.com/kyma-project/module-manager/operator/pkg/util"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/kube"
 	"helm.sh/helm/v3/pkg/storage"
@@ -28,6 +27,8 @@ import (
 	"k8s.io/kubectl/pkg/util/openapi"
 	openapivalidation "k8s.io/kubectl/pkg/util/openapi/validation"
 	"k8s.io/kubectl/pkg/validation"
+
+	"github.com/kyma-project/module-manager/operator/pkg/util"
 )
 
 const (
@@ -38,7 +39,7 @@ const (
 // SingletonClients serves as a single-minded client interface that combines
 // all kubernetes Client APIs (Helm, Kustomize, Kubernetes, Client-Go) under the hood.
 // It offers a simple initialization lifecycle during creation, but delegates all
-// heavy duty work to deferred discovery logic and a single http client
+// heavy-duty work to deferred discovery logic and a single http client
 // as well as a client cache to support GV-based clients.
 type SingletonClients struct {
 	httpClient *http.Client
@@ -77,8 +78,10 @@ type SingletonClients struct {
 
 // Since we use the SingletonClients also as our Helm cients and redirect all Helm calls to this,
 // we check interface compliance with the necessary client interfaces here.
-var _ kube.Factory = &SingletonClients{}
-var _ action.RESTClientGetter = &SingletonClients{}
+var (
+	_ kube.Factory            = &SingletonClients{}
+	_ action.RESTClientGetter = &SingletonClients{}
+)
 
 func NewSingletonClients(config *rest.Config, logger logr.Logger) (*SingletonClients, error) {
 	if err := setKubernetesDefaults(config); err != nil {

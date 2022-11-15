@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/kube"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -23,11 +22,10 @@ import (
 )
 
 type helm struct {
-	clients      *client2.SingletonClients
-	settings     *cli.EnvSettings
-	actionClient *action.Install
-	repoHandler  *RepoHandler
-	logger       logr.Logger
+	clients     *client2.SingletonClients
+	settings    *cli.EnvSettings
+	repoHandler *RepoHandler
+	logger      logr.Logger
 	*Transformer
 	*Rendered
 }
