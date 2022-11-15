@@ -68,7 +68,7 @@ const (
 	layerNameRef       = "some/name"
 	secretName         = "some-kyma-name"
 	kustomizeLocalPath = "../pkg/test_samples/kustomize"
-	standardTimeout    = 1 * time.Minute
+	standardTimeout    = 2 * time.Minute
 	standardInterval   = 250 * time.Millisecond
 )
 
