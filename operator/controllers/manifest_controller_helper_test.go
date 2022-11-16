@@ -80,14 +80,14 @@ func GetImageSpecFromMockOCIRegistry() (manifestTypes.ImageSpec, manifestTypes.I
 	Expect(err).ToNot(HaveOccurred())
 
 	// Set up a fake registry and write what we pulled to it.
-	u, err := url.Parse(server.URL)
+	parsedURL, err := url.Parse(server.URL)
 	Expect(err).NotTo(HaveOccurred())
 
-	installDst := fmt.Sprintf("%s/%s@%s", u.Host, layerNameRef, installDigest)
+	installDst := fmt.Sprintf("%s/%s@%s", parsedURL.Host, layerNameRef, installDigest)
 	installRef, err := name.NewDigest(installDst)
 	Expect(err).ToNot(HaveOccurred())
 
-	crdDst := fmt.Sprintf("%s/%s@%s", u.Host, layerNameRef, crdDigest)
+	crdDst := fmt.Sprintf("%s/%s@%s", parsedURL.Host, layerNameRef, crdDigest)
 	crdRef, err := name.NewDigest(crdDst)
 	Expect(err).ToNot(HaveOccurred())
 

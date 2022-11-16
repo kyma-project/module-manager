@@ -253,6 +253,7 @@ func (f *SingletonClients) DynamicResourceInterface(obj *unstructured.Unstructur
 	if err != nil {
 		if meta.IsNoMatchError(err) {
 			f.discoveryRESTMapper.Reset()
+			return nil, fmt.Errorf("resetting REST mapper to update resource mappings: %w", err)
 		}
 		return nil, err
 	}
@@ -314,11 +315,11 @@ func (f *SingletonClients) ResourceInfo(obj *unstructured.Unstructured) (*resour
 	gvk := obj.GroupVersionKind()
 
 	mapping, err := f.discoveryShortcutExpander.RESTMapping(gvk.GroupKind(), gvk.Version)
-	if meta.IsNoMatchError(err) {
-		f.discoveryRESTMapper.Reset()
-		return nil, nil
-	}
 	if err != nil {
+		if meta.IsNoMatchError(err) {
+			f.discoveryRESTMapper.Reset()
+			return nil, fmt.Errorf("resetting REST mapper to update resource mappings: %w", err)
+		}
 		return nil, err
 	}
 	clnt, err := f.ClientForMapping(mapping)
