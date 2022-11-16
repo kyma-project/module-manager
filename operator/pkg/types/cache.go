@@ -15,9 +15,6 @@ type CacheManager interface {
 	// Here all cache entries should be deleted where entries are unique by a resource itself.
 	InvalidateSelf(key client.ObjectKey)
 
-	// GetClusterInfoCache returns the cache stored under ClusterInfoCache.
-	GetClusterInfoCache() ClusterInfoCache
-
 	// GetRendererCache returns the cache stored under RendererCache.
 	GetRendererCache() RendererCache
 }

@@ -164,7 +164,7 @@ func (r *ManifestReconciler) sendJobToInstallChannel(ctx context.Context, logger
 	// send deploy requests
 	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, types.ClusterInfo{
 		Client: r.Client, Config: r.RestConfig,
-	}, r.ReconcileFlagConfig, r.CacheManager.GetClusterInfoCache())
+	}, r.ReconcileFlagConfig, r.CacheManager.GetRendererCache())
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("cannot prepare install information for %s resource %s",
 			v1alpha1.ManifestKind, namespacedName))
@@ -206,7 +206,7 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger logr.L
 	// send deploy requests
 	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, types.ClusterInfo{
 		Client: r.Client, Config: r.RestConfig,
-	}, r.ReconcileFlagConfig, r.CacheManager.GetClusterInfoCache())
+	}, r.ReconcileFlagConfig, r.CacheManager.GetRendererCache())
 	if err != nil {
 		return err
 	}

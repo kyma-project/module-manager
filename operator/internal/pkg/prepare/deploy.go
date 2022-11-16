@@ -29,7 +29,7 @@ const (
 )
 
 func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClusterInfo types.ClusterInfo,
-	flags internalTypes.ReconcileFlagConfig, clusterCache types.ClusterInfoCache,
+	flags internalTypes.ReconcileFlagConfig, processorCache types.RendererCache,
 ) ([]types.InstallInfo, error) {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 
@@ -68,7 +68,7 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 	}
 
 	// evaluate rest config
-	clusterInfo, err := getDestinationConfigAndClient(ctx, defaultClusterInfo, manifestObj, clusterCache)
+	clusterInfo, err := getDestinationConfigAndClient(ctx, defaultClusterInfo, manifestObj, processorCache)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +103,7 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 }
 
 func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo types.ClusterInfo,
-	manifestObj *v1alpha1.Manifest, clusterCache types.ClusterInfoCache,
+	manifestObj *v1alpha1.Manifest, processorCache types.RendererCache,
 ) (types.ClusterInfo, error) {
 	// in single cluster mode return the default cluster info
 	// since the resources need to be installed in the same cluster
@@ -118,9 +118,12 @@ func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo types
 
 	// check if cluster info record exists in the cluster cache
 	kymaNsName := client.ObjectKey{Name: kymaOwnerLabel, Namespace: manifestObj.Namespace}
-	clusterInfo := clusterCache.Get(kymaNsName)
-	if !clusterInfo.IsEmpty() {
-		return clusterInfo, nil
+	processor := processorCache.GetProcessor(kymaNsName)
+	if processor != nil {
+		return types.ClusterInfo{
+			Config: processor.GetRestConfig(),
+			// client will be set during processing of manifest
+		}, nil
 	}
 
 	// evaluate remote rest config
@@ -130,21 +133,9 @@ func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo types
 		return types.ClusterInfo{}, err
 	}
 
-	// evaluate remote client
-	destinationClient, err := clusterClient.GetNewClient(restConfig, client.Options{})
-	if err != nil {
-		return types.ClusterInfo{}, err
-	}
-
-	clusterInfo = types.ClusterInfo{
+	return types.ClusterInfo{
 		Config: restConfig,
-		Client: destinationClient,
-	}
-
-	// save remote cluster info to cluster cache
-	clusterCache.Set(kymaNsName, clusterInfo)
-
-	return clusterInfo, nil
+	}, nil
 }
 
 func parseInstallConfigs(decodedConfig interface{}) ([]interface{}, error) {

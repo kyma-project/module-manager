@@ -149,10 +149,10 @@ func discoverCacheKey(resource client.Object, logger logr.Logger) client.ObjectK
 // getManifestProcessor returns a new types.RenderSrc instance
 // this render source will handle subsequent Operations for manifest resources based on types.InstallInfo.
 func getManifestProcessor(deployInfo types.InstallInfo, logger logr.Logger) (types.RenderSrc, error) {
-	txformer := NewTransformer()
+	txformer := NewTransformer(deployInfo.Config)
 	render := NewRendered(logger)
 
-	singletonClients, err := client2.NewSingletonClients(deployInfo.Config, logger)
+	singletonClients, err := client2.NewSingletonClients(deployInfo.Config, logger, deployInfo.Client)
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +178,7 @@ func getManifestProcessor(deployInfo types.InstallInfo, logger logr.Logger) (typ
 
 func (o *Operations) consistencyCheck(deployInfo types.InstallInfo) (bool, error) {
 	// verify CRDs
-	if err := resource.CheckCRDs(deployInfo.Ctx, deployInfo.Crds, deployInfo.ClusterInfo.Client,
+	if err := resource.CheckCRDs(deployInfo.Ctx, deployInfo.Crds, deployInfo.Client,
 		false); err != nil {
 		if apierrors.IsNotFound(err) {
 			return false, nil
@@ -187,7 +187,7 @@ func (o *Operations) consistencyCheck(deployInfo types.InstallInfo) (bool, error
 	}
 
 	// verify CR
-	if err := resource.CheckCRs(deployInfo.Ctx, deployInfo.CustomResources, deployInfo.ClusterInfo.Client,
+	if err := resource.CheckCRs(deployInfo.Ctx, deployInfo.CustomResources, deployInfo.Client,
 		false); err != nil {
 		if apierrors.IsNotFound(err) {
 			return false, nil

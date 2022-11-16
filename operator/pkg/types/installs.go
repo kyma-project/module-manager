@@ -22,6 +22,7 @@ type RenderSrc interface {
 	DeleteCachedResources(chartPath string) *ParsedFile
 	GetManifestResources(chartName, dirPath string) *ParsedFile
 	InvalidateConfigAndRenderedManifest(deployInfo InstallInfo, cachedHash uint32) (uint32, error)
+	GetRestConfig() *rest.Config
 }
 
 // RefTypeMetadata specifies the type of installation specification

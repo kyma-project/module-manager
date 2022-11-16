@@ -27,6 +27,7 @@ import (
 	"k8s.io/kubectl/pkg/util/openapi"
 	openapivalidation "k8s.io/kubectl/pkg/util/openapi/validation"
 	"k8s.io/kubectl/pkg/validation"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kyma-project/module-manager/operator/pkg/util"
 )
@@ -43,6 +44,9 @@ const (
 // as well as a client cache to support GV-based clients.
 type SingletonClients struct {
 	httpClient *http.Client
+
+	// controller runtime client
+	runtimeClient client.Client
 
 	// the original config used for all clients
 	config *rest.Config
@@ -83,7 +87,8 @@ var (
 	_ action.RESTClientGetter = &SingletonClients{}
 )
 
-func NewSingletonClients(config *rest.Config, logger logr.Logger) (*SingletonClients, error) {
+func NewSingletonClients(config *rest.Config, logger logr.Logger, existingRuntimeClient client.Client,
+) (*SingletonClients, error) {
 	if err := setKubernetesDefaults(config); err != nil {
 		return nil, err
 	}
@@ -102,6 +107,16 @@ func NewSingletonClients(config *rest.Config, logger logr.Logger) (*SingletonCli
 	cachedDiscoveryClient := memory.NewMemCacheClient(discoveryClient)
 	discoveryRESTMapper := restmapper.NewDeferredDiscoveryRESTMapper(cachedDiscoveryClient)
 	discoveryShortcutExpander := restmapper.NewShortcutExpander(discoveryRESTMapper, cachedDiscoveryClient)
+
+	// existingRuntimeClient is only set when since cluster mode is used
+	// and the client instance already exists
+	var runtimeClient client.Client
+	if existingRuntimeClient == nil {
+		runtimeClient, err = client.New(config, client.Options{Mapper: discoveryRESTMapper})
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	kubernetesClient, err := kubernetes.NewForConfigAndClient(config, httpClient)
 	if err != nil {
@@ -126,6 +141,7 @@ func NewSingletonClients(config *rest.Config, logger logr.Logger) (*SingletonCli
 		openAPIParser:               openapi.NewOpenAPIParser(openAPIGetter),
 		structuredRestClientCache:   map[string]resource.RESTClient{},
 		unstructuredRestClientCache: map[string]resource.RESTClient{},
+		runtimeClient:               runtimeClient,
 	}
 
 	clients.helmClient = &kube.Client{
@@ -298,8 +314,11 @@ func (f *SingletonClients) ResourceInfo(obj *unstructured.Unstructured) (*resour
 	gvk := obj.GroupVersionKind()
 
 	mapping, err := f.discoveryShortcutExpander.RESTMapping(gvk.GroupKind(), gvk.Version)
-	if err != nil {
+	if meta.IsNoMatchError(err) {
 		f.discoveryRESTMapper.Reset()
+		return nil, nil
+	}
+	if err != nil {
 		return nil, err
 	}
 	clnt, err := f.ClientForMapping(mapping)
