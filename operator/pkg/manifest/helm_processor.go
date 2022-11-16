@@ -13,6 +13,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apiMachineryErr "k8s.io/apimachinery/pkg/util/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	client2 "github.com/kyma-project/module-manager/operator/pkg/client"
@@ -20,6 +21,8 @@ import (
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
 )
+
+const resourceValidationErr = "validating manifest resources resulted in an error"
 
 type helm struct {
 	clients     *client2.SingletonClients
@@ -440,7 +443,16 @@ func (h *helm) getTargetResources(ctx context.Context, manifest string,
 	}
 
 	if err != nil {
-		return nil, err
+		//nolint:errorlint
+		errAggregate, ok := err.(apiMachineryErr.Aggregate)
+		if ok {
+			wrappedErr := resourceValidationErr
+			for _, nestedErr := range errAggregate.Errors() {
+				wrappedErr = fmt.Sprintln(wrappedErr, nestedErr.Error())
+			}
+			return nil, fmt.Errorf(wrappedErr)
+		}
+		return nil, fmt.Errorf("%s: %w", resourceValidationErr, err)
 	}
 
 	// verify namespace override if not done by kubeclient

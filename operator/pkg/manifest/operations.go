@@ -5,11 +5,12 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	client2 "github.com/kyma-project/module-manager/operator/pkg/client"
 	"helm.sh/helm/v3/pkg/cli"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	client2 "github.com/kyma-project/module-manager/operator/pkg/client"
 
 	"github.com/kyma-project/module-manager/operator/pkg/labels"
 	"github.com/kyma-project/module-manager/operator/pkg/resource"
@@ -290,7 +291,7 @@ func (o *Operations) getManifestForChartPath(deployInfo types.InstallInfo) *type
 	}
 
 	// 2. check cached manifest from previous processing
-	// If the Rendered manifest folder doesn't exist or has permission issues,
+	// If the rendered manifest folder doesn't exist or has permission issues,
 	// it will be ignored.
 	parsedFile = o.renderSrc.GetCachedResources(deployInfo.ChartName, deployInfo.ChartPath)
 	if parsedFile.IsResultConclusive() {

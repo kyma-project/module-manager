@@ -25,7 +25,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           # Context for which we should look for the matching status
           statusName: ${{ (github.event_name == 'pull_request') && 'pull-module-mgr-build' || 'main-module-mgr-build' }}
-          timeoutSeconds: 180
+          timeoutSeconds: 300 # TODO verify the bump - since the image build usually takes more
           intervalSeconds: 10
       - name: Exit If Failing Build Requirement
         if: steps.wait-for-build.outputs.state != 'success'
