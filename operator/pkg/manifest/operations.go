@@ -84,11 +84,15 @@ func NewOperations(logger logr.Logger, deployInfo types.InstallInfo, resourceTra
 func getRenderSrc(cache types.RendererCache, deployInfo types.InstallInfo,
 	logger logr.Logger,
 ) (types.RenderSrc, error) {
-	/* Manifest processor handling */
-	clusterCacheKey := discoverCacheKey(deployInfo.BaseResource, logger)
 	var renderSrc types.RenderSrc
-	var err error
-	if cache == nil || clusterCacheKey.Name == "" {
+
+	/* Manifest processor handling */
+	clusterCacheKey, err := discoverCacheKey(deployInfo.BaseResource, logger)
+	if err != nil {
+		return nil, err
+	}
+
+	if cache == nil {
 		// no processor entries
 		return getManifestProcessor(deployInfo, logger)
 	}
@@ -100,9 +104,6 @@ func getRenderSrc(cache types.RendererCache, deployInfo types.InstallInfo,
 		if err != nil {
 			return nil, err
 		}
-
-		// update new manifest processor
-		cache.SetProcessor(clusterCacheKey, renderSrc)
 	}
 
 	/* Configuration handling */
@@ -113,11 +114,11 @@ func getRenderSrc(cache types.RendererCache, deployInfo types.InstallInfo,
 	if err != nil {
 		return nil, err
 	}
+
 	// no update on config - return from here
-	if configHash == 0 && renderSrc != nil {
+	if configHash == 0 {
 		return renderSrc, nil
 	}
-
 	// update hash config each time
 	// e.g. in case of Helm the passed flags could lead to invalidation
 	cache.SetConfig(nsNameBaseResource, configHash)
@@ -130,19 +131,27 @@ func getRenderSrc(cache types.RendererCache, deployInfo types.InstallInfo,
 // discoverCacheKey returns processor key for caching of manifest renderer,
 // by label value operator.kyma-project.io/processor-key.
 // If label not found on base resource an empty processor key is returned.
-func discoverCacheKey(resource client.Object, logger logr.Logger) client.ObjectKey {
-	if resource != nil {
-		label, err := util.GetResourceLabel(resource, labels.CacheKey)
-		var labelErr *util.LabelNotFoundError
-		if errors.As(err, &labelErr) {
-			logger.V(util.DebugLogLevel).Info("processor-key label missing, resource will not be cached. Resulted in",
-				"error", err.Error(),
-				"resource", client.ObjectKeyFromObject(resource))
-		}
-		// do not handle any other error if reported
-		return client.ObjectKey{Name: label, Namespace: resource.GetNamespace()}
+func discoverCacheKey(resource client.Object, logger logr.Logger) (client.ObjectKey, error) {
+	if resource == nil {
+		return client.ObjectKey{}, errors.New("cannot discover cache-key based on empty resource")
 	}
-	return client.ObjectKey{}
+
+	label, err := util.GetResourceLabel(resource, labels.CacheKey)
+	objectKey := client.ObjectKeyFromObject(resource)
+	var labelErr *util.LabelNotFoundError
+	if errors.As(err, &labelErr) {
+		logger.V(util.DebugLogLevel).Info(labels.CacheKey+" missing on resource, it will be cached "+
+			"based on resource name and namespace.",
+			"resource", objectKey)
+		return objectKey, nil
+	}
+
+	logger.V(util.DebugLogLevel).Info("resource will be cached based on "+labels.CacheKey,
+		"resource", objectKey,
+		"label", labels.CacheKey,
+		"labelValue", label)
+
+	return client.ObjectKey{Name: label, Namespace: resource.GetNamespace()}, nil
 }
 
 // getManifestProcessor returns a new types.RenderSrc instance

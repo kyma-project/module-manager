@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kyma-project/module-manager/operator/pkg/cache"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -28,12 +28,10 @@ const (
 )
 
 type ManifestReconciler struct {
-	prototype    types.BaseCustomObject
-	nativeClient client.Client
-	config       *rest.Config
+	prototype types.BaseCustomObject
 
-	mgr manager.Manager
-
+	mgr          manager.Manager
+	cacheManager types.CacheManager
 	// recorder is the EventRecorder for creating k8s events
 	recorder record.EventRecorder
 	options  manifestOptions
@@ -58,17 +56,16 @@ func (r *ManifestReconciler) Inject(mgr manager.Manager, customObject types.Base
 	opts ...ReconcilerOption,
 ) error {
 	r.prototype = customObject
-	r.config = mgr.GetConfig()
 	r.mgr = mgr
 	controllerName, err := GetComponentName(customObject)
 	if err != nil {
 		return getTypeError(client.ObjectKeyFromObject(customObject).String())
 	}
 	r.recorder = mgr.GetEventRecorderFor(controllerName)
-	r.nativeClient = mgr.GetClient()
 	if err = r.applyOptions(opts...); err != nil {
 		return err
 	}
+	r.cacheManager = cache.NewCacheManager()
 
 	return nil
 }
@@ -84,7 +81,7 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, getTypeError(req.String())
 	}
 
-	if err := r.nativeClient.Get(ctx, req.NamespacedName, objectInstance); err != nil {
+	if err := r.mgr.GetClient().Get(ctx, req.NamespacedName, objectInstance); err != nil {
 		logger.Info(req.NamespacedName.String() + " got deleted!")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -103,7 +100,7 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	// add finalizer
 	if r.options.isFinalizerSet() && controllerutil.AddFinalizer(objectInstance, r.options.finalizer) {
-		return ctrl.Result{}, r.nativeClient.Update(ctx, objectInstance)
+		return ctrl.Result{}, r.mgr.GetClient().Update(ctx, objectInstance)
 	}
 
 	switch status.State {
@@ -132,7 +129,7 @@ func (r *ManifestReconciler) HandleInitialState(ctx context.Context, objectInsta
 
 	// set resource labels
 	if r.applyLabels(objectInstance) {
-		return r.nativeClient.Update(ctx, objectInstance)
+		return r.mgr.GetClient().Update(ctx, objectInstance)
 	}
 
 	return r.setStatusForObjectInstance(ctx, objectInstance, status.WithState(types.StateProcessing))
@@ -187,7 +184,8 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, objectIn
 		return err
 	}
 
-	ready, err := manifest.InstallChart(logger, installInfo, r.options.objectTransforms, nil)
+	ready, err := manifest.InstallChart(logger, installInfo, r.options.objectTransforms,
+		r.cacheManager.GetRendererCache())
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("error while installing resource %s",
 			client.ObjectKeyFromObject(objectInstance)))
@@ -231,7 +229,8 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInst
 		return err
 	}
 
-	readyToBeDeleted, err := manifest.UninstallChart(logger, installInfo, r.options.objectTransforms, nil)
+	readyToBeDeleted, err := manifest.UninstallChart(logger, installInfo, r.options.objectTransforms,
+		r.cacheManager.GetRendererCache())
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("error while deleting resource %s", client.ObjectKeyFromObject(objectInstance)))
 		status.State = types.StateError
@@ -240,7 +239,7 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInst
 	// if resources are ready to be deleted, remove finalizer
 	if readyToBeDeleted && r.options.isFinalizerSet() &&
 		controllerutil.RemoveFinalizer(objectInstance, r.options.finalizer) {
-		return r.nativeClient.Update(ctx, objectInstance)
+		return r.mgr.GetClient().Update(ctx, objectInstance)
 	}
 	return nil
 }
@@ -277,7 +276,8 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, objectInstanc
 	}
 
 	// verify installed resources
-	ready, err := manifest.ConsistencyCheck(logger, installInfo, r.options.objectTransforms, nil)
+	ready, err := manifest.ConsistencyCheck(logger, installInfo, r.options.objectTransforms,
+		r.cacheManager.GetRendererCache())
 
 	// update only if resources not ready OR an error occurred during chart verification
 	if err != nil {
@@ -316,9 +316,9 @@ func (r *ManifestReconciler) prepareInstallInfo(ctx context.Context, objectInsta
 		},
 		ClusterInfo: types.ClusterInfo{
 			// destination cluster rest config
-			Config: r.config,
+			Config: r.mgr.GetConfig(),
 			// destination cluster rest client
-			Client: r.nativeClient,
+			Client: r.mgr.GetClient(),
 		},
 		ResourceInfo: types.ResourceInfo{
 			// base operator resource to be passed for custom checks
@@ -376,7 +376,7 @@ func (r *ManifestReconciler) setStatusForObjectInstance(ctx context.Context, obj
 		return err
 	}
 
-	return r.nativeClient.Status().Update(ctx, objectInstance)
+	return r.mgr.GetClient().Status().Update(ctx, objectInstance)
 }
 
 func getTypeError(namespacedName string) error {
