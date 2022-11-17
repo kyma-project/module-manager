@@ -115,8 +115,6 @@ func NewSingletonClients(info types.ClusterInfo, logger logr.Logger) (*Singleton
 		if err != nil {
 			return nil, err
 		}
-	} else {
-		discoveryShortcutExpander = runtimeClient.RESTMapper()
 	}
 
 	kubernetesClient, err := kubernetes.NewForConfigAndClient(info.Config, httpClient)

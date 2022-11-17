@@ -12,6 +12,8 @@ import (
 )
 
 // RenderSrc offers utility methods for processing of manifest resources.
+//
+//nolint:interfacebloat
 type RenderSrc interface {
 	GetRawManifest(deployInfo InstallInfo) *ParsedFile
 	Install(manifest string, deployInfo InstallInfo, transforms []ObjectTransform) (bool, error)

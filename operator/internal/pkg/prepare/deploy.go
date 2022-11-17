@@ -34,7 +34,7 @@ const (
 	configReadError                         = "reading install %s resulted in an error for " + v1alpha1.ManifestKind
 )
 
-var LocalClient func() *rest.Config
+var LocalClient func() *rest.Config //nolint:gochecknoglobals
 
 func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClusterInfo types.ClusterInfo,
 	flags internalTypes.ReconcileFlagConfig, processorCache types.RendererCache,

@@ -157,7 +157,6 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 		LeaderElection:         flagVar.enableLeaderElection,
 		LeaderElectionID:       "7f5e28d0.kyma-project.io",
 		NewCache:               newCacheFunc,
-		NewClient:
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
