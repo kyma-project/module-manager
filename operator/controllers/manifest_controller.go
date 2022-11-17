@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kyma-project/module-manager/operator/pkg/cache"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	k8slabels "k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/ratelimiter"
@@ -399,7 +400,7 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 	r.RestConfig = mgr.GetConfig()
 
 	// initialize new cluster cache
-	r.CacheManager = NewCacheManager()
+	r.CacheManager = cache.NewCacheManager()
 
 	// register listener component
 	runnableListener, eventChannel := listener.RegisterListenerComponent(
