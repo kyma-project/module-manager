@@ -186,26 +186,26 @@ var _ = Describe("given manifest with a helm repo", Ordered, func() {
 			// fourth call for operations for same parent resource and configuration.
 			verifyCacheEntries(testCaseFn(testResourceName, parentCacheKey, chartFlagsVariantOne, rendererCache))
 			// check set count
-			Expect(setProcessorCount).To(Equal(2)) // new processor + new flags
+			Expect(setProcessorCount).To(Equal(1)) // new processor
 			Expect(setConfigCount).To(Equal(1))    // new flags
 
 			// fifth call for operations for SAME parent and DIFFERENT configuration.
 			// Configuration contains both types.SetFlags and types.ConfigFlags as part of types.ChartFlags
 			verifyCacheEntries(testCaseFn(testResourceName, parentCacheKey, chartFlagsVariantTwo, rendererCache))
 			// check set count
-			Expect(setProcessorCount).To(Equal(3)) // ^above + updated flags
+			Expect(setProcessorCount).To(Equal(2)) // ^above
 			Expect(setConfigCount).To(Equal(2))    // ^above + updated flags
 
 			// sixth call for operations for SAME parent, DIFFERENT resource, SAME configuration.
 			verifyCacheEntries(testCaseFn(testResourceName2, parentCacheKey, chartFlagsVariantOne, rendererCache))
 			// check set count
-			Expect(setProcessorCount).To(Equal(4)) // ^above + flags of new resource
+			Expect(setProcessorCount).To(Equal(3)) // ^above
 			Expect(setConfigCount).To(Equal(3))    // ^above + flags of new resource
 
 			// seventh call for operations for a resource and new parent and configuration.
 			verifyCacheEntries(testCaseFn(testResourceName3, parentCacheKey2, chartFlagsVariantOne, rendererCache))
 			// check set count
-			Expect(setProcessorCount).To(Equal(6)) // ^above + new parent + new flags
+			Expect(setProcessorCount).To(Equal(4)) // ^above + new parent
 			Expect(setConfigCount).To(Equal(4))    // ^above + new flags
 		},
 		[]TableEntry{

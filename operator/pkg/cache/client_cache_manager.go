@@ -1,4 +1,4 @@
-package controllers
+package cache
 
 import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
