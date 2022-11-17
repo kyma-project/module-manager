@@ -27,6 +27,7 @@ import (
 
 	manifestv1alpha1 "github.com/kyma-project/module-manager/operator/api/v1alpha1"
 	"github.com/kyma-project/module-manager/operator/controllers"
+	"github.com/kyma-project/module-manager/operator/internal/pkg/prepare"
 	internalTypes "github.com/kyma-project/module-manager/operator/internal/pkg/types"
 	"github.com/kyma-project/module-manager/operator/internal/pkg/util"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
@@ -92,6 +93,7 @@ type FlagVar struct {
 	clientQPS                                            float64
 	clientBurst                                          int
 	pprofAddr                                            string
+	installTarget                                        string
 	pprofServerTimeout                                   time.Duration
 	cacheSyncTimeout                                     time.Duration
 }
@@ -155,6 +157,7 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 		LeaderElection:         flagVar.enableLeaderElection,
 		LeaderElectionID:       "7f5e28d0.kyma-project.io",
 		NewCache:               newCacheFunc,
+		NewClient:
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
@@ -179,6 +182,7 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 			CheckReadyStates:        flagVar.checkReadyStates,
 			CustomStateCheck:        flagVar.customStateCheck,
 			InsecureRegistry:        flagVar.insecureRegistry,
+			InstallTargetSrc:        flagVar.installTarget,
 		},
 		RequeueIntervals: controllers.RequeueIntervals{
 			Success: flagVar.requeueSuccessInterval,
@@ -256,5 +260,7 @@ func defineFlagVar() *FlagVar {
 		"Timeout of Read / Write for the pprof server.")
 	flag.DurationVar(&flagVar.cacheSyncTimeout, "cache-sync-timeout", defaultCacheSyncTimeout,
 		"Indicates the cache sync timeout in seconds")
+	flag.StringVar(&flagVar.installTarget, "install-target", string(prepare.InstallTargetLocalSecret),
+		"Install target configuration type")
 	return flagVar
 }

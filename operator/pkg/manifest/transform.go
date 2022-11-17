@@ -3,20 +3,14 @@ package manifest
 import (
 	"context"
 
-	"k8s.io/client-go/rest"
-
 	manifestTypes "github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
 )
 
-type Transformer struct {
-	config *rest.Config
-}
+type Transformer struct{}
 
-func NewTransformer(config *rest.Config) *Transformer {
-	return &Transformer{
-		config: config,
-	}
+func NewTransformer() *Transformer {
+	return &Transformer{}
 }
 
 func (t *Transformer) Transform(ctx context.Context, manifestStringified string,
@@ -34,8 +28,4 @@ func (t *Transformer) Transform(ctx context.Context, manifestStringified string,
 	}
 
 	return objects, nil
-}
-
-func (t *Transformer) GetRestConfig() *rest.Config {
-	return t.config
 }

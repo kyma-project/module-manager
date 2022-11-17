@@ -39,6 +39,7 @@ import (
 
 	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
 	"github.com/kyma-project/module-manager/operator/controllers"
+	"github.com/kyma-project/module-manager/operator/internal/pkg/prepare"
 	internalTypes "github.com/kyma-project/module-manager/operator/internal/pkg/types"
 	"github.com/kyma-project/module-manager/operator/internal/pkg/util"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
@@ -69,7 +70,7 @@ const (
 	layerNameSubDir    = "name"
 	secretName         = "some-kyma-name"
 	kustomizeLocalPath = "../pkg/test_samples/kustomize"
-	standardTimeout    = 30 * time.Second
+	standardTimeout    = 3 * time.Minute
 	standardInterval   = 250 * time.Millisecond
 )
 
@@ -131,6 +132,7 @@ var _ = BeforeSuite(func() {
 			CheckReadyStates:        false,
 			CustomStateCheck:        false,
 			InsecureRegistry:        true,
+			InstallTargetSrc:        "local-client",
 		},
 		RequeueIntervals: controllers.RequeueIntervals{
 			Success: time.Second * 10,
@@ -143,6 +145,17 @@ var _ = BeforeSuite(func() {
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
+
+	var authUser *envtest.AuthenticatedUser
+	authUser, err = testEnv.AddUser(envtest.User{
+		Name:   "skr-admin-account",
+		Groups: []string{"system:masters"},
+	}, cfg)
+	Expect(err).NotTo(HaveOccurred())
+
+	prepare.LocalClient = func() *rest.Config {
+		return authUser.Config()
+	}
 
 	go func() {
 		defer GinkgoRecover()

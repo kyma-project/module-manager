@@ -4,15 +4,20 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	"github.com/kyma-project/module-manager/operator/pkg/applier"
-	"github.com/kyma-project/module-manager/operator/pkg/client"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/kustomize/api/krusty"
 	"sigs.k8s.io/kustomize/kyaml/filesys"
+
+	"github.com/kyma-project/module-manager/operator/pkg/applier"
+	manifestClient "github.com/kyma-project/module-manager/operator/pkg/client"
 
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 )
 
 type kustomize struct {
+	clients *manifestClient.SingletonClients
 	logger  logr.Logger
 	applier *applier.SetApplier
 	*Transformer
@@ -25,13 +30,14 @@ type kustomize struct {
 // On the returned helm instance, installation, uninstallation and verification checks
 // can then be executed on the resource manifest.
 func NewKustomizeProcessor(
-	clients *client.SingletonClients, logger logr.Logger, render *Rendered, txformer *Transformer,
+	clients *manifestClient.SingletonClients, logger logr.Logger, render *Rendered, txformer *Transformer,
 ) (types.RenderSrc, error) {
 	// TODO offer SSA as a generic installation and not only bound to Kustomize
 	ssaApplier := applier.NewSSAApplier(clients, logger)
 
 	// verify compliance of interface
 	var kustomizeProcessor types.RenderSrc = &kustomize{
+		clients:     clients,
 		logger:      logger,
 		Transformer: txformer,
 		Rendered:    render,
@@ -113,4 +119,12 @@ func (k *kustomize) IsConsistent(manifest string, deployInfo types.InstallInfo,
 func (k *kustomize) InvalidateConfigAndRenderedManifest(_ types.InstallInfo, _ uint32) (uint32, error) {
 	// TODO implement invalidation logic
 	return 0, nil
+}
+
+func (k *kustomize) ToRestConfig() (*rest.Config, error) {
+	return k.clients.ToRESTConfig()
+}
+
+func (k *kustomize) ToClient(gvk schema.GroupVersionKind) (client.Client, error) {
+	return k.clients.ToClient(gvk)
 }

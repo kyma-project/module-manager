@@ -10,7 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	client2 "github.com/kyma-project/module-manager/operator/pkg/client"
+	manifestClient "github.com/kyma-project/module-manager/operator/pkg/client"
 
 	"github.com/kyma-project/module-manager/operator/pkg/labels"
 	"github.com/kyma-project/module-manager/operator/pkg/resource"
@@ -149,10 +149,10 @@ func discoverCacheKey(resource client.Object, logger logr.Logger) client.ObjectK
 // getManifestProcessor returns a new types.RenderSrc instance
 // this render source will handle subsequent Operations for manifest resources based on types.InstallInfo.
 func getManifestProcessor(deployInfo types.InstallInfo, logger logr.Logger) (types.RenderSrc, error) {
-	txformer := NewTransformer(deployInfo.Config)
+	txformer := NewTransformer()
 	render := NewRendered(logger)
 
-	singletonClients, err := client2.NewSingletonClients(deployInfo.Config, logger, deployInfo.Client)
+	singletonClients, err := manifestClient.NewSingletonClients(deployInfo.ClusterInfo, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +178,7 @@ func getManifestProcessor(deployInfo types.InstallInfo, logger logr.Logger) (typ
 
 func (o *Operations) consistencyCheck(deployInfo types.InstallInfo) (bool, error) {
 	// verify CRDs
-	if err := resource.CheckCRDs(deployInfo.Ctx, deployInfo.Crds, deployInfo.Client,
+	if err := resource.CheckCRDs(deployInfo.Ctx, deployInfo.Crds, o.renderSrc,
 		false); err != nil {
 		if apierrors.IsNotFound(err) {
 			return false, nil
@@ -187,7 +187,7 @@ func (o *Operations) consistencyCheck(deployInfo types.InstallInfo) (bool, error
 	}
 
 	// verify CR
-	if err := resource.CheckCRs(deployInfo.Ctx, deployInfo.CustomResources, deployInfo.Client,
+	if err := resource.CheckCRs(deployInfo.Ctx, deployInfo.CustomResources, o.renderSrc,
 		false); err != nil {
 		if apierrors.IsNotFound(err) {
 			return false, nil
@@ -216,7 +216,7 @@ func (o *Operations) consistencyCheck(deployInfo types.InstallInfo) (bool, error
 
 func (o *Operations) install(deployInfo types.InstallInfo) (bool, error) {
 	// install crds first - if present do not update!
-	if err := resource.CheckCRDs(deployInfo.Ctx, deployInfo.Crds, deployInfo.ClusterInfo.Client,
+	if err := resource.CheckCRDs(deployInfo.Ctx, deployInfo.Crds, o.renderSrc,
 		true); err != nil {
 		return false, err
 	}
@@ -234,7 +234,7 @@ func (o *Operations) install(deployInfo types.InstallInfo) (bool, error) {
 	}
 
 	// install crs - if present do not update!
-	if err := resource.CheckCRs(deployInfo.Ctx, deployInfo.CustomResources, deployInfo.Client,
+	if err := resource.CheckCRs(deployInfo.Ctx, deployInfo.CustomResources, o.renderSrc,
 		true); err != nil {
 		return false, err
 	}
@@ -250,8 +250,7 @@ func (o *Operations) uninstall(deployInfo types.InstallInfo) (bool, error) {
 	// delete crs first - proceed only if not found
 	// proceed if CR type doesn't exist anymore - since associated CRDs might be deleted from resource uninstallation
 	// since there might be a deletion process to be completed by other manifest resources
-	deleted, err := resource.RemoveCRs(deployInfo.Ctx, deployInfo.CustomResources,
-		deployInfo.ClusterInfo.Client)
+	deleted, err := resource.RemoveCRs(deployInfo.Ctx, deployInfo.CustomResources, o.renderSrc)
 	if !meta.IsNoMatchError(err) && (err != nil || !deleted) {
 		return false, err
 	}
@@ -269,7 +268,7 @@ func (o *Operations) uninstall(deployInfo types.InstallInfo) (bool, error) {
 	}
 
 	// delete crds first - if not present ignore!
-	if err := resource.RemoveCRDs(deployInfo.Ctx, deployInfo.Crds, deployInfo.ClusterInfo.Client); err != nil {
+	if err := resource.RemoveCRDs(deployInfo.Ctx, deployInfo.Crds, o.renderSrc); err != nil {
 		return false, err
 	}
 

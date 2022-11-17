@@ -29,6 +29,7 @@ import (
 	"k8s.io/kubectl/pkg/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
 )
 
@@ -87,18 +88,17 @@ var (
 	_ action.RESTClientGetter = &SingletonClients{}
 )
 
-func NewSingletonClients(config *rest.Config, logger logr.Logger, existingRuntimeClient client.Client,
-) (*SingletonClients, error) {
-	if err := setKubernetesDefaults(config); err != nil {
+func NewSingletonClients(info types.ClusterInfo, logger logr.Logger) (*SingletonClients, error) {
+	if err := setKubernetesDefaults(info.Config); err != nil {
 		return nil, err
 	}
 
-	httpClient, err := rest.HTTPClientFor(config)
+	httpClient, err := rest.HTTPClientFor(info.Config)
 	if err != nil {
 		return nil, err
 	}
 
-	discoveryConfig := *config
+	discoveryConfig := *info.Config
 	discoveryConfig.Burst = 200
 	discoveryClient, err := discovery.NewDiscoveryClientForConfigAndClient(&discoveryConfig, httpClient)
 	if err != nil {
@@ -108,21 +108,22 @@ func NewSingletonClients(config *rest.Config, logger logr.Logger, existingRuntim
 	discoveryRESTMapper := restmapper.NewDeferredDiscoveryRESTMapper(cachedDiscoveryClient)
 	discoveryShortcutExpander := restmapper.NewShortcutExpander(discoveryRESTMapper, cachedDiscoveryClient)
 
-	// existingRuntimeClient is only set when since cluster mode is used
-	// and the client instance already exists
+	// create runtime client only if not passed
 	var runtimeClient client.Client
-	if existingRuntimeClient == nil {
-		runtimeClient, err = client.New(config, client.Options{Mapper: discoveryRESTMapper})
+	if info.Client == nil {
+		runtimeClient, err = client.New(info.Config, client.Options{Mapper: discoveryShortcutExpander})
 		if err != nil {
 			return nil, err
 		}
+	} else {
+		discoveryShortcutExpander = runtimeClient.RESTMapper()
 	}
 
-	kubernetesClient, err := kubernetes.NewForConfigAndClient(config, httpClient)
+	kubernetesClient, err := kubernetes.NewForConfigAndClient(info.Config, httpClient)
 	if err != nil {
 		return nil, err
 	}
-	dynamicClient, err := dynamic.NewForConfigAndClient(config, httpClient)
+	dynamicClient, err := dynamic.NewForConfigAndClient(info.Config, httpClient)
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +132,7 @@ func NewSingletonClients(config *rest.Config, logger logr.Logger, existingRuntim
 
 	clients := &SingletonClients{
 		httpClient:                  httpClient,
-		config:                      config,
+		config:                      info.Config,
 		discoveryClient:             cachedDiscoveryClient,
 		discoveryRESTMapper:         discoveryRESTMapper,
 		discoveryShortcutExpander:   discoveryShortcutExpander,
@@ -248,15 +249,11 @@ func (f *SingletonClients) ClientForMapping(mapping *meta.RESTMapping) (resource
 }
 
 func (f *SingletonClients) DynamicResourceInterface(obj *unstructured.Unstructured) (dynamic.ResourceInterface, error) {
-	gvk := obj.GroupVersionKind()
-	mapping, err := f.discoveryShortcutExpander.RESTMapping(gvk.GroupKind(), gvk.Version)
+	mapping, err := f.checkAndResetMapper(obj.GroupVersionKind())
 	if err != nil {
-		if meta.IsNoMatchError(err) {
-			f.discoveryRESTMapper.Reset()
-			return nil, fmt.Errorf("resetting REST mapper to update resource mappings: %w", err)
-		}
 		return nil, err
 	}
+	gvk := obj.GroupVersionKind()
 
 	var dynamicResource dynamic.ResourceInterface
 
@@ -311,17 +308,11 @@ func (f *SingletonClients) UnstructuredClientForMapping(mapping *meta.RESTMappin
 }
 
 func (f *SingletonClients) ResourceInfo(obj *unstructured.Unstructured) (*resource.Info, error) {
-	info := &resource.Info{}
-	gvk := obj.GroupVersionKind()
-
-	mapping, err := f.discoveryShortcutExpander.RESTMapping(gvk.GroupKind(), gvk.Version)
+	mapping, err := f.checkAndResetMapper(obj.GroupVersionKind())
 	if err != nil {
-		if meta.IsNoMatchError(err) {
-			f.discoveryRESTMapper.Reset()
-			return nil, fmt.Errorf("resetting REST mapper to update resource mappings: %w", err)
-		}
 		return nil, err
 	}
+	info := &resource.Info{}
 	clnt, err := f.ClientForMapping(mapping)
 	if err != nil {
 		return nil, err
@@ -373,6 +364,15 @@ func (f *SingletonClients) Install() *action.Install {
 	return f.install
 }
 
+func (f *SingletonClients) ToClient(gvk schema.GroupVersionKind) (client.Client, error) {
+	if !gvk.Empty() {
+		if _, err := f.checkAndResetMapper(gvk); err != nil {
+			return nil, err
+		}
+	}
+	return f.runtimeClient, nil
+}
+
 func (f *SingletonClients) ReadyChecker(
 	log func(string, ...interface{}), opts ...kube.ReadyCheckerOption,
 ) kube.ReadyChecker {
@@ -393,4 +393,15 @@ func setKubernetesDefaults(config *rest.Config) error {
 		config.NegotiatedSerializer = scheme.Codecs.WithoutConversion()
 	}
 	return rest.SetKubernetesDefaults(config)
+}
+
+func (f *SingletonClients) checkAndResetMapper(gvk schema.GroupVersionKind) (*meta.RESTMapping, error) {
+	mapping, err := f.discoveryShortcutExpander.RESTMapping(gvk.GroupKind(), gvk.Version)
+	if err != nil {
+		if meta.IsNoMatchError(err) {
+			f.discoveryRESTMapper.Reset()
+			return nil, fmt.Errorf("resetting REST mapper to update resource mappings: %w", err)
+		}
+	}
+	return mapping, err
 }

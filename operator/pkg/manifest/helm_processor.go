@@ -13,10 +13,12 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	apiMachineryErr "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	client2 "github.com/kyma-project/module-manager/operator/pkg/client"
+	manifestTypes "github.com/kyma-project/module-manager/operator/pkg/client"
 
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
@@ -25,7 +27,7 @@ import (
 const resourceValidationErr = "validating manifest resources resulted in an error"
 
 type helm struct {
-	clients     *client2.SingletonClients
+	clients     *manifestTypes.SingletonClients
 	settings    *cli.EnvSettings
 	repoHandler *RepoHandler
 	logger      logr.Logger
@@ -45,7 +47,7 @@ var accessor = meta.NewAccessor()
 // Additionally, it also transforms the manifest resources based on user defined input.
 // On the returned helm instance, installation, uninstallation and verification checks
 // can be executed on the resource manifest.
-func NewHelmProcessor(clients *client2.SingletonClients, settings *cli.EnvSettings,
+func NewHelmProcessor(clients *manifestTypes.SingletonClients, settings *cli.EnvSettings,
 	logger logr.Logger, render *Rendered, txformer *Transformer, deployInfo types.InstallInfo,
 ) (types.RenderSrc, error) {
 	helmClient := &helm{
@@ -507,4 +509,12 @@ func (h *helm) InvalidateConfigAndRenderedManifest(deployInfo types.InstallInfo,
 	}
 	// new entry
 	return newHash, nil
+}
+
+func (h *helm) ToRestConfig() (*rest.Config, error) {
+	return h.clients.ToRESTConfig()
+}
+
+func (h *helm) ToClient(gvk schema.GroupVersionKind) (client.Client, error) {
+	return h.clients.ToClient(gvk)
 }

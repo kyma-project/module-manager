@@ -6,6 +6,7 @@ import (
 	"helm.sh/helm/v3/pkg/kube"
 	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -22,7 +23,8 @@ type RenderSrc interface {
 	DeleteCachedResources(chartPath string) *ParsedFile
 	GetManifestResources(chartName, dirPath string) *ParsedFile
 	InvalidateConfigAndRenderedManifest(deployInfo InstallInfo, cachedHash uint32) (uint32, error)
-	GetRestConfig() *rest.Config
+	ToRestConfig() (*rest.Config, error)
+	ToClient(gvk schema.GroupVersionKind) (client.Client, error)
 }
 
 // RefTypeMetadata specifies the type of installation specification

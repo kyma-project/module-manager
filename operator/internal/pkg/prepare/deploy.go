@@ -10,6 +10,8 @@ import (
 	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/rest"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -24,9 +26,15 @@ import (
 	"github.com/kyma-project/module-manager/operator/pkg/util"
 )
 
+type InstallCfgType string
+
 const (
-	configReadError = "reading install %s resulted in an error for " + v1alpha1.ManifestKind
+	InstallTargetLocalSecret InstallCfgType = "local-secret"
+	InstallTargetLocalClient InstallCfgType = "local-client"
+	configReadError                         = "reading install %s resulted in an error for " + v1alpha1.ManifestKind
 )
+
+var LocalClient func() *rest.Config
 
 func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClusterInfo types.ClusterInfo,
 	flags internalTypes.ReconcileFlagConfig, processorCache types.RendererCache,
@@ -68,7 +76,8 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 	}
 
 	// evaluate rest config
-	clusterInfo, err := getDestinationConfigAndClient(ctx, defaultClusterInfo, manifestObj, processorCache)
+	clusterInfo, err := getDestinationConfigAndClient(ctx, defaultClusterInfo, manifestObj, processorCache,
+		flags.InstallTargetSrc)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +112,7 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 }
 
 func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo types.ClusterInfo,
-	manifestObj *v1alpha1.Manifest, processorCache types.RendererCache,
+	manifestObj *v1alpha1.Manifest, processorCache types.RendererCache, installTarget string,
 ) (types.ClusterInfo, error) {
 	// in single cluster mode return the default cluster info
 	// since the resources need to be installed in the same cluster
@@ -116,23 +125,43 @@ func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo types
 		return types.ClusterInfo{}, err
 	}
 
-	// check if cluster info record exists in the cluster cache
+	// cluster info record from cluster cache
 	kymaNsName := client.ObjectKey{Name: kymaOwnerLabel, Namespace: manifestObj.Namespace}
 	processor := processorCache.GetProcessor(kymaNsName)
 	if processor != nil {
+		restConfig, err := processor.ToRestConfig()
+		if err != nil {
+			return types.ClusterInfo{}, err
+		}
+		client, err := processor.ToClient(schema.GroupVersionKind{})
+		if err != nil {
+			return types.ClusterInfo{}, err
+		}
 		return types.ClusterInfo{
-			Config: processor.GetRestConfig(),
+			Config: restConfig,
+			Client: client,
+		}, nil
+	}
+
+	// evaluate remote rest config from local client function
+	targetCfgType := InstallCfgType(installTarget)
+	if targetCfgType == InstallTargetLocalClient {
+		if LocalClient == nil {
+			return types.ClusterInfo{},
+				fmt.Errorf("no LocalClient function set for install target type %s", installTarget)
+		}
+		return types.ClusterInfo{
+			Config: LocalClient(),
 			// client will be set during processing of manifest
 		}, nil
 	}
 
-	// evaluate remote rest config
+	// evaluate remote rest config from secret
 	clusterClient := &custom.ClusterClient{DefaultClient: defaultClusterInfo.Client}
 	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, manifestObj.Namespace)
 	if err != nil {
 		return types.ClusterInfo{}, err
 	}
-
 	return types.ClusterInfo{
 		Config: restConfig,
 	}, nil

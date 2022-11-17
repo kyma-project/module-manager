@@ -13,6 +13,7 @@ type ReconcileFlagConfig struct {
 	CustomStateCheck        bool
 	InsecureRegistry        bool
 	MaxConcurrentReconciles int
+	InstallTargetSrc        string
 }
 
 type ResponseChan chan *InstallResponse
