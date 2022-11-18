@@ -13,7 +13,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	apiMachineryErr "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -515,6 +514,6 @@ func (h *helm) ToRestConfig() (*rest.Config, error) {
 	return h.clients.ToRESTConfig()
 }
 
-func (h *helm) ToClient(gvk schema.GroupVersionKind) (client.Client, error) {
-	return h.clients.ToClient(gvk)
+func (h *helm) ToClient() client.Client {
+	return h.clients
 }

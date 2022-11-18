@@ -187,7 +187,7 @@ func getManifestProcessor(deployInfo types.InstallInfo, logger logr.Logger) (typ
 
 func (o *Operations) consistencyCheck(deployInfo types.InstallInfo) (bool, error) {
 	// verify CRDs
-	if err := resource.CheckCRDs(deployInfo.Ctx, deployInfo.Crds, o.renderSrc,
+	if err := resource.CheckCRDs(deployInfo.Ctx, deployInfo.Crds, o.renderSrc.ToClient(),
 		false); err != nil {
 		if apierrors.IsNotFound(err) {
 			return false, nil
@@ -196,7 +196,7 @@ func (o *Operations) consistencyCheck(deployInfo types.InstallInfo) (bool, error
 	}
 
 	// verify CR
-	if err := resource.CheckCRs(deployInfo.Ctx, deployInfo.CustomResources, o.renderSrc,
+	if err := resource.CheckCRs(deployInfo.Ctx, deployInfo.CustomResources, o.renderSrc.ToClient(),
 		false); err != nil {
 		if apierrors.IsNotFound(err) {
 			return false, nil
@@ -225,7 +225,7 @@ func (o *Operations) consistencyCheck(deployInfo types.InstallInfo) (bool, error
 
 func (o *Operations) install(deployInfo types.InstallInfo) (bool, error) {
 	// install crds first - if present do not update!
-	if err := resource.CheckCRDs(deployInfo.Ctx, deployInfo.Crds, o.renderSrc,
+	if err := resource.CheckCRDs(deployInfo.Ctx, deployInfo.Crds, o.renderSrc.ToClient(),
 		true); err != nil {
 		return false, err
 	}
@@ -243,7 +243,7 @@ func (o *Operations) install(deployInfo types.InstallInfo) (bool, error) {
 	}
 
 	// install crs - if present do not update!
-	if err := resource.CheckCRs(deployInfo.Ctx, deployInfo.CustomResources, o.renderSrc,
+	if err := resource.CheckCRs(deployInfo.Ctx, deployInfo.CustomResources, o.renderSrc.ToClient(),
 		true); err != nil {
 		return false, err
 	}
@@ -259,7 +259,7 @@ func (o *Operations) uninstall(deployInfo types.InstallInfo) (bool, error) {
 	// delete crs first - proceed only if not found
 	// proceed if CR type doesn't exist anymore - since associated CRDs might be deleted from resource uninstallation
 	// since there might be a deletion process to be completed by other manifest resources
-	deleted, err := resource.RemoveCRs(deployInfo.Ctx, deployInfo.CustomResources, o.renderSrc)
+	deleted, err := resource.RemoveCRs(deployInfo.Ctx, deployInfo.CustomResources, o.renderSrc.ToClient())
 	if !meta.IsNoMatchError(err) && (err != nil || !deleted) {
 		return false, err
 	}
@@ -277,7 +277,7 @@ func (o *Operations) uninstall(deployInfo types.InstallInfo) (bool, error) {
 	}
 
 	// delete crds first - if not present ignore!
-	if err := resource.RemoveCRDs(deployInfo.Ctx, deployInfo.Crds, o.renderSrc); err != nil {
+	if err := resource.RemoveCRDs(deployInfo.Ctx, deployInfo.Crds, o.renderSrc.ToClient()); err != nil {
 		return false, err
 	}
 

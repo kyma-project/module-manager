@@ -10,7 +10,6 @@ import (
 	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -133,13 +132,9 @@ func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo types
 		if err != nil {
 			return types.ClusterInfo{}, err
 		}
-		client, err := processor.ToClient(schema.GroupVersionKind{})
-		if err != nil {
-			return types.ClusterInfo{}, err
-		}
 		return types.ClusterInfo{
 			Config: restConfig,
-			Client: client,
+			Client: processor.ToClient(),
 		}, nil
 	}
 

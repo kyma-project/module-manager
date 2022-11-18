@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/cli-runtime/pkg/resource"
 	"k8s.io/client-go/discovery"
@@ -86,6 +87,7 @@ type SingletonClients struct {
 var (
 	_ kube.Factory            = &SingletonClients{}
 	_ action.RESTClientGetter = &SingletonClients{}
+	_ client.Client           = &SingletonClients{}
 )
 
 func NewSingletonClients(info types.ClusterInfo, logger logr.Logger) (*SingletonClients, error) {
@@ -109,9 +111,9 @@ func NewSingletonClients(info types.ClusterInfo, logger logr.Logger) (*Singleton
 	discoveryShortcutExpander := restmapper.NewShortcutExpander(discoveryRESTMapper, cachedDiscoveryClient)
 
 	// create runtime client only if not passed
-	var runtimeClient client.Client
+	runtimeClient := info.Client
 	if info.Client == nil {
-		runtimeClient, err = client.New(info.Config, client.Options{Mapper: discoveryShortcutExpander})
+		runtimeClient, err = NewRuntimeClient(info.Config, discoveryShortcutExpander)
 		if err != nil {
 			return nil, err
 		}
@@ -174,58 +176,58 @@ func NewSingletonClients(info types.ClusterInfo, logger logr.Logger) (*Singleton
 	return clients, nil
 }
 
-func (f *SingletonClients) ToRESTConfig() (*rest.Config, error) {
-	return f.config, nil
+func (s *SingletonClients) ToRESTConfig() (*rest.Config, error) {
+	return s.config, nil
 }
 
-func (f *SingletonClients) ToDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
-	return f.discoveryClient, nil
+func (s *SingletonClients) ToDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
+	return s.discoveryClient, nil
 }
 
-func (f *SingletonClients) ToRESTMapper() (meta.RESTMapper, error) {
-	return f.discoveryShortcutExpander, nil
+func (s *SingletonClients) ToRESTMapper() (meta.RESTMapper, error) {
+	return s.discoveryShortcutExpander, nil
 }
 
-func (f *SingletonClients) ToRawKubeConfigLoader() clientcmd.ClientConfig {
+func (s *SingletonClients) ToRawKubeConfigLoader() clientcmd.ClientConfig {
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	loadingRules.DefaultClientConfig = &clientcmd.DefaultClientConfig
 	overrides := &clientcmd.ConfigOverrides{ClusterDefaults: clientcmd.ClusterDefaults}
 	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, overrides)
 }
 
-func (f *SingletonClients) KubernetesClientSet() (*kubernetes.Clientset, error) {
-	return f.kubernetesClient, nil
+func (s *SingletonClients) KubernetesClientSet() (*kubernetes.Clientset, error) {
+	return s.kubernetesClient, nil
 }
 
-func (f *SingletonClients) DynamicClient() (dynamic.Interface, error) {
-	return f.dynamicClient, nil
+func (s *SingletonClients) DynamicClient() (dynamic.Interface, error) {
+	return s.dynamicClient, nil
 }
 
 // NewBuilder returns a new resource builder for structured api objects.
-func (f *SingletonClients) NewBuilder() *resource.Builder {
-	return resource.NewBuilder(f)
+func (s *SingletonClients) NewBuilder() *resource.Builder {
+	return resource.NewBuilder(s)
 }
 
-func (f *SingletonClients) RESTClient() (*rest.RESTClient, error) {
-	return rest.RESTClientForConfigAndClient(f.config, f.httpClient)
+func (s *SingletonClients) RESTClient() (*rest.RESTClient, error) {
+	return rest.RESTClientForConfigAndClient(s.config, s.httpClient)
 }
 
-func (f *SingletonClients) clientCacheKeyForMapping(mapping *meta.RESTMapping) string {
+func (s *SingletonClients) clientCacheKeyForMapping(mapping *meta.RESTMapping) string {
 	return fmt.Sprintf("%s+%s:%s",
 		mapping.Resource.String(), mapping.GroupVersionKind.String(), mapping.Scope.Name())
 }
 
-func (f *SingletonClients) ClientForMapping(mapping *meta.RESTMapping) (resource.RESTClient, error) {
-	f.structuredSyncLock.Lock()
-	defer f.structuredSyncLock.Unlock()
-	key := f.clientCacheKeyForMapping(mapping)
-	client, found := f.structuredRestClientCache[key]
+func (s *SingletonClients) ClientForMapping(mapping *meta.RESTMapping) (resource.RESTClient, error) {
+	s.structuredSyncLock.Lock()
+	defer s.structuredSyncLock.Unlock()
+	key := s.clientCacheKeyForMapping(mapping)
+	client, found := s.structuredRestClientCache[key]
 
 	if found {
 		return client, nil
 	}
 
-	cfg := rest.CopyConfig(f.config)
+	cfg := rest.CopyConfig(s.config)
 	gvk := mapping.GroupVersionKind
 	switch gvk.Group {
 	case corev1.GroupName:
@@ -237,17 +239,17 @@ func (f *SingletonClients) ClientForMapping(mapping *meta.RESTMapping) (resource
 	cfg.GroupVersion = &gv
 
 	var err error
-	client, err = rest.RESTClientForConfigAndClient(cfg, f.httpClient)
+	client, err = rest.RESTClientForConfigAndClient(cfg, s.httpClient)
 	if err != nil {
 		return nil, err
 	}
 
-	f.structuredRestClientCache[key] = client
+	s.structuredRestClientCache[key] = client
 	return client, err
 }
 
-func (f *SingletonClients) DynamicResourceInterface(obj *unstructured.Unstructured) (dynamic.ResourceInterface, error) {
-	mapping, err := f.checkAndResetMapper(obj.GroupVersionKind())
+func (s *SingletonClients) DynamicResourceInterface(obj *unstructured.Unstructured) (dynamic.ResourceInterface, error) {
+	mapping, err := s.checkAndResetMapper(obj)
 	if err != nil {
 		return nil, err
 	}
@@ -262,14 +264,14 @@ func (f *SingletonClients) DynamicResourceInterface(obj *unstructured.Unstructur
 		if namespace == "" {
 			return nil, fmt.Errorf("namespace was not provided for namespace-scoped object %v", gvk)
 		}
-		dynamicResource = f.dynamicClient.Resource(mapping.Resource).Namespace(namespace)
+		dynamicResource = s.dynamicClient.Resource(mapping.Resource).Namespace(namespace)
 	case meta.RESTScopeNameRoot:
 		if namespace != "" {
 			// TODO: Differentiate between server-fixable vs client-fixable errors?
 			return nil, fmt.Errorf(
 				"namespace %q was provided for cluster-scoped object %v", obj.GetNamespace(), gvk)
 		}
-		dynamicResource = f.dynamicClient.Resource(mapping.Resource)
+		dynamicResource = s.dynamicClient.Resource(mapping.Resource)
 	default:
 		// Internal error ... this is panic-level
 		return nil, fmt.Errorf("unknown scope for gvk %s: %q", gvk, mapping.Scope.Name())
@@ -277,17 +279,17 @@ func (f *SingletonClients) DynamicResourceInterface(obj *unstructured.Unstructur
 	return dynamicResource, nil
 }
 
-func (f *SingletonClients) UnstructuredClientForMapping(mapping *meta.RESTMapping) (resource.RESTClient, error) {
-	f.unstructuredSyncLock.Lock()
-	defer f.unstructuredSyncLock.Unlock()
-	key := f.clientCacheKeyForMapping(mapping)
-	client, found := f.unstructuredRestClientCache[key]
+func (s *SingletonClients) UnstructuredClientForMapping(mapping *meta.RESTMapping) (resource.RESTClient, error) {
+	s.unstructuredSyncLock.Lock()
+	defer s.unstructuredSyncLock.Unlock()
+	key := s.clientCacheKeyForMapping(mapping)
+	client, found := s.unstructuredRestClientCache[key]
 
 	if found {
 		return client, nil
 	}
 
-	cfg := rest.CopyConfig(f.config)
+	cfg := rest.CopyConfig(s.config)
 	cfg.APIPath = apis
 	if mapping.GroupVersionKind.Group == corev1.GroupName {
 		cfg.APIPath = api
@@ -297,21 +299,21 @@ func (f *SingletonClients) UnstructuredClientForMapping(mapping *meta.RESTMappin
 	cfg.GroupVersion = &gv
 
 	var err error
-	client, err = rest.RESTClientForConfigAndClient(cfg, f.httpClient)
+	client, err = rest.RESTClientForConfigAndClient(cfg, s.httpClient)
 	if err != nil {
 		return nil, err
 	}
-	f.structuredRestClientCache[key] = client
+	s.structuredRestClientCache[key] = client
 	return client, err
 }
 
-func (f *SingletonClients) ResourceInfo(obj *unstructured.Unstructured) (*resource.Info, error) {
-	mapping, err := f.checkAndResetMapper(obj.GroupVersionKind())
+func (s *SingletonClients) ResourceInfo(obj *unstructured.Unstructured) (*resource.Info, error) {
+	mapping, err := s.checkAndResetMapper(obj)
 	if err != nil {
 		return nil, err
 	}
 	info := &resource.Info{}
-	clnt, err := f.ClientForMapping(mapping)
+	clnt, err := s.ClientForMapping(mapping)
 	if err != nil {
 		return nil, err
 	}
@@ -325,14 +327,14 @@ func (f *SingletonClients) ResourceInfo(obj *unstructured.Unstructured) (*resour
 	return info, nil
 }
 
-func (f *SingletonClients) Validator(
+func (s *SingletonClients) Validator(
 	validationDirective string, verifier *resource.QueryParamVerifier,
 ) (validation.Schema, error) {
 	if validationDirective == metav1.FieldValidationIgnore {
 		return validation.NullSchema{}, nil
 	}
 
-	resources, err := f.OpenAPISchema()
+	resources, err := s.OpenAPISchema()
 	if err != nil {
 		return nil, err
 	}
@@ -346,35 +348,26 @@ func (f *SingletonClients) Validator(
 
 // OpenAPISchema returns metadata and structural information about
 // Kubernetes object definitions.
-func (f *SingletonClients) OpenAPISchema() (openapi.Resources, error) {
-	return f.openAPIParser.Parse()
+func (s *SingletonClients) OpenAPISchema() (openapi.Resources, error) {
+	return s.openAPIParser.Parse()
 }
 
-func (f *SingletonClients) OpenAPIGetter() discovery.OpenAPISchemaInterface {
-	return f.openAPIGetter
+func (s *SingletonClients) OpenAPIGetter() discovery.OpenAPISchemaInterface {
+	return s.openAPIGetter
 }
 
-func (f *SingletonClients) KubeClient() *kube.Client {
-	return f.helmClient
+func (s *SingletonClients) KubeClient() *kube.Client {
+	return s.helmClient
 }
 
-func (f *SingletonClients) Install() *action.Install {
-	return f.install
+func (s *SingletonClients) Install() *action.Install {
+	return s.install
 }
 
-func (f *SingletonClients) ToClient(gvk schema.GroupVersionKind) (client.Client, error) {
-	if !gvk.Empty() {
-		if _, err := f.checkAndResetMapper(gvk); err != nil {
-			return nil, err
-		}
-	}
-	return f.runtimeClient, nil
-}
-
-func (f *SingletonClients) ReadyChecker(
+func (s *SingletonClients) ReadyChecker(
 	log func(string, ...interface{}), opts ...kube.ReadyCheckerOption,
 ) kube.ReadyChecker {
-	return kube.NewReadyChecker(f.kubernetesClient, log, opts...)
+	return kube.NewReadyChecker(s.kubernetesClient, log, opts...)
 }
 
 func setKubernetesDefaults(config *rest.Config) error {
@@ -393,13 +386,21 @@ func setKubernetesDefaults(config *rest.Config) error {
 	return rest.SetKubernetesDefaults(config)
 }
 
-func (f *SingletonClients) checkAndResetMapper(gvk schema.GroupVersionKind) (*meta.RESTMapping, error) {
-	mapping, err := f.discoveryShortcutExpander.RESTMapping(gvk.GroupKind(), gvk.Version)
+func (s *SingletonClients) checkAndResetMapper(obj runtime.Object) (*meta.RESTMapping, error) {
+	gvk := obj.GetObjectKind().GroupVersionKind()
+	mapping, err := s.discoveryShortcutExpander.RESTMapping(gvk.GroupKind(), gvk.Version)
+	if gvk.Empty() {
+		return mapping, nil
+	}
 	if err != nil {
 		if meta.IsNoMatchError(err) {
-			f.discoveryRESTMapper.Reset()
+			s.discoveryRESTMapper.Reset()
 			return nil, fmt.Errorf("resetting REST mapper to update resource mappings: %w", err)
 		}
 	}
 	return mapping, err
+}
+
+func (s *SingletonClients) ToRuntimeClient() client.Client {
+	return s.runtimeClient
 }

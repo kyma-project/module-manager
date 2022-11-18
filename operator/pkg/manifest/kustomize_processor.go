@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/kustomize/api/krusty"
@@ -125,6 +124,6 @@ func (k *kustomize) ToRestConfig() (*rest.Config, error) {
 	return k.clients.ToRESTConfig()
 }
 
-func (k *kustomize) ToClient(gvk schema.GroupVersionKind) (client.Client, error) {
-	return k.clients.ToClient(gvk)
+func (k *kustomize) ToClient() client.Client {
+	return k.clients
 }

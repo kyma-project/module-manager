@@ -189,24 +189,15 @@ func readFile(fileName string) ([][]byte, error) {
 }
 
 func CheckCRDs(ctx context.Context, crds []*apiextensionsv1.CustomResourceDefinition,
-	renderSrc types.RenderSrc, createIfNotPresent bool,
+	runtimeClient client.Client, createIfNotPresent bool,
 ) error {
-	if len(crds) == 0 {
-		return nil
-	}
-	gvk := crds[0].GroupVersionKind()
-	destClient, err := renderSrc.ToClient(gvk)
-	if err != nil {
-		return err
-	}
 	for _, crd := range crds {
-		existingCrd := apiextensionsv1.CustomResourceDefinition{}
-		if err := destClient.Get(ctx, client.ObjectKeyFromObject(crd), &existingCrd); err != nil {
+		if err := runtimeClient.Get(ctx, client.ObjectKeyFromObject(crd), crd); err != nil {
 			if !createIfNotPresent || client.IgnoreNotFound(err) != nil {
 				return err
 			}
 
-			if err = destClient.Create(ctx, crd); err != nil {
+			if err = runtimeClient.Create(ctx, crd); err != nil {
 				return err
 			}
 		}
@@ -214,27 +205,22 @@ func CheckCRDs(ctx context.Context, crds []*apiextensionsv1.CustomResourceDefini
 	return nil
 }
 
-func CheckCRs(ctx context.Context, crs []*unstructured.Unstructured,
-	renderSrc types.RenderSrc, createIfNotPresent bool,
+func CheckCRs(ctx context.Context, crs []*unstructured.Unstructured, runtimeClient client.Client,
+	createIfNotPresent bool,
 ) error {
 	for _, resource := range crs {
-		gvk := resource.GroupVersionKind()
-		destClient, err := renderSrc.ToClient(gvk)
-		if err != nil {
-			return err
-		}
 		existingCustomResource := unstructured.Unstructured{}
 		existingCustomResource.SetGroupVersionKind(resource.GroupVersionKind())
 		customResourceKey := client.ObjectKey{
 			Name:      resource.GetName(),
 			Namespace: resource.GetNamespace(),
 		}
-		if err := destClient.Get(ctx, customResourceKey, &existingCustomResource); err != nil {
+		if err := runtimeClient.Get(ctx, customResourceKey, &existingCustomResource); err != nil {
 			if !createIfNotPresent || client.IgnoreNotFound(err) != nil {
 				return err
 			}
 
-			if err = destClient.Create(ctx, resource); err != nil {
+			if err = runtimeClient.Create(ctx, resource); err != nil {
 				return err
 			}
 		}
@@ -243,26 +229,18 @@ func CheckCRs(ctx context.Context, crs []*unstructured.Unstructured,
 }
 
 func RemoveCRDs(ctx context.Context, crds []*apiextensionsv1.CustomResourceDefinition,
-	renderSrc types.RenderSrc,
+	runtimeClient client.Client,
 ) error {
-	if len(crds) == 0 {
-		return nil
-	}
-	gvk := crds[0].GroupVersionKind()
-	destClient, err := renderSrc.ToClient(gvk)
-	if err != nil {
-		return err
-	}
 	for _, crd := range crds {
 		existingCrd := apiextensionsv1.CustomResourceDefinition{}
-		if err := destClient.Get(ctx, client.ObjectKeyFromObject(crd), &existingCrd); err != nil {
+		if err := runtimeClient.Get(ctx, client.ObjectKeyFromObject(crd), &existingCrd); err != nil {
 			if client.IgnoreNotFound(err) != nil {
 				return err
 			}
 			continue
 		}
 
-		if err := destClient.Delete(ctx, &existingCrd); err != nil {
+		if err := runtimeClient.Delete(ctx, &existingCrd); err != nil {
 			return err
 		}
 	}
@@ -270,22 +248,17 @@ func RemoveCRDs(ctx context.Context, crds []*apiextensionsv1.CustomResourceDefin
 }
 
 func RemoveCRs(ctx context.Context, crs []*unstructured.Unstructured,
-	renderSrc types.RenderSrc,
+	runtimeClient client.Client,
 ) (bool, error) {
 	deleted := true
 	for _, resource := range crs {
-		gvk := resource.GroupVersionKind()
-		destClient, err := renderSrc.ToClient(gvk)
-		if err != nil {
-			return false, err
-		}
 		existingCustomResource := unstructured.Unstructured{}
 		existingCustomResource.SetGroupVersionKind(resource.GroupVersionKind())
 		customResourceKey := client.ObjectKey{
 			Name:      resource.GetName(),
 			Namespace: resource.GetNamespace(),
 		}
-		if err := destClient.Get(ctx, customResourceKey, &existingCustomResource); err != nil {
+		if err := runtimeClient.Get(ctx, customResourceKey, &existingCustomResource); err != nil {
 			if client.IgnoreNotFound(err) != nil {
 				return false, err
 			}
@@ -294,7 +267,7 @@ func RemoveCRs(ctx context.Context, crs []*unstructured.Unstructured,
 		}
 
 		deleted = false
-		if err := destClient.Delete(ctx, resource); err != nil {
+		if err := runtimeClient.Delete(ctx, resource); err != nil {
 			return false, err
 		}
 	}
