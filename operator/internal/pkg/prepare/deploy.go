@@ -25,13 +25,7 @@ import (
 	"github.com/kyma-project/module-manager/operator/pkg/util"
 )
 
-type InstallCfgType string
-
-const (
-	InstallTypeSecret InstallCfgType = "local-secret"
-	InstallTypeClient InstallCfgType = "local-client"
-	configReadError                  = "reading install %s resulted in an error for " + v1alpha1.ManifestKind
-)
+const configReadError = "reading install %s resulted in an error for " + v1alpha1.ManifestKind
 
 var LocalClient func() *rest.Config //nolint:gochecknoglobals
 
@@ -111,7 +105,7 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 }
 
 func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo types.ClusterInfo,
-	manifestObj *v1alpha1.Manifest, processorCache types.RendererCache, installTarget string,
+	manifestObj *v1alpha1.Manifest, processorCache types.RendererCache, installTarget internalTypes.InstallCfgType,
 ) (types.ClusterInfo, error) {
 	// in single cluster mode return the default cluster info
 	// since the resources need to be installed in the same cluster
@@ -128,19 +122,12 @@ func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo types
 	kymaNsName := client.ObjectKey{Name: kymaOwnerLabel, Namespace: manifestObj.Namespace}
 	processor := processorCache.GetProcessor(kymaNsName)
 	if processor != nil {
-		restConfig, err := processor.ToRESTConfig()
-		if err != nil {
-			return types.ClusterInfo{}, err
-		}
-		return types.ClusterInfo{
-			Config: restConfig,
-			Client: processor.ToClient(),
-		}, nil
+		return processor.GetClusterInfo()
 	}
 
 	// evaluate remote rest config from local client function
-	targetCfgType := InstallCfgType(installTarget)
-	if targetCfgType == InstallTypeClient {
+	targetCfgType := installTarget
+	if targetCfgType == internalTypes.InstallTypeClient {
 		if LocalClient == nil {
 			return types.ClusterInfo{},
 				fmt.Errorf("no LocalClient function set for install target type %s", installTarget)

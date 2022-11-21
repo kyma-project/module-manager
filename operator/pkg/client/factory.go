@@ -76,14 +76,6 @@ type SingletonClients struct {
 	unstructuredRestClientCache map[string]resource.RESTClient
 }
 
-// Since we use the SingletonClients also as our Helm cients and redirect all Helm calls to this,
-// we check interface compliance with the necessary client interfaces here.
-var (
-	_ kube.Factory            = &SingletonClients{}
-	_ action.RESTClientGetter = &SingletonClients{}
-	_ client.Client           = &SingletonClients{}
-)
-
 func NewSingletonClients(info types.ClusterInfo, logger logr.Logger) (*SingletonClients, error) {
 	if err := setKubernetesDefaults(info.Config); err != nil {
 		return nil, err
@@ -111,6 +103,7 @@ func NewSingletonClients(info types.ClusterInfo, logger logr.Logger) (*Singleton
 	// 2. Client instance is explicitly passed from the library interface
 	runtimeClient := info.Client
 	if info.Client == nil {
+		// For all other cases where a client instance is not passed, create a client proxy.
 		runtimeClient, err = NewClientProxy(info.Config, discoveryShortcutExpander)
 		if err != nil {
 			return nil, err

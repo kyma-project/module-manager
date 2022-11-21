@@ -132,7 +132,7 @@ var _ = BeforeSuite(func() {
 			CheckReadyStates:        false,
 			CustomStateCheck:        false,
 			InsecureRegistry:        true,
-			InstallTargetSrc:        "local-client",
+			InstallTargetSrc:        internalTypes.InstallTypeClient,
 		},
 		RequeueIntervals: controllers.RequeueIntervals{
 			Success: time.Second * 10,

@@ -14,7 +14,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apiMachineryErr "k8s.io/apimachinery/pkg/util/errors"
-	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	manifestTypes "github.com/kyma-project/module-manager/operator/pkg/client"
@@ -30,12 +29,11 @@ type helm struct {
 	settings    *cli.EnvSettings
 	repoHandler *RepoHandler
 	logger      logr.Logger
-	*Transformer
 	*Rendered
 }
 
 // verify compliance of interface.
-var _ types.RenderSrc = &helm{}
+var _ types.ManifestClient = &helm{}
 
 //nolint:gochecknoglobals
 var accessor = meta.NewAccessor()
@@ -47,19 +45,18 @@ var accessor = meta.NewAccessor()
 // On the returned helm instance, installation, uninstallation and verification checks
 // can be executed on the resource manifest.
 func NewHelmProcessor(clients *manifestTypes.SingletonClients, settings *cli.EnvSettings,
-	logger logr.Logger, render *Rendered, txformer *Transformer, deployInfo types.InstallInfo,
-) (types.RenderSrc, error) {
+	logger logr.Logger, render *Rendered, deployInfo types.InstallInfo,
+) (types.ManifestClient, error) {
 	helmClient := &helm{
 		clients:     clients,
 		logger:      logger,
 		repoHandler: NewRepoHandler(logger, settings),
 		settings:    settings,
-		Transformer: txformer,
 		Rendered:    render,
 	}
 
 	// verify compliance of interface
-	var helmProcessor types.RenderSrc = helmClient
+	var helmProcessor types.ManifestClient = helmClient
 
 	// always override existing flags config
 	// to ensure CR updates are reflected on the action client
@@ -475,7 +472,7 @@ func (h *helm) transformManifestResources(ctx context.Context, manifest string,
 	transforms []types.ObjectTransform, object types.BaseCustomObject,
 ) (kube.ResourceList, error) {
 	var resourceList kube.ResourceList
-	objects, err := h.Transform(ctx, manifest, object, transforms)
+	objects, err := util.Transform(ctx, manifest, object, transforms)
 	if err != nil {
 		return nil, err
 	}
@@ -518,10 +515,13 @@ func (h *helm) InvalidateConfigAndRenderedManifest(deployInfo types.InstallInfo,
 	return newHash, nil
 }
 
-func (h *helm) ToRESTConfig() (*rest.Config, error) {
-	return h.clients.ToRESTConfig()
-}
-
-func (h *helm) ToClient() client.Client {
-	return h.clients
+func (h *helm) GetClusterInfo() (types.ClusterInfo, error) {
+	restConfig, err := h.clients.ToRESTConfig()
+	if err != nil {
+		return types.ClusterInfo{}, err
+	}
+	return types.ClusterInfo{
+		Client: h.clients,
+		Config: restConfig,
+	}, nil
 }

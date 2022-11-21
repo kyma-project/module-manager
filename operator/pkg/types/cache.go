@@ -19,13 +19,13 @@ type CacheManager interface {
 	GetRendererCache() RendererCache
 }
 
-// RendererCache offers utility methods to access RenderSrc cached instances.
+// RendererCache offers utility methods to access ManifestClient cached instances.
 type RendererCache interface {
 	// GetProcessor returns the manifest processor cached entry by key passed.
-	GetProcessor(key client.ObjectKey) RenderSrc
+	GetProcessor(key client.ObjectKey) ManifestClient
 
 	// SetProcessor sets the manifest processor cached entry by key passed.
-	SetProcessor(key client.ObjectKey, renderSrc RenderSrc)
+	SetProcessor(key client.ObjectKey, renderSrc ManifestClient)
 
 	// DeleteProcessor deletes the manifest processor cached entry by key passed.
 	DeleteProcessor(key client.ObjectKey)

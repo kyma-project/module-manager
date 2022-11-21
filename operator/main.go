@@ -27,7 +27,6 @@ import (
 
 	manifestv1alpha1 "github.com/kyma-project/module-manager/operator/api/v1alpha1"
 	"github.com/kyma-project/module-manager/operator/controllers"
-	"github.com/kyma-project/module-manager/operator/internal/pkg/prepare"
 	internalTypes "github.com/kyma-project/module-manager/operator/internal/pkg/types"
 	"github.com/kyma-project/module-manager/operator/internal/pkg/util"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
@@ -181,7 +180,7 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 			CheckReadyStates:        flagVar.checkReadyStates,
 			CustomStateCheck:        flagVar.customStateCheck,
 			InsecureRegistry:        flagVar.insecureRegistry,
-			InstallTargetSrc:        flagVar.installTarget,
+			InstallTargetSrc:        internalTypes.InstallCfgType(flagVar.installTarget),
 		},
 		RequeueIntervals: controllers.RequeueIntervals{
 			Success: flagVar.requeueSuccessInterval,
@@ -259,7 +258,7 @@ func defineFlagVar() *FlagVar {
 		"Timeout of Read / Write for the pprof server.")
 	flag.DurationVar(&flagVar.cacheSyncTimeout, "cache-sync-timeout", defaultCacheSyncTimeout,
 		"Indicates the cache sync timeout in seconds")
-	flag.StringVar(&flagVar.installTarget, "install-target", string(prepare.InstallTypeSecret),
+	flag.StringVar(&flagVar.installTarget, "install-target", string(internalTypes.InstallTypeSecret),
 		"Install target configuration type")
 	return flagVar
 }

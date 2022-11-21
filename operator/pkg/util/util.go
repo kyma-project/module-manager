@@ -3,6 +3,7 @@ package util
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
@@ -15,10 +16,10 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/kyma-project/module-manager/operator/pkg/types"
-
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	yamlUtil "k8s.io/apimachinery/pkg/util/yaml"
+
+	"github.com/kyma-project/module-manager/operator/pkg/types"
 
 	"github.com/pkg/errors"
 	"helm.sh/helm/v3/pkg/kube"
@@ -187,7 +188,7 @@ func GetResourceLabel(resource client.Object, labelName string) (string, error) 
 	labels := resource.GetLabels()
 	label, ok := labels[labelName]
 	if !ok {
-		return "", &LabelNotFoundError{
+		return "", &types.LabelNotFoundError{
 			Resource:  resource,
 			LabelName: label,
 		}
@@ -216,12 +217,20 @@ func CalculateHash(interfaceToBeHashed any) (uint32, error) {
 	return h.Sum32(), nil
 }
 
-type LabelNotFoundError struct {
-	Resource  client.Object
-	LabelName string
-}
+// Transform applies the passed object transformations to the manifest string passed.
+func Transform(ctx context.Context, manifestStringified string,
+	object types.BaseCustomObject, transforms []types.ObjectTransform,
+) (*types.ManifestResources, error) {
+	objects, err := ParseManifestStringToObjects(manifestStringified)
+	if err != nil {
+		return nil, err
+	}
 
-func (m *LabelNotFoundError) Error() string {
-	return fmt.Sprintf("label %s not found on resource %s", m.LabelName,
-		client.ObjectKeyFromObject(m.Resource).String())
+	for _, transform := range transforms {
+		if err = transform(ctx, object, objects); err != nil {
+			return nil, err
+		}
+	}
+
+	return objects, nil
 }

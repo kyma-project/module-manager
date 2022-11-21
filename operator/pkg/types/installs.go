@@ -10,22 +10,38 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// RenderSrc offers utility methods for processing of manifest resources.
-//
-//nolint:interfacebloat
-type RenderSrc interface {
+// ManifestClient offers client utility methods for processing of manifest resources.
+type ManifestClient interface {
+	// GetRawManifest returns processed resource manifest using the client.
 	GetRawManifest(deployInfo InstallInfo) *ParsedFile
+
+	// Install transforms and applies resources based on InstallInfo.
 	Install(manifest string, deployInfo InstallInfo, transforms []ObjectTransform) (bool, error)
+
+	// Uninstall transforms and applies resources based on InstallInfo.
 	Uninstall(manifest string, deployInfo InstallInfo, transforms []ObjectTransform) (bool, error)
+
+	// IsConsistent transforms and checks if resources are consistently installed based on InstallInfo.
 	IsConsistent(manifest string, deployInfo InstallInfo, transforms []ObjectTransform) (bool, error)
-	Transform(ctx context.Context, manifest string, base BaseCustomObject,
-		transforms []ObjectTransform) (*ManifestResources, error)
+
+	// GetCachedResources returns a resource manifest which was already cached during previous operations.
+	// By default, it looks inside <chart-path>/manifest/manifest.yaml
 	GetCachedResources(chartName, chartPath string) *ParsedFile
+
+	// DeleteCachedResources deletes cached resource manifest.
+	// By default, it deletes <chart-path>/manifest/manifest.yaml.
 	DeleteCachedResources(chartPath string) *ParsedFile
+
+	// GetManifestResources returns a pre-rendered resource manifest file located at the passed chartPath.
+	// If multiple YAML files are present at the dirPath, it cannot resolve the file to be used, hence will not process.
 	GetManifestResources(chartName, dirPath string) *ParsedFile
+
+	// InvalidateConfigAndRenderedManifest compares the cached hash with the processed hash for helm flags.
+	// On mismatch, it invalidates the cached manifest and resets flags on client.
 	InvalidateConfigAndRenderedManifest(deployInfo InstallInfo, cachedHash uint32) (uint32, error)
-	ToRESTConfig() (*rest.Config, error)
-	ToClient() client.Client
+
+	// GetClusterInfo returns Client and REST config for the target cluster
+	GetClusterInfo() (ClusterInfo, error)
 }
 
 // RefTypeMetadata specifies the type of installation specification

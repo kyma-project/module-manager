@@ -10,7 +10,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// Checking compliance with the interface methods implemented below.
+var _ client.Client = &SingletonClients{}
+
 // ProxyClient holds information required to proxy Client requests to verify RESTMapper integrity.
+// During the proxy, the underlying mapper verifies mapping for the calling resource.
+// If not available and NoMatchesKind error occurs, the mappings are reset (if type meta.ResettableRESTMapper).
+// After reset a follow-up call verifies if mappings are now available.
 type ProxyClient struct {
 	config     *rest.Config
 	mapper     meta.RESTMapper

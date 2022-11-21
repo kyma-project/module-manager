@@ -13,7 +13,7 @@ type ReconcileFlagConfig struct {
 	CustomStateCheck        bool
 	InsecureRegistry        bool
 	MaxConcurrentReconciles int
-	InstallTargetSrc        string
+	InstallTargetSrc        InstallCfgType
 }
 
 type ResponseChan chan *InstallResponse
@@ -38,4 +38,11 @@ type Mode int
 const (
 	CreateMode Mode = iota
 	DeletionMode
+)
+
+type InstallCfgType string
+
+const (
+	InstallTypeSecret InstallCfgType = "secret"
+	InstallTypeClient InstallCfgType = "client"
 )
