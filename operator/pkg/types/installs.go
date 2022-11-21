@@ -24,7 +24,7 @@ type RenderSrc interface {
 	DeleteCachedResources(chartPath string) *ParsedFile
 	GetManifestResources(chartName, dirPath string) *ParsedFile
 	InvalidateConfigAndRenderedManifest(deployInfo InstallInfo, cachedHash uint32) (uint32, error)
-	ToRestConfig() (*rest.Config, error)
+	ToRESTConfig() (*rest.Config, error)
 	ToClient() client.Client
 }
 

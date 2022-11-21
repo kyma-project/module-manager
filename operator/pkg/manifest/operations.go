@@ -94,7 +94,8 @@ func getRenderSrc(cache types.RendererCache, deployInfo types.InstallInfo,
 	}
 
 	if cache == nil {
-		// no processor entries
+		// cache disabled
+		// create a new manifest processor on each call
 		return getManifestProcessor(deployInfo, logger)
 	}
 

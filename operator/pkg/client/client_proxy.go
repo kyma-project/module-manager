@@ -10,81 +10,96 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const restMappingErr = "client proxy failed to get resource mapping for"
+// ProxyClient holds information required to proxy Client requests to verify RESTMapper integrity.
+type ProxyClient struct {
+	config     *rest.Config
+	mapper     meta.RESTMapper
+	baseClient client.Client
+}
 
-func NewRuntimeClient(config *rest.Config, mapper meta.RESTMapper) (client.Client, error) {
-	return client.New(config, client.Options{Mapper: mapper})
+// NewClientProxy returns a new instance of ProxyClient.
+func NewClientProxy(config *rest.Config, mapper meta.RESTMapper) (client.Client, error) {
+	baseClient, err := client.New(config, client.Options{Mapper: mapper})
+	if err != nil {
+		return nil, err
+	}
+
+	return &ProxyClient{
+		config:     config,
+		mapper:     mapper,
+		baseClient: baseClient,
+	}, nil
 }
 
 // Scheme returns the scheme this client is using.
-func (s *SingletonClients) Scheme() *runtime.Scheme {
-	return s.runtimeClient.Scheme()
+func (p *ProxyClient) Scheme() *runtime.Scheme {
+	return p.baseClient.Scheme()
 }
 
 // RESTMapper returns the rest mapper this client is using.
-func (s *SingletonClients) RESTMapper() meta.RESTMapper {
-	return s.runtimeClient.RESTMapper()
+func (p *ProxyClient) RESTMapper() meta.RESTMapper {
+	return p.baseClient.RESTMapper()
 }
 
 // Create implements client.Client.
-func (s *SingletonClients) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
-	if _, err := s.checkAndResetMapper(obj); err != nil {
-		return fmt.Errorf("%s %v", restMappingErr, obj)
+func (p *ProxyClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+	if _, err := getResourceMapping(obj, p.mapper); err != nil {
+		return err
 	}
-	return s.runtimeClient.Create(ctx, obj, opts...)
+	return p.baseClient.Create(ctx, obj, opts...)
 }
 
 // Update implements client.Client.
-func (s *SingletonClients) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
-	if _, err := s.checkAndResetMapper(obj); err != nil {
-		return fmt.Errorf("%s %v", restMappingErr, obj)
+func (p *ProxyClient) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+	if _, err := getResourceMapping(obj, p.mapper); err != nil {
+		return err
 	}
-	return s.runtimeClient.Update(ctx, obj, opts...)
+	return p.baseClient.Update(ctx, obj, opts...)
 }
 
 // Delete implements client.Client.
-func (s *SingletonClients) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
-	if _, err := s.checkAndResetMapper(obj); err != nil {
-		return fmt.Errorf("%s %v", restMappingErr, obj)
+func (p *ProxyClient) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
+	if _, err := getResourceMapping(obj, p.mapper); err != nil {
+		return err
 	}
-	return s.runtimeClient.Delete(ctx, obj, opts...)
+	return p.baseClient.Delete(ctx, obj, opts...)
 }
 
 // DeleteAllOf implements client.Client.
-func (s *SingletonClients) DeleteAllOf(ctx context.Context, obj client.Object, opts ...client.DeleteAllOfOption,
+func (p *ProxyClient) DeleteAllOf(ctx context.Context, obj client.Object, opts ...client.DeleteAllOfOption,
 ) error {
-	if _, err := s.checkAndResetMapper(obj); err != nil {
-		return fmt.Errorf("%s %v", restMappingErr, obj.GetResourceVersion())
+	if _, err := getResourceMapping(obj, p.mapper); err != nil {
+		return err
 	}
-	return s.runtimeClient.DeleteAllOf(ctx, obj, opts...)
+	return p.baseClient.DeleteAllOf(ctx, obj, opts...)
 }
 
 // Patch implements client.Client.
-func (s *SingletonClients) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption,
+func (p *ProxyClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption,
 ) error {
-	if _, err := s.checkAndResetMapper(obj); err != nil {
-		return fmt.Errorf("%s %v", restMappingErr, obj.GetResourceVersion())
+	if _, err := getResourceMapping(obj, p.mapper); err != nil {
+		return err
 	}
-	return s.runtimeClient.Patch(ctx, obj, patch, opts...)
+	return p.baseClient.Patch(ctx, obj, patch, opts...)
 }
 
 // Get implements client.Client.
-func (s *SingletonClients) Get(ctx context.Context, key client.ObjectKey, obj client.Object) error {
-	if _, err := s.checkAndResetMapper(obj); err != nil {
+func (p *ProxyClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object) error {
+	if _, err := getResourceMapping(obj, p.mapper); err != nil {
 		return fmt.Errorf("%s %v", restMappingErr, obj.GetResourceVersion())
 	}
-	return s.runtimeClient.Get(ctx, key, obj)
+	return p.baseClient.Get(ctx, key, obj)
 }
 
 // List implements client.Client.
-func (s *SingletonClients) List(ctx context.Context, obj client.ObjectList, opts ...client.ListOption) error {
-	if _, err := s.checkAndResetMapper(obj); err != nil {
+func (p *ProxyClient) List(ctx context.Context, obj client.ObjectList, opts ...client.ListOption) error {
+	if _, err := getResourceMapping(obj, p.mapper); err != nil {
 		return fmt.Errorf("%s %v", restMappingErr, obj.GetResourceVersion())
 	}
-	return s.runtimeClient.List(ctx, obj, opts...)
+	return p.baseClient.List(ctx, obj, opts...)
 }
 
 // Status implements client.StatusClient.
-func (s *SingletonClients) Status() client.StatusWriter {
-	return s.runtimeClient.Status()
+func (p *ProxyClient) Status() client.StatusWriter {
+	return p.baseClient.Status()
 }

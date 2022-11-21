@@ -259,7 +259,7 @@ func defineFlagVar() *FlagVar {
 		"Timeout of Read / Write for the pprof server.")
 	flag.DurationVar(&flagVar.cacheSyncTimeout, "cache-sync-timeout", defaultCacheSyncTimeout,
 		"Indicates the cache sync timeout in seconds")
-	flag.StringVar(&flagVar.installTarget, "install-target", string(prepare.InstallTargetLocalSecret),
+	flag.StringVar(&flagVar.installTarget, "install-target", string(prepare.InstallTypeSecret),
 		"Install target configuration type")
 	return flagVar
 }

@@ -28,9 +28,9 @@ import (
 type InstallCfgType string
 
 const (
-	InstallTargetLocalSecret InstallCfgType = "local-secret"
-	InstallTargetLocalClient InstallCfgType = "local-client"
-	configReadError                         = "reading install %s resulted in an error for " + v1alpha1.ManifestKind
+	InstallTypeSecret InstallCfgType = "local-secret"
+	InstallTypeClient InstallCfgType = "local-client"
+	configReadError                  = "reading install %s resulted in an error for " + v1alpha1.ManifestKind
 )
 
 var LocalClient func() *rest.Config //nolint:gochecknoglobals
@@ -128,7 +128,7 @@ func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo types
 	kymaNsName := client.ObjectKey{Name: kymaOwnerLabel, Namespace: manifestObj.Namespace}
 	processor := processorCache.GetProcessor(kymaNsName)
 	if processor != nil {
-		restConfig, err := processor.ToRestConfig()
+		restConfig, err := processor.ToRESTConfig()
 		if err != nil {
 			return types.ClusterInfo{}, err
 		}
@@ -140,7 +140,7 @@ func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo types
 
 	// evaluate remote rest config from local client function
 	targetCfgType := InstallCfgType(installTarget)
-	if targetCfgType == InstallTargetLocalClient {
+	if targetCfgType == InstallTypeClient {
 		if LocalClient == nil {
 			return types.ClusterInfo{},
 				fmt.Errorf("no LocalClient function set for install target type %s", installTarget)

@@ -120,7 +120,7 @@ func (k *kustomize) InvalidateConfigAndRenderedManifest(_ types.InstallInfo, _ u
 	return 0, nil
 }
 
-func (k *kustomize) ToRestConfig() (*rest.Config, error) {
+func (k *kustomize) ToRESTConfig() (*rest.Config, error) {
 	return k.clients.ToRESTConfig()
 }
 

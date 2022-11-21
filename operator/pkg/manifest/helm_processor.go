@@ -253,9 +253,17 @@ func (h *helm) checkWaitForResources(ctx context.Context, targetResources kube.R
 		if operation == types.OperationDelete {
 			return checkResourcesDeleted(targetResources)
 		}
+		clientSet, err := h.clients.KubernetesClientSet()
+		if err != nil {
+			return false, err
+		}
+		readyChecker := kube.NewReadyChecker(clientSet,
+			func(format string, args ...interface{}) {
+				h.logger.V(util.DebugLogLevel).Info(format, args...)
+			},
+			kube.PausedAsReady(true),
+			kube.CheckJobs(true))
 
-		readyChecker := h.clients.ReadyChecker(func(format string, v ...interface{}) {},
-			kube.PausedAsReady(true), kube.CheckJobs(true))
 		return checkReady(ctx, targetResources, readyChecker)
 	}
 
@@ -510,7 +518,7 @@ func (h *helm) InvalidateConfigAndRenderedManifest(deployInfo types.InstallInfo,
 	return newHash, nil
 }
 
-func (h *helm) ToRestConfig() (*rest.Config, error) {
+func (h *helm) ToRESTConfig() (*rest.Config, error) {
 	return h.clients.ToRESTConfig()
 }
 
