@@ -33,10 +33,10 @@ const (
 
 type RepoHandler struct {
 	settings *cli.EnvSettings
-	logger   *logr.Logger
+	logger   logr.Logger
 }
 
-func NewRepoHandler(logger *logr.Logger, settings *cli.EnvSettings) *RepoHandler {
+func NewRepoHandler(logger logr.Logger, settings *cli.EnvSettings) *RepoHandler {
 	return &RepoHandler{
 		settings: settings,
 		logger:   logger,

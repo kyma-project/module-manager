@@ -6,7 +6,7 @@ import (
 )
 
 type Applier interface {
-	Apply(deployInfo InstallInfo, objects *ManifestResources, namespace string) error
+	Apply(deployInfo InstallInfo, objects *ManifestResources, namespace string) (bool, error)
 }
 
 type ApplierOptions struct {
