@@ -65,7 +65,7 @@ func unsetHelmEnv() error {
 }
 
 var _ = Describe("Given manifest with oci specs", Ordered, func() {
-	name := "valid-image-spec"
+	name := "valid-image-1"
 	BeforeAll(func() {
 		PushToRemoteOCIRegistry(name)
 	})
@@ -77,11 +77,25 @@ var _ = Describe("Given manifest with oci specs", Ordered, func() {
 			Eventually(expectManifestState, Timeout, Interval).WithArguments(manifest.GetName()).Should(Succeed())
 			Eventually(expectedHelmClientCache, Timeout, Interval).WithArguments(manifest.GetLabels()[labels.CacheKey]).Should(BeTrue())
 		},
-		Entry("When manifestCR contains a valid OCI image specification, expect state in ready",
-			addImageSpec(name, false), expectManifestStateIn(v1alpha1.ManifestStateReady), expectHelmClientCacheExist(true)),
-		Entry("When manifestCR contains an invalid OCI image specification, expect state in error",
-			addInvalidImageSpec(false), expectManifestStateIn(v1alpha1.ManifestStateError), expectHelmClientCacheExist(false)),
+		Entry("When manifestCR contains a valid OCI image specification, expect state in ready and helmClient cache exist",
+			installWithValidImageSpec(name, false), expectManifestStateIn(v1alpha1.ManifestStateReady), expectHelmClientCacheExist(true)),
+		Entry("When manifestCR contains an invalid OCI image specification, expect state in error and no helmClient cache exit",
+			installWithInvalidImageSpec(false), expectManifestStateIn(v1alpha1.ManifestStateError), expectHelmClientCacheExist(false)),
 	)
+})
+
+var _ = Describe("Test helm resources cleanup", Ordered, func() {
+	name := "valid-image-2"
+	BeforeAll(func() {
+		PushToRemoteOCIRegistry(name)
+	})
+	It("should result in Kyma becoming Ready", func() {
+		var manifest = NewTestManifest("manifest", "kyma")
+		Eventually(installWithValidImageSpec(name, false), Timeout, Interval).WithArguments(manifest).Should(Succeed())
+		validImageSpec := createImageSpec(name, server.Listener.Addr().String())
+		deleteHelmChartResources(validImageSpec)
+		verifyHelmResourcesDeletion(validImageSpec)
+	})
 })
 
 var _ = Describe("Given manifest with kustomize, helm specs", func() {
@@ -130,35 +144,18 @@ var _ = Describe("Given manifest with kustomize, helm specs", func() {
 	)
 })
 
-func addInvalidImageSpec(remote bool) func(manifest *v1alpha1.Manifest) error {
+func installWithInvalidImageSpec(remote bool) func(manifest *v1alpha1.Manifest) error {
 	return func(manifest *v1alpha1.Manifest) error {
-		name := "invalid-image-spec"
-		invalidImageSpec := types.ImageSpec{
-			Name: name,
-			Repo: "domain.invalid",
-			Type: "oci-ref",
-		}
-		layer := CreateImageSpecLayer()
-		digest, err := layer.Digest()
-		Expect(err).ToNot(HaveOccurred())
-		invalidImageSpec.Ref = digest.String()
+		invalidImageSpec := createImageSpec("invalid-image-spec", "domain.invalid")
 		imageSpecByte, err := json.Marshal(invalidImageSpec)
 		Expect(err).ToNot(HaveOccurred())
 		return installManifest(manifest, imageSpecByte, remote)
 	}
 }
 
-func addImageSpec(name string, remote bool) func(manifest *v1alpha1.Manifest) error {
+func installWithValidImageSpec(name string, remote bool) func(manifest *v1alpha1.Manifest) error {
 	return func(manifest *v1alpha1.Manifest) error {
-		validImageSpec := types.ImageSpec{
-			Name: name,
-			Repo: server.Listener.Addr().String(),
-			Type: "oci-ref",
-		}
-		layer := CreateImageSpecLayer()
-		digest, err := layer.Digest()
-		Expect(err).ToNot(HaveOccurred())
-		validImageSpec.Ref = digest.String()
+		validImageSpec := createImageSpec(name, server.Listener.Addr().String())
 		imageSpecByte, err := json.Marshal(validImageSpec)
 		Expect(err).ToNot(HaveOccurred())
 		return installManifest(manifest, imageSpecByte, remote)
@@ -191,7 +188,7 @@ func expectManifestStateIn(state v1alpha1.ManifestState) func(manifestName strin
 func expectHelmClientCacheExist(expectExist bool) func(componentOwner string) bool {
 	return func(componentOwner string) bool {
 		key := client.ObjectKey{Name: componentOwner, Namespace: v1.NamespaceDefault}
-		renderSrc := reconciler.CacheManager.RenderSources.Get(key)
+		renderSrc := reconciler.CacheManager.GetRendererCache().GetProcessor(key)
 		if expectExist {
 			return renderSrc != nil
 		}

@@ -56,6 +56,7 @@ func CreateImageSpecLayer() v1.Layer {
 	Expect(err).ToNot(HaveOccurred())
 	return layer
 }
+
 func PushToRemoteOCIRegistry(layerName string) {
 	layer := CreateImageSpecLayer()
 	digest, err := layer.Digest()
@@ -77,6 +78,19 @@ func PushToRemoteOCIRegistry(layerName string) {
 	gotHash, err := got.Digest()
 	Expect(err).ToNot(HaveOccurred())
 	Expect(gotHash).To(Equal(digest))
+}
+
+func createImageSpec(name, repo string) manifestTypes.ImageSpec {
+	imageSpec := manifestTypes.ImageSpec{
+		Name: name,
+		Repo: repo,
+		Type: "oci-ref",
+	}
+	layer := CreateImageSpecLayer()
+	digest, err := layer.Digest()
+	Expect(err).ToNot(HaveOccurred())
+	imageSpec.Ref = digest.String()
+	return imageSpec
 }
 
 func createKymaSecret() *corev1.Secret {
