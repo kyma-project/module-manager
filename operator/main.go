@@ -162,7 +162,7 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 	}
 	context := ctrl.SetupSignalHandler()
 	workersLogger := ctrl.Log.WithName("workers")
-	manifestWorkers := controllers.NewManifestWorkers(&workersLogger, flagVar.workersConcurrentManifests)
+	manifestWorkers := controllers.NewManifestWorkers(workersLogger, flagVar.workersConcurrentManifests)
 	codec, err := types.NewCodec()
 	if err != nil {
 		setupLog.Error(err, "unable to initialize codec")
