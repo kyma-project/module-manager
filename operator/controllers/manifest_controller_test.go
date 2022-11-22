@@ -2,25 +2,22 @@ package controllers_test
 
 import (
 	"encoding/json"
-
+	"errors"
+	"io/fs"
 	"os"
-
+	"path/filepath"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"errors"
 	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
 	"github.com/kyma-project/module-manager/operator/pkg/labels"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
-	"io/fs"
-	"path/filepath"
 )
 
 const (
@@ -28,9 +25,7 @@ const (
 	Interval = time.Millisecond * 250
 )
 
-var (
-	ErrManifestStateMisMatch = errors.New("ManifestState mismatch")
-)
+var ErrManifestStateMisMatch = errors.New("ManifestState mismatch")
 
 func getManifestState(manifestName string) v1alpha1.ManifestState {
 	manifest := &v1alpha1.Manifest{}
@@ -45,29 +40,20 @@ func getManifestState(manifestName string) v1alpha1.ManifestState {
 	return manifest.Status.State
 }
 
-func getManifest(key client.ObjectKey) func() bool {
-	return func() bool {
-		manifest := v1alpha1.Manifest{}
-		err := k8sClient.Get(ctx, key, &manifest)
-		return apiErrors.IsNotFound(err)
-	}
-}
-
-func setHelmEnv() error {
+func setHelmEnv() {
 	os.Setenv(helmCacheHomeEnv, helmCacheHome)
 	os.Setenv(helmCacheRepoEnv, helmCacheRepo)
 	os.Setenv(helmRepoEnv, helmRepoFile)
-	return nil
-}
-
-func unsetHelmEnv() error {
-	os.Unsetenv(helmCacheHomeEnv)
-	os.Unsetenv(helmCacheRepoEnv)
-	os.Unsetenv(helmRepoEnv)
-	return nil
 }
 
 var _ = Describe("Given manifest with kustomize specs", Ordered, func() {
+	remoteKustomizeSpec := types.KustomizeSpec{
+		URL:  "https://github.com/kyma-project/module-manager//operator/config/default?ref=main",
+		Type: "kustomize",
+	}
+	remoteKustomizeSpecBytes, err := json.Marshal(remoteKustomizeSpec)
+	Expect(err).ToNot(HaveOccurred())
+
 	localKustomizeSpec := types.KustomizeSpec{
 		Path: kustomizeLocalPath,
 		Type: "kustomize",
@@ -91,23 +77,30 @@ var _ = Describe("Given manifest with kustomize specs", Ordered, func() {
 		Expect(os.RemoveAll(filepath.Join(kustomizeLocalPath, util.ManifestDir))).To(Succeed())
 	})
 	DescribeTable("Test file permission",
-		func(givenCondition func(manifest *v1alpha1.Manifest) error, expectedFileState func() bool, expectedManifestState func(manifestName string) error) {
-			var manifest = NewTestManifest("manifest", "kyma")
+		func(givenCondition func(manifest *v1alpha1.Manifest) error,
+			expectedManifestState func(manifestName string) error, expectedFileState func() bool,
+		) {
+			manifest := NewTestManifest("manifest", "kyma")
 
 			Eventually(givenCondition, Timeout, Interval).WithArguments(manifest).Should(Succeed())
 			Eventually(expectedManifestState, Timeout, Interval).WithArguments(manifest.GetName()).Should(Succeed())
 			Eventually(expectedFileState, Timeout, Interval).Should(BeTrue())
 		},
+		Entry("When manifestCR contains a valid remote Kustomize specification, expect state in ready",
+			addSpec(remoteKustomizeSpecBytes, false),
+			expectManifestStateIn(v1alpha1.ManifestStateReady), skipExpect()),
 		Entry("When manifestCR contains a valid local Kustomize specification, expect state in ready",
-			addSpec(localKustomizeSpecBytes, false), skipExpect(), expectManifestStateIn(v1alpha1.ManifestStateReady)),
+			addSpec(localKustomizeSpecBytes, false),
+			expectManifestStateIn(v1alpha1.ManifestStateReady), skipExpect()),
 		Entry("When manifestCR contains an invalid local Kustomize specification, expect state in error",
-			addSpec(invalidKustomizeSpecBytes, false), skipExpect(), expectManifestStateIn(v1alpha1.ManifestStateError)),
-		Entry("When local Kustomize with read rights only, expect state in error",
-			addSpecWithFilePermission(localKustomizeSpecBytes, false, 0o444), expectFilePermissionDeniedError(),
-			expectManifestStateIn(v1alpha1.ManifestStateError)),
-		Entry("When local kustomize with execute rights only, expect state in ready",
-			addSpecWithFilePermission(localKustomizeSpecBytes, false, 0o555), expectFileNotExistError(),
-			expectManifestStateIn(v1alpha1.ManifestStateReady)),
+			addSpec(invalidKustomizeSpecBytes, false),
+			expectManifestStateIn(v1alpha1.ManifestStateError), skipExpect()),
+		Entry("When local Kustomize with read rights only, expect state in error and file permission denied",
+			addSpecWithFilePermission(localKustomizeSpecBytes, false, 0o444),
+			expectManifestStateIn(v1alpha1.ManifestStateError), expectFilePermissionDeniedError()),
+		Entry("When local kustomize with execute rights only, expect state in ready and file not exit",
+			addSpecWithFilePermission(localKustomizeSpecBytes, false, 0o555),
+			expectManifestStateIn(v1alpha1.ManifestStateReady), expectFileNotExistError()),
 	)
 })
 
@@ -118,42 +111,31 @@ var _ = Describe("Given manifest with oci specs", Ordered, func() {
 	})
 	DescribeTable("Test ModuleStatus",
 		func(givenCondition func(manifest *v1alpha1.Manifest) error, expectManifestState func(manifestName string) error,
-			expectedHelmClientCache func(cacheKey string) bool) {
-			var manifest = NewTestManifest("manifest", "kyma")
+			expectedHelmClientCache func(cacheKey string) bool,
+		) {
+			manifest := NewTestManifest("manifest", "kyma")
 			Eventually(givenCondition, Timeout, Interval).WithArguments(manifest).Should(Succeed())
 			Eventually(expectManifestState, Timeout, Interval).WithArguments(manifest.GetName()).Should(Succeed())
-			Eventually(expectedHelmClientCache, Timeout, Interval).WithArguments(manifest.GetLabels()[labels.CacheKey]).Should(BeTrue())
+			Eventually(expectedHelmClientCache, Timeout, Interval).
+				WithArguments(manifest.GetLabels()[labels.CacheKey]).Should(BeTrue())
 		},
-		Entry("When manifestCR contains a valid OCI image specification, expect state in ready and helmClient cache exist",
-			installWithValidImageSpec(name, false), expectManifestStateIn(v1alpha1.ManifestStateReady), expectHelmClientCacheExist(true)),
-		Entry("When manifestCR contains an invalid OCI image specification, expect state in error and no helmClient cache exit",
-			installWithInvalidImageSpec(false), expectManifestStateIn(v1alpha1.ManifestStateError), expectHelmClientCacheExist(false)),
+		Entry("When manifestCR contains a valid OCI image specification, "+
+			"expect state in ready and helmClient cache exist",
+			installWithValidImageSpec(name, false),
+			expectManifestStateIn(v1alpha1.ManifestStateReady), expectHelmClientCacheExist(true)),
+		Entry("When manifestCR contains an valid OCI image specification and enabled remote, "+
+			"expect state in ready and helmClient cache exist",
+			installWithValidImageSpec(name, true),
+			expectManifestStateIn(v1alpha1.ManifestStateError), expectHelmClientCacheExist(false)),
+		Entry("When manifestCR contains an invalid OCI image specification, "+
+			"expect state in error and no helmClient cache exit",
+			installWithInvalidImageSpec(false),
+			expectManifestStateIn(v1alpha1.ManifestStateError), expectHelmClientCacheExist(false)),
 	)
 })
 
-var _ = Describe("Test helm resources cleanup", Ordered, func() {
-	name := "valid-image-2"
-	BeforeAll(func() {
-		PushToRemoteOCIRegistry(name)
-	})
-	It("should result in Kyma becoming Ready", func() {
-		var manifest = NewTestManifest("manifest", "kyma")
-		Eventually(installWithValidImageSpec(name, false), Timeout, Interval).WithArguments(manifest).Should(Succeed())
-		validImageSpec := createImageSpec(name, server.Listener.Addr().String())
-		deleteHelmChartResources(validImageSpec)
-		verifyHelmResourcesDeletion(validImageSpec)
-	})
-})
-
-var _ = Describe("Given manifest with kustomize, helm specs", func() {
+var _ = Describe("Given manifest with helm specs", func() {
 	setHelmEnv()
-	remoteKustomizeSpec := types.KustomizeSpec{
-		URL:  "https://github.com/kyma-project/module-manager//operator/config/default?ref=main",
-		Type: "kustomize",
-	}
-	remoteKustomizeSpecBytes, err := json.Marshal(remoteKustomizeSpec)
-	Expect(err).ToNot(HaveOccurred())
-
 	validHelmChartSpec := types.HelmChartSpec{
 		ChartName: "nginx-ingress",
 		URL:       "https://helm.nginx.com/stable",
@@ -164,15 +146,27 @@ var _ = Describe("Given manifest with kustomize, helm specs", func() {
 
 	DescribeTable("Test ModuleStatus",
 		func(givenCondition func(manifest *v1alpha1.Manifest) error, expectedBehavior func(manifestName string) error) {
-			var manifest = NewTestManifest("manifest", "kyma")
+			manifest := NewTestManifest("manifest", "kyma")
 			Eventually(givenCondition, Timeout, Interval).WithArguments(manifest).Should(Succeed())
 			Eventually(expectedBehavior, Timeout, Interval).WithArguments(manifest.GetName()).Should(Succeed())
 		},
-		Entry("When manifestCR contains a valid remote Kustomize specification, expect state in ready",
-			addSpec(remoteKustomizeSpecBytes, false), expectManifestStateIn(v1alpha1.ManifestStateReady)),
 		Entry("When manifestCR contains a valid helm repo, expect state in ready",
 			addSpec(validHelmChartSpecBytes, false), expectManifestStateIn(v1alpha1.ManifestStateReady)),
 	)
+})
+
+var _ = Describe("Test helm resources cleanup", Ordered, func() {
+	name := "valid-image-2"
+	BeforeAll(func() {
+		PushToRemoteOCIRegistry(name)
+	})
+	It("should result in Kyma becoming Ready", func() {
+		manifest := NewTestManifest("manifest", "kyma")
+		Eventually(installWithValidImageSpec(name, false), Timeout, Interval).WithArguments(manifest).Should(Succeed())
+		validImageSpec := createImageSpec(name, server.Listener.Addr().String())
+		deleteHelmChartResources(validImageSpec)
+		verifyHelmResourcesDeletion(validImageSpec)
+	})
 })
 
 func skipExpect() func() bool {
@@ -195,19 +189,26 @@ func installWithValidImageSpec(name string, remote bool) func(manifest *v1alpha1
 		validImageSpec := createImageSpec(name, server.Listener.Addr().String())
 		imageSpecByte, err := json.Marshal(validImageSpec)
 		Expect(err).ToNot(HaveOccurred())
+		if remote {
+			_ = createKymaSecret(manifest.GetLabels()[labels.ComponentOwner])
+		}
 		return installManifest(manifest, imageSpecByte, remote)
 	}
 }
 
 func installManifest(manifest *v1alpha1.Manifest, specByte []byte, remote bool) error {
 	manifest.Spec.Remote = remote
-	manifest.Spec.Installs = []v1alpha1.InstallInfo{
-		{
-			Source: runtime.RawExtension{
-				Raw: specByte,
+	if specByte != nil {
+		manifest.Spec.Installs = []v1alpha1.InstallInfo{
+			{
+				Source: runtime.RawExtension{
+					Raw: specByte,
+				},
+				Name: "manifest-test",
 			},
-			Name: "manifest-test",
-		},
+		}
+	} else {
+		manifest.Spec.Installs = make([]v1alpha1.InstallInfo, 0)
 	}
 	return k8sClient.Create(ctx, manifest)
 }
@@ -239,7 +240,9 @@ func addSpec(specBytes []byte, remote bool) func(manifest *v1alpha1.Manifest) er
 	}
 }
 
-func addSpecWithFilePermission(specBytes []byte, remote bool, fileMode os.FileMode) func(manifest *v1alpha1.Manifest) error {
+func addSpecWithFilePermission(specBytes []byte,
+	remote bool, fileMode os.FileMode,
+) func(manifest *v1alpha1.Manifest) error {
 	return func(manifest *v1alpha1.Manifest) error {
 		Expect(os.Chmod(kustomizeLocalPath, fileMode)).ToNot(HaveOccurred())
 		return installManifest(manifest, specBytes, remote)
@@ -252,6 +255,7 @@ func expectFilePermissionDeniedError() func() bool {
 		return os.IsPermission(err)
 	}
 }
+
 func expectFileNotExistError() func() bool {
 	return func() bool {
 		_, err := os.Stat(filepath.Join(kustomizeLocalPath, util.ManifestDir))

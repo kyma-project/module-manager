@@ -3,6 +3,7 @@ package controllers_test
 import (
 	"fmt"
 	"io"
+	"math/rand"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -12,17 +13,14 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/partial"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/types"
-	_ "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
 	"github.com/kyma-project/module-manager/operator/pkg/labels"
 	manifestTypes "github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
-	"math/rand"
+	_ "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type mockLayer struct{}
@@ -93,10 +91,10 @@ func createImageSpec(name, repo string) manifestTypes.ImageSpec {
 	return imageSpec
 }
 
-func createKymaSecret() *corev1.Secret {
+func createKymaSecret(name string) *corev1.Secret {
 	kymaSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      secretName,
+			Name:      name,
 			Namespace: corev1.NamespaceDefault,
 		},
 		StringData: map[string]string{},
@@ -144,13 +142,4 @@ func verifyHelmResourcesDeletion(imageSpec manifestTypes.ImageSpec) {
 	Expect(os.IsNotExist(err)).To(BeTrue())
 	_, err = os.Stat(filepath.Join(util.GetFsChartPath(imageSpec), "templates"))
 	Expect(os.IsNotExist(err)).To(BeTrue())
-}
-
-func deleteManifestResource(manifestObj *v1alpha1.Manifest, secret *corev1.Secret) {
-	Expect(k8sClient.Delete(ctx, manifestObj)).Should(Succeed())
-	Eventually(getManifest(client.ObjectKeyFromObject(manifestObj)), standardTimeout, standardInterval).
-		Should(BeTrue())
-	if secret != nil {
-		Expect(k8sClient.Delete(ctx, secret)).Should(Succeed())
-	}
 }
