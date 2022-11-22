@@ -65,10 +65,11 @@ const (
 	helmCacheHome      = "/tmp/caches"
 	helmCacheRepoEnv   = "HELM_REPOSITORY_CACHE"
 	helmRepoEnv        = "HELM_REPOSITORY_CONFIG"
-	layerNameRef       = "some/name"
+	layerNameBaseDir   = "some"
+	layerNameSubDir    = "name"
 	secretName         = "some-kyma-name"
 	kustomizeLocalPath = "../pkg/test_samples/kustomize"
-	standardTimeout    = 2 * time.Minute
+	standardTimeout    = 1 * time.Minute
 	standardInterval   = 250 * time.Millisecond
 )
 
@@ -120,6 +121,17 @@ var _ = BeforeSuite(func() {
 	codec, err := types.NewCodec()
 	Expect(err).ToNot(HaveOccurred())
 
+	var authUser *envtest.AuthenticatedUser
+	authUser, err = testEnv.AddUser(envtest.User{
+		Name:   "skr-admin-account",
+		Groups: []string{"system:masters"},
+	}, cfg)
+	Expect(err).NotTo(HaveOccurred())
+
+	testRESTConfigGetter := func() (*rest.Config, error) {
+		return authUser.Config(), nil
+	}
+
 	reconciler = &controllers.ManifestReconciler{
 		Client:  k8sManager.GetClient(),
 		Scheme:  scheme.Scheme,
@@ -130,6 +142,7 @@ var _ = BeforeSuite(func() {
 			CheckReadyStates:        false,
 			CustomStateCheck:        false,
 			InsecureRegistry:        true,
+			CustomRESTCfg:           testRESTConfigGetter,
 		},
 		RequeueIntervals: controllers.RequeueIntervals{
 			Success: time.Second * 10,

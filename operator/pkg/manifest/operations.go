@@ -10,7 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	client2 "github.com/kyma-project/module-manager/operator/pkg/client"
+	manifestClient "github.com/kyma-project/module-manager/operator/pkg/client"
 
 	"github.com/kyma-project/module-manager/operator/pkg/labels"
 	"github.com/kyma-project/module-manager/operator/pkg/resource"
@@ -20,9 +20,10 @@ import (
 
 type Operations struct {
 	logger             logr.Logger
-	renderSrc          types.RenderSrc
+	renderSrc          types.ManifestClient
 	flags              types.ChartFlags
 	resourceTransforms []types.ObjectTransform
+	client             client.Client
 }
 
 // InstallChart installs the resources based on types.InstallInfo and an appropriate rendering mechanism.
@@ -68,12 +69,17 @@ func NewOperations(logger logr.Logger, deployInfo types.InstallInfo, resourceTra
 	if err != nil {
 		return nil, fmt.Errorf("unable to create manifest processor: %w", err)
 	}
+	clusterInfo, err := renderSrc.GetClusterInfo()
+	if err != nil {
+		return nil, err
+	}
 
 	ops := &Operations{
 		logger:             logger,
 		renderSrc:          renderSrc,
 		flags:              deployInfo.Flags,
 		resourceTransforms: resourceTransforms,
+		client:             clusterInfo.Client,
 	}
 
 	return ops, nil
@@ -84,8 +90,8 @@ func NewOperations(logger logr.Logger, deployInfo types.InstallInfo, resourceTra
 // Additionally, it verifies cached configuration for the manifest processor and invalidates it if required.
 func getRenderSrc(cache types.RendererCache, deployInfo types.InstallInfo,
 	logger logr.Logger,
-) (types.RenderSrc, error) {
-	var renderSrc types.RenderSrc
+) (types.ManifestClient, error) {
+	var renderSrc types.ManifestClient
 
 	/* Manifest processor handling */
 	clusterCacheKey, err := discoverCacheKey(deployInfo.BaseResource, logger)
@@ -94,7 +100,8 @@ func getRenderSrc(cache types.RendererCache, deployInfo types.InstallInfo,
 	}
 
 	if cache == nil {
-		// no processor entries
+		// cache disabled
+		// create a new manifest processor on each call
 		return getManifestProcessor(deployInfo, logger)
 	}
 
@@ -139,7 +146,7 @@ func discoverCacheKey(resource client.Object, logger logr.Logger) (client.Object
 
 	label, err := util.GetResourceLabel(resource, labels.CacheKey)
 	objectKey := client.ObjectKeyFromObject(resource)
-	var labelErr *util.LabelNotFoundError
+	var labelErr *types.LabelNotFoundError
 	if errors.As(err, &labelErr) {
 		logger.V(util.DebugLogLevel).Info(labels.CacheKey+" missing on resource, it will be cached "+
 			"based on resource name and namespace.",
@@ -155,13 +162,12 @@ func discoverCacheKey(resource client.Object, logger logr.Logger) (client.Object
 	return client.ObjectKey{Name: label, Namespace: resource.GetNamespace()}, nil
 }
 
-// getManifestProcessor returns a new types.RenderSrc instance
+// getManifestProcessor returns a new types.ManifestClient instance
 // this render source will handle subsequent Operations for manifest resources based on types.InstallInfo.
-func getManifestProcessor(deployInfo types.InstallInfo, logger logr.Logger) (types.RenderSrc, error) {
-	txformer := NewTransformer()
+func getManifestProcessor(deployInfo types.InstallInfo, logger logr.Logger) (types.ManifestClient, error) {
 	render := NewRendered(logger)
 
-	singletonClients, err := client2.NewSingletonClients(deployInfo.Config, logger)
+	singletonClients, err := manifestClient.NewSingletonClients(deployInfo.ClusterInfo, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -174,20 +180,20 @@ func getManifestProcessor(deployInfo types.InstallInfo, logger logr.Logger) (typ
 	case resource.HelmKind, resource.UnknownKind:
 		// create HelmClient instance
 		return NewHelmProcessor(singletonClients, cli.New(), logger,
-			render, txformer, deployInfo)
+			render, deployInfo)
 	case resource.KustomizeKind:
 		// create dynamic client for rest config
 		if err != nil {
 			return nil, fmt.Errorf("error creating dynamic client: %w", err)
 		}
-		return NewKustomizeProcessor(singletonClients, logger, render, txformer)
+		return NewKustomizeProcessor(singletonClients, logger, render)
 	}
 	return nil, nil
 }
 
 func (o *Operations) consistencyCheck(deployInfo types.InstallInfo) (bool, error) {
 	// verify CRDs
-	if err := resource.CheckCRDs(deployInfo.Ctx, deployInfo.Crds, deployInfo.ClusterInfo.Client,
+	if err := resource.CheckCRDs(deployInfo.Ctx, deployInfo.Crds, o.client,
 		false); err != nil {
 		if apierrors.IsNotFound(err) {
 			return false, nil
@@ -196,7 +202,7 @@ func (o *Operations) consistencyCheck(deployInfo types.InstallInfo) (bool, error
 	}
 
 	// verify CR
-	if err := resource.CheckCRs(deployInfo.Ctx, deployInfo.CustomResources, deployInfo.ClusterInfo.Client,
+	if err := resource.CheckCRs(deployInfo.Ctx, deployInfo.CustomResources, o.client,
 		false); err != nil {
 		if apierrors.IsNotFound(err) {
 			return false, nil
@@ -225,7 +231,7 @@ func (o *Operations) consistencyCheck(deployInfo types.InstallInfo) (bool, error
 
 func (o *Operations) install(deployInfo types.InstallInfo) (bool, error) {
 	// install crds first - if present do not update!
-	if err := resource.CheckCRDs(deployInfo.Ctx, deployInfo.Crds, deployInfo.ClusterInfo.Client,
+	if err := resource.CheckCRDs(deployInfo.Ctx, deployInfo.Crds, o.client,
 		true); err != nil {
 		return false, err
 	}
@@ -243,7 +249,7 @@ func (o *Operations) install(deployInfo types.InstallInfo) (bool, error) {
 	}
 
 	// install crs - if present do not update!
-	if err := resource.CheckCRs(deployInfo.Ctx, deployInfo.CustomResources, deployInfo.Client,
+	if err := resource.CheckCRs(deployInfo.Ctx, deployInfo.CustomResources, o.client,
 		true); err != nil {
 		return false, err
 	}
@@ -259,8 +265,7 @@ func (o *Operations) uninstall(deployInfo types.InstallInfo) (bool, error) {
 	// delete crs first - proceed only if not found
 	// proceed if CR type doesn't exist anymore - since associated CRDs might be deleted from resource uninstallation
 	// since there might be a deletion process to be completed by other manifest resources
-	deleted, err := resource.RemoveCRs(deployInfo.Ctx, deployInfo.CustomResources,
-		deployInfo.ClusterInfo.Client)
+	deleted, err := resource.RemoveCRs(deployInfo.Ctx, deployInfo.CustomResources, o.client)
 	if !meta.IsNoMatchError(err) && (err != nil || !deleted) {
 		return false, err
 	}
@@ -278,7 +283,7 @@ func (o *Operations) uninstall(deployInfo types.InstallInfo) (bool, error) {
 	}
 
 	// delete crds first - if not present ignore!
-	if err := resource.RemoveCRDs(deployInfo.Ctx, deployInfo.Crds, deployInfo.ClusterInfo.Client); err != nil {
+	if err := resource.RemoveCRDs(deployInfo.Ctx, deployInfo.Crds, o.client); err != nil {
 		return false, err
 	}
 
