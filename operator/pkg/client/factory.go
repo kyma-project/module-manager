@@ -8,8 +8,6 @@ import (
 	"github.com/go-logr/logr"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/kube"
-	"helm.sh/helm/v3/pkg/storage"
-	"helm.sh/helm/v3/pkg/storage/driver"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -135,32 +133,22 @@ func NewSingletonClients(info types.ClusterInfo, logger logr.Logger) (*Singleton
 		Client:                      runtimeClient,
 	}
 
-	clients.helmClient = &kube.Client{
-		Factory: clients,
-		Log: func(msg string, args ...interface{}) {
-			logger.V(util.DebugLogLevel).Info(msg+"\n", args...)
-		},
-		Namespace: metav1.NamespaceDefault,
+	actionConfig := new(action.Configuration)
+	if err := actionConfig.Init(clients, metav1.NamespaceDefault, "memory",
+		func(format string, v ...interface{}) {
+			format = fmt.Sprintf("%s\n", format)
+			logger.V(util.DebugLogLevel).Info(fmt.Sprintf(format, v...))
+		}); err != nil {
+		return nil, err
 	}
 
-	// DO NOT CALL INIT
-	actionConfig := new(action.Configuration)
-	actionConfig.KubeClient = clients.helmClient
-	actionConfig.Log = clients.helmClient.Log
-	var store *storage.Storage
-	var drv *driver.Memory
-	if actionConfig.Releases != nil {
-		if mem, ok := actionConfig.Releases.Driver.(*driver.Memory); ok {
-			drv = mem
-		}
+	kubeClient, ok := actionConfig.KubeClient.(*kube.Client)
+	if !ok {
+		return nil, fmt.Errorf("failed to create kube client")
 	}
-	if drv == nil {
-		drv = driver.NewMemory()
-	}
-	drv.SetNamespace(metav1.NamespaceDefault)
-	store = storage.Init(drv)
-	actionConfig.Releases = store
-	actionConfig.RESTClientGetter = clients
+	kubeClient.Factory = clients
+
+	clients.helmClient = kubeClient
 	clients.install = action.NewInstall(actionConfig)
 
 	return clients, nil

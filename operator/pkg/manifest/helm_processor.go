@@ -443,7 +443,17 @@ func (h *helm) getTargetResources(ctx context.Context, manifest string,
 	var err error
 
 	if len(transforms) == 0 {
-		resourceList, err = h.clients.KubeClient().Build(bytes.NewBufferString(manifest), false)
+		resourceList, err = h.clients.KubeClient().Build(bytes.NewBufferString(manifest), true)
+		// Resource mapping errors are not typed, hence a match will not succeed.
+		// Try resetting mapper and retry. If error still persists - propagate.
+		if err != nil {
+			restMapper, rmErr := h.clients.ToRESTMapper()
+			if err != nil {
+				return nil, rmErr
+			}
+			meta.MaybeResetRESTMapper(restMapper)
+			resourceList, err = h.clients.KubeClient().Build(bytes.NewBufferString(manifest), true)
+		}
 	} else {
 		resourceList, err = h.transformManifestResources(ctx, manifest, transforms, object)
 	}
