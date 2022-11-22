@@ -92,7 +92,6 @@ type FlagVar struct {
 	clientQPS                                            float64
 	clientBurst                                          int
 	pprofAddr                                            string
-	installTarget                                        string
 	pprofServerTimeout                                   time.Duration
 	cacheSyncTimeout                                     time.Duration
 }
@@ -180,7 +179,6 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 			CheckReadyStates:        flagVar.checkReadyStates,
 			CustomStateCheck:        flagVar.customStateCheck,
 			InsecureRegistry:        flagVar.insecureRegistry,
-			InstallTargetSrc:        internalTypes.InstallCfgType(flagVar.installTarget),
 		},
 		RequeueIntervals: controllers.RequeueIntervals{
 			Success: flagVar.requeueSuccessInterval,
@@ -258,7 +256,5 @@ func defineFlagVar() *FlagVar {
 		"Timeout of Read / Write for the pprof server.")
 	flag.DurationVar(&flagVar.cacheSyncTimeout, "cache-sync-timeout", defaultCacheSyncTimeout,
 		"Indicates the cache sync timeout in seconds")
-	flag.StringVar(&flagVar.installTarget, "install-target", string(internalTypes.InstallTypeSecret),
-		"Install target configuration type")
 	return flagVar
 }

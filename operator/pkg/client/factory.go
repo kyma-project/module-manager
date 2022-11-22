@@ -69,11 +69,11 @@ type SingletonClients struct {
 
 	// GVK based structured Client Cache
 	structuredSyncLock        sync.Mutex
-	structuredRestClientCache map[string]resource.RESTClient
+	structuredRESTClientCache map[string]resource.RESTClient
 
 	// GVK based unstructured Client Cache
 	unstructuredSyncLock        sync.Mutex
-	unstructuredRestClientCache map[string]resource.RESTClient
+	unstructuredRESTClientCache map[string]resource.RESTClient
 }
 
 func NewSingletonClients(info types.ClusterInfo, logger logr.Logger) (*SingletonClients, error) {
@@ -130,8 +130,8 @@ func NewSingletonClients(info types.ClusterInfo, logger logr.Logger) (*Singleton
 		dynamicClient:               dynamicClient,
 		openAPIGetter:               openAPIGetter,
 		openAPIParser:               openapi.NewOpenAPIParser(openAPIGetter),
-		structuredRestClientCache:   map[string]resource.RESTClient{},
-		unstructuredRestClientCache: map[string]resource.RESTClient{},
+		structuredRESTClientCache:   map[string]resource.RESTClient{},
+		unstructuredRESTClientCache: map[string]resource.RESTClient{},
 		Client:                      runtimeClient,
 	}
 

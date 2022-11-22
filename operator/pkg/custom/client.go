@@ -18,7 +18,7 @@ type ClusterClient struct {
 	DefaultClient client.Client
 }
 
-func (cc *ClusterClient) GetRestConfig(ctx context.Context, kymaOwner string, namespace string,
+func (cc *ClusterClient) GetRESTConfig(ctx context.Context, kymaOwner string, namespace string,
 ) (*rest.Config, error) {
 	kubeConfigSecretList := &v1.SecretList{}
 	groupResource := v1.SchemeGroupVersion.WithResource(string(v1.ResourceSecrets)).GroupResource()

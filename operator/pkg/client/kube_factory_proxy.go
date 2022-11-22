@@ -34,7 +34,7 @@ func (s *SingletonClients) UnstructuredClientForMapping(mapping *meta.RESTMappin
 	s.unstructuredSyncLock.Lock()
 	defer s.unstructuredSyncLock.Unlock()
 	key := s.clientCacheKeyForMapping(mapping)
-	client, found := s.unstructuredRestClientCache[key]
+	client, found := s.unstructuredRESTClientCache[key]
 
 	if found {
 		return client, nil
@@ -54,7 +54,7 @@ func (s *SingletonClients) UnstructuredClientForMapping(mapping *meta.RESTMappin
 	if err != nil {
 		return nil, err
 	}
-	s.structuredRestClientCache[key] = client
+	s.structuredRESTClientCache[key] = client
 	return client, err
 }
 
@@ -64,7 +64,7 @@ func (s *SingletonClients) ClientForMapping(mapping *meta.RESTMapping) (resource
 	s.structuredSyncLock.Lock()
 	defer s.structuredSyncLock.Unlock()
 	key := s.clientCacheKeyForMapping(mapping)
-	client, found := s.structuredRestClientCache[key]
+	client, found := s.structuredRESTClientCache[key]
 
 	if found {
 		return client, nil
@@ -87,7 +87,7 @@ func (s *SingletonClients) ClientForMapping(mapping *meta.RESTMapping) (resource
 		return nil, err
 	}
 
-	s.structuredRestClientCache[key] = client
+	s.structuredRESTClientCache[key] = client
 	return client, err
 }
 

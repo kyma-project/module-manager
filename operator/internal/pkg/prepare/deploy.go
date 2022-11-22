@@ -27,8 +27,8 @@ import (
 
 const configReadError = "reading install %s resulted in an error for " + v1alpha1.ManifestKind
 
-var LocalClient func() *rest.Config //nolint:gochecknoglobals
-
+// GetInstallInfos pre-processes the passed Manifest CR and returns a list types.InstallInfo objects,
+// each representing an installation artifact.
 func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClusterInfo types.ClusterInfo,
 	flags internalTypes.ReconcileFlagConfig, processorCache types.RendererCache,
 ) ([]types.InstallInfo, error) {
@@ -70,7 +70,7 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 
 	// evaluate rest config
 	clusterInfo, err := getDestinationConfigAndClient(ctx, defaultClusterInfo, manifestObj, processorCache,
-		flags.InstallTargetSrc)
+		flags.CustomRESTCfg)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +105,7 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 }
 
 func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo types.ClusterInfo,
-	manifestObj *v1alpha1.Manifest, processorCache types.RendererCache, installTarget internalTypes.InstallCfgType,
+	manifestObj *v1alpha1.Manifest, processorCache types.RendererCache, customCfgGetter internalTypes.RESTConfigGetter,
 ) (types.ClusterInfo, error) {
 	// in single cluster mode return the default cluster info
 	// since the resources need to be installed in the same cluster
@@ -125,27 +125,23 @@ func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo types
 		return processor.GetClusterInfo()
 	}
 
-	// evaluate remote rest config from local client function
-	targetCfgType := installTarget
-	if targetCfgType == internalTypes.InstallTypeClient {
-		if LocalClient == nil {
-			return types.ClusterInfo{},
-				fmt.Errorf("no LocalClient function set for install target type %s", installTarget)
-		}
-		return types.ClusterInfo{
-			Config: LocalClient(),
-			// client will be set during processing of manifest
-		}, nil
+	// RESTConfig can either be retrieved by a secret with name contained in labels.ComponentOwner Manifest CR label,
+	// or it can be retrieved as a function return value, passed during controller startup.
+	var restConfigGetter internalTypes.RESTConfigGetter
+	if customCfgGetter != nil {
+		restConfigGetter = customCfgGetter
+	} else {
+		restConfigGetter = getDefaultRESTConfigGetter(ctx, kymaOwnerLabel, manifestObj.Namespace,
+			defaultClusterInfo.Client)
 	}
-
-	// evaluate remote rest config from secret
-	clusterClient := &custom.ClusterClient{DefaultClient: defaultClusterInfo.Client}
-	restConfig, err := clusterClient.GetRestConfig(ctx, kymaOwnerLabel, manifestObj.Namespace)
+	restConfig, err := restConfigGetter()
 	if err != nil {
 		return types.ClusterInfo{}, err
 	}
+
 	return types.ClusterInfo{
 		Config: restConfig,
+		// client will be set during processing of manifest
 	}, nil
 }
 
@@ -333,5 +329,15 @@ func InsertWatcherLabels(manifestObj *v1alpha1.Manifest) {
 		manifestLabels[labels.WatchedByLabel] = labels.OperatorName
 
 		manifestObj.Spec.Resource.SetLabels(manifestLabels)
+	}
+}
+
+func getDefaultRESTConfigGetter(ctx context.Context, secretName string, namespace string,
+	client client.Client,
+) internalTypes.RESTConfigGetter {
+	return func() (*rest.Config, error) {
+		// evaluate remote rest config from secret
+		clusterClient := &custom.ClusterClient{DefaultClient: client}
+		return clusterClient.GetRESTConfig(ctx, secretName, namespace)
 	}
 }
