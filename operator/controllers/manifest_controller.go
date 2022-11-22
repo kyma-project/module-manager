@@ -24,10 +24,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kyma-project/module-manager/operator/pkg/cache"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	k8slabels "k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/ratelimiter"
+
+	"github.com/kyma-project/module-manager/operator/pkg/cache"
 
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
@@ -36,7 +37,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -71,8 +71,7 @@ type OperationRequest struct {
 type ManifestReconciler struct {
 	client.Client
 	Scheme           *runtime.Scheme
-	RestConfig       *rest.Config
-	RestMapper       *restmapper.DeferredDiscoveryRESTMapper
+	RESTConfig       *rest.Config
 	DeployChan       chan OperationRequest
 	Workers          *ManifestWorkerPool
 	RequeueIntervals RequeueIntervals
@@ -164,8 +163,8 @@ func (r *ManifestReconciler) sendJobToInstallChannel(ctx context.Context, logger
 
 	// send deploy requests
 	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, types.ClusterInfo{
-		Client: r.Client, Config: r.RestConfig,
-	}, r.ReconcileFlagConfig, r.CacheManager.GetClusterInfoCache())
+		Client: r.Client, Config: r.RESTConfig,
+	}, r.ReconcileFlagConfig, r.CacheManager.GetRendererCache())
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("cannot prepare install information for %s resource %s",
 			v1alpha1.ManifestKind, namespacedName))
@@ -206,8 +205,8 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger logr.L
 
 	// send deploy requests
 	deployInfos, err := prepare.GetInstallInfos(ctx, manifestObj, types.ClusterInfo{
-		Client: r.Client, Config: r.RestConfig,
-	}, r.ReconcileFlagConfig, r.CacheManager.GetClusterInfoCache())
+		Client: r.Client, Config: r.RESTConfig,
+	}, r.ReconcileFlagConfig, r.CacheManager.GetRendererCache())
 	if err != nil {
 		return err
 	}
@@ -398,7 +397,7 @@ func (r *ManifestReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Mana
 	r.Workers.StartWorkers(ctx, r.DeployChan, r.HandleCharts)
 
 	// default config from kubebuilder
-	r.RestConfig = mgr.GetConfig()
+	r.RESTConfig = mgr.GetConfig()
 
 	// initialize new cluster cache
 	r.CacheManager = cache.NewCacheManager()

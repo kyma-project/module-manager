@@ -23,7 +23,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type mockLayer struct{}
+type mockLayer struct {
+	filePath string
+}
 
 func (m mockLayer) Digest() (v1.Hash, error) {
 	r, err := m.Compressed()
@@ -41,11 +43,23 @@ func (m mockLayer) MediaType() (types.MediaType, error) {
 
 func (m mockLayer) Size() (int64, error) { return 137438691328, nil }
 func (m mockLayer) Compressed() (io.ReadCloser, error) {
-	f, err := os.Open("../pkg/test_samples/oci/compressed.tgz")
+	f, err := os.Open(m.filePath)
 	if err != nil {
 		return nil, err
 	}
 	return io.NopCloser(f), nil
+}
+
+func (m mockLayer) Uncompressed() (io.ReadCloser, error) {
+	f, err := os.Open("../pkg/test_samples/oci/config.yaml")
+	if err != nil {
+		return nil, err
+	}
+	return io.NopCloser(f), nil
+}
+
+func (m mockLayer) DiffID() (v1.Hash, error) {
+	return v1.Hash{Algorithm: "fake", Hex: "diff id"}, nil
 }
 
 func CreateImageSpecLayer() v1.Layer {
@@ -91,6 +105,69 @@ func createImageSpec(name, repo string) manifestTypes.ImageSpec {
 	return imageSpec
 }
 
+func GetImageSpecFromMockOCIRegistry() (manifestTypes.ImageSpec, manifestTypes.ImageSpec) {
+	// create registry and server
+
+	// install layer
+	layerNameRef := filepath.Join(layerNameBaseDir, layerNameSubDir)
+	installLayer, err := partial.CompressedToLayer(mockLayer{filePath: "../pkg/test_samples/oci/compressed.tgz"})
+	Expect(err).ToNot(HaveOccurred())
+	installDigest, err := installLayer.Digest()
+	Expect(err).ToNot(HaveOccurred())
+
+	// crd layer
+	crdLayer, err := partial.CompressedToLayer(mockLayer{filePath: "../pkg/test_samples/oci/crd.tgz"})
+	Expect(err).ToNot(HaveOccurred())
+	crdDigest, err := installLayer.Digest()
+	Expect(err).ToNot(HaveOccurred())
+
+	// Set up a fake registry and write what we pulled to it.
+	parsedURL, err := url.Parse(server.URL)
+	Expect(err).NotTo(HaveOccurred())
+
+	installDst := fmt.Sprintf("%s/%s@%s", parsedURL.Host, layerNameRef, installDigest)
+	installRef, err := name.NewDigest(installDst)
+	Expect(err).ToNot(HaveOccurred())
+
+	crdDst := fmt.Sprintf("%s/%s@%s", parsedURL.Host, layerNameRef, crdDigest)
+	crdRef, err := name.NewDigest(crdDst)
+	Expect(err).ToNot(HaveOccurred())
+
+	err = remote.WriteLayer(installRef.Context(), installLayer)
+	Expect(err).ToNot(HaveOccurred())
+	err = remote.WriteLayer(crdRef.Context(), crdLayer)
+	Expect(err).ToNot(HaveOccurred())
+
+	gotInstall, err := remote.Layer(installRef)
+	Expect(err).ToNot(HaveOccurred())
+	gotInstallHash, err := gotInstall.Digest()
+	Expect(err).ToNot(HaveOccurred())
+	Expect(gotInstallHash).To(Equal(installDigest))
+
+	gotCrd, err := remote.Layer(crdRef)
+	Expect(err).ToNot(HaveOccurred())
+	gotCrdHash, err := gotCrd.Digest()
+	Expect(err).ToNot(HaveOccurred())
+	Expect(gotCrdHash).To(Equal(crdDigest))
+
+	installHash, err := installLayer.Digest()
+	Expect(err).ToNot(HaveOccurred())
+
+	crdHash, err := crdLayer.Digest()
+	Expect(err).ToNot(HaveOccurred())
+
+	return getImageSpec(crdHash.String(), layerNameRef), getImageSpec(installHash.String(), layerNameRef)
+}
+
+func getImageSpec(digest string, layerNameRef string) manifestTypes.ImageSpec {
+	return manifestTypes.ImageSpec{
+		Name: layerNameRef,
+		Repo: server.Listener.Addr().String(),
+		Ref:  digest,
+		Type: "oci-ref",
+	}
+}
+
 func createKymaSecret(name string) *corev1.Secret {
 	kymaSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -105,6 +182,9 @@ func createKymaSecret(name string) *corev1.Secret {
 
 func NewTestManifest(name string, componentOwner string) *v1alpha1.Manifest {
 	return &v1alpha1.Manifest{
+		TypeMeta: metav1.TypeMeta{
+			Kind: "Manifest",
+		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name + RandString(8),
 			Namespace: metav1.NamespaceDefault,

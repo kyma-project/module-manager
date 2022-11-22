@@ -8,12 +8,12 @@ import (
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 )
 
-// RendererCacheImpl provides an in-memory processor to store types.RenderSrc instances applicable
+// RendererCacheImpl provides an in-memory processor to store types.ManifestClient instances applicable
 // to remote clusters. By using sync.Map for caching,
 // concurrent operations to the processor from diverse reconciliations are considered safe.
 //
 // Inside the processor cluster specific unique name (in Client.ObjectKey format)
-// is used as key and the types.RenderSrc instance is stored as the value.
+// is used as key and the types.ManifestClient instance is stored as the value.
 // Inside the config resource level configuration is stored by its key.
 type RendererCacheImpl struct {
 	processor sync.Map // Cluster specific
@@ -28,21 +28,21 @@ func NewRendererCache() *RendererCacheImpl {
 	}
 }
 
-// GetProcessor loads the types.RenderSrc from RendererCacheImpl for the passed client.ObjectKey.
-func (r *RendererCacheImpl) GetProcessor(key client.ObjectKey) types.RenderSrc {
+// GetProcessor loads the types.ManifestClient from RendererCacheImpl for the passed client.ObjectKey.
+func (r *RendererCacheImpl) GetProcessor(key client.ObjectKey) types.ManifestClient {
 	value, ok := r.processor.Load(key)
 	if !ok {
 		return nil
 	}
-	return value.(types.RenderSrc)
+	return value.(types.ManifestClient)
 }
 
-// SetProcessor saves the passed types.RenderSrc into RendererCacheImpl for the client.ObjectKey.
-func (r *RendererCacheImpl) SetProcessor(key client.ObjectKey, helmClient types.RenderSrc) {
+// SetProcessor saves the passed types.ManifestClient into RendererCacheImpl for the client.ObjectKey.
+func (r *RendererCacheImpl) SetProcessor(key client.ObjectKey, helmClient types.ManifestClient) {
 	r.processor.Store(key, helmClient)
 }
 
-// DeleteProcessor deletes the types.RenderSrc from RendererCacheImpl for the passed client.ObjectKey.
+// DeleteProcessor deletes the types.ManifestClient from RendererCacheImpl for the passed client.ObjectKey.
 func (r *RendererCacheImpl) DeleteProcessor(key client.ObjectKey) {
 	r.processor.Delete(key)
 }

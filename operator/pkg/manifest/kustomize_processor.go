@@ -4,18 +4,20 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	"github.com/kyma-project/module-manager/operator/pkg/applier"
-	"github.com/kyma-project/module-manager/operator/pkg/client"
 	"sigs.k8s.io/kustomize/api/krusty"
 	"sigs.k8s.io/kustomize/kyaml/filesys"
+
+	"github.com/kyma-project/module-manager/operator/pkg/applier"
+	manifestClient "github.com/kyma-project/module-manager/operator/pkg/client"
+	"github.com/kyma-project/module-manager/operator/pkg/util"
 
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 )
 
 type kustomize struct {
+	clients *manifestClient.SingletonClients
 	logger  logr.Logger
 	applier *applier.SetApplier
-	*Transformer
 	*Rendered
 }
 
@@ -25,17 +27,17 @@ type kustomize struct {
 // On the returned helm instance, installation, uninstallation and verification checks
 // can then be executed on the resource manifest.
 func NewKustomizeProcessor(
-	clients *client.SingletonClients, logger logr.Logger, render *Rendered, txformer *Transformer,
-) (types.RenderSrc, error) {
+	clients *manifestClient.SingletonClients, logger logr.Logger, render *Rendered,
+) (types.ManifestClient, error) {
 	// TODO offer SSA as a generic installation and not only bound to Kustomize
 	ssaApplier := applier.NewSSAApplier(clients, logger)
 
 	// verify compliance of interface
-	var kustomizeProcessor types.RenderSrc = &kustomize{
-		logger:      logger,
-		Transformer: txformer,
-		Rendered:    render,
-		applier:     ssaApplier,
+	var kustomizeProcessor types.ManifestClient = &kustomize{
+		clients:  clients,
+		logger:   logger,
+		Rendered: render,
+		applier:  ssaApplier,
 	}
 
 	return kustomizeProcessor, nil
@@ -75,7 +77,7 @@ func (k *kustomize) Install(manifest string, deployInfo types.InstallInfo,
 	transforms []types.ObjectTransform,
 ) (bool, error) {
 	// transform
-	objects, err := k.Transform(deployInfo.Ctx, manifest, deployInfo.BaseResource, transforms)
+	objects, err := util.Transform(deployInfo.Ctx, manifest, deployInfo.BaseResource, transforms)
 	if err != nil {
 		return false, err
 	}
@@ -89,7 +91,7 @@ func (k *kustomize) Uninstall(manifest string, deployInfo types.InstallInfo,
 	transforms []types.ObjectTransform,
 ) (bool, error) {
 	// transform
-	objects, err := k.Transform(deployInfo.Ctx, manifest, deployInfo.BaseResource, transforms)
+	objects, err := util.Transform(deployInfo.Ctx, manifest, deployInfo.BaseResource, transforms)
 	if err != nil {
 		return false, err
 	}
@@ -113,4 +115,15 @@ func (k *kustomize) IsConsistent(manifest string, deployInfo types.InstallInfo,
 func (k *kustomize) InvalidateConfigAndRenderedManifest(_ types.InstallInfo, _ uint32) (uint32, error) {
 	// TODO implement invalidation logic
 	return 0, nil
+}
+
+func (k *kustomize) GetClusterInfo() (types.ClusterInfo, error) {
+	restConfig, err := k.clients.ToRESTConfig()
+	if err != nil {
+		return types.ClusterInfo{}, err
+	}
+	return types.ClusterInfo{
+		Client: k.clients,
+		Config: restConfig,
+	}, nil
 }

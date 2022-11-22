@@ -1,10 +1,13 @@
 package types
 
 import (
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 )
+
+type RESTConfigGetter func() (*rest.Config, error)
 
 // ReconcileFlagConfig describes configurable flag properties for the controller.
 type ReconcileFlagConfig struct {
@@ -13,6 +16,7 @@ type ReconcileFlagConfig struct {
 	CustomStateCheck        bool
 	InsecureRegistry        bool
 	MaxConcurrentReconciles int
+	CustomRESTCfg           RESTConfigGetter
 }
 
 type ResponseChan chan *InstallResponse

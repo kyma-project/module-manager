@@ -16,7 +16,7 @@ import (
 	apiMachineryErr "k8s.io/apimachinery/pkg/util/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	client2 "github.com/kyma-project/module-manager/operator/pkg/client"
+	manifestTypes "github.com/kyma-project/module-manager/operator/pkg/client"
 
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
@@ -25,16 +25,15 @@ import (
 const resourceValidationErr = "validating manifest resources resulted in an error"
 
 type helm struct {
-	clients     *client2.SingletonClients
+	clients     *manifestTypes.SingletonClients
 	settings    *cli.EnvSettings
 	repoHandler *RepoHandler
 	logger      logr.Logger
-	*Transformer
 	*Rendered
 }
 
 // verify compliance of interface.
-var _ types.RenderSrc = &helm{}
+var _ types.ManifestClient = &helm{}
 
 //nolint:gochecknoglobals
 var accessor = meta.NewAccessor()
@@ -45,20 +44,19 @@ var accessor = meta.NewAccessor()
 // Additionally, it also transforms the manifest resources based on user defined input.
 // On the returned helm instance, installation, uninstallation and verification checks
 // can be executed on the resource manifest.
-func NewHelmProcessor(clients *client2.SingletonClients, settings *cli.EnvSettings,
-	logger logr.Logger, render *Rendered, txformer *Transformer, deployInfo types.InstallInfo,
-) (types.RenderSrc, error) {
+func NewHelmProcessor(clients *manifestTypes.SingletonClients, settings *cli.EnvSettings,
+	logger logr.Logger, render *Rendered, deployInfo types.InstallInfo,
+) (types.ManifestClient, error) {
 	helmClient := &helm{
 		clients:     clients,
 		logger:      logger,
 		repoHandler: NewRepoHandler(logger, settings),
 		settings:    settings,
-		Transformer: txformer,
 		Rendered:    render,
 	}
 
 	// verify compliance of interface
-	var helmProcessor types.RenderSrc = helmClient
+	var helmProcessor types.ManifestClient = helmClient
 
 	// always override existing flags config
 	// to ensure CR updates are reflected on the action client
@@ -252,9 +250,17 @@ func (h *helm) checkWaitForResources(ctx context.Context, targetResources kube.R
 		if operation == types.OperationDelete {
 			return checkResourcesDeleted(targetResources)
 		}
+		clientSet, err := h.clients.KubernetesClientSet()
+		if err != nil {
+			return false, err
+		}
+		readyChecker := kube.NewReadyChecker(clientSet,
+			func(format string, args ...interface{}) {
+				h.logger.V(util.DebugLogLevel).Info(format, args...)
+			},
+			kube.PausedAsReady(true),
+			kube.CheckJobs(true))
 
-		readyChecker := h.clients.ReadyChecker(func(format string, v ...interface{}) {},
-			kube.PausedAsReady(true), kube.CheckJobs(true))
 		return checkReady(ctx, targetResources, readyChecker)
 	}
 
@@ -466,7 +472,7 @@ func (h *helm) transformManifestResources(ctx context.Context, manifest string,
 	transforms []types.ObjectTransform, object types.BaseCustomObject,
 ) (kube.ResourceList, error) {
 	var resourceList kube.ResourceList
-	objects, err := h.Transform(ctx, manifest, object, transforms)
+	objects, err := util.Transform(ctx, manifest, object, transforms)
 	if err != nil {
 		return nil, err
 	}
@@ -507,4 +513,15 @@ func (h *helm) InvalidateConfigAndRenderedManifest(deployInfo types.InstallInfo,
 	}
 	// new entry
 	return newHash, nil
+}
+
+func (h *helm) GetClusterInfo() (types.ClusterInfo, error) {
+	restConfig, err := h.clients.ToRESTConfig()
+	if err != nil {
+		return types.ClusterInfo{}, err
+	}
+	return types.ClusterInfo{
+		Client: h.clients,
+		Config: restConfig,
+	}, nil
 }

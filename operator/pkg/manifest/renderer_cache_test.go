@@ -116,15 +116,15 @@ type mockCache struct {
 	config    sync.Map
 }
 
-func (m *mockCache) GetProcessor(key client.ObjectKey) types.RenderSrc {
+func (m *mockCache) GetProcessor(key client.ObjectKey) types.ManifestClient {
 	value, ok := m.processor.Load(key)
 	if !ok {
 		return nil
 	}
-	return value.(types.RenderSrc)
+	return value.(types.ManifestClient)
 }
 
-func (m *mockCache) SetProcessor(key client.ObjectKey, renderSrc types.RenderSrc) {
+func (m *mockCache) SetProcessor(key client.ObjectKey, renderSrc types.ManifestClient) {
 	m.processor.Store(key, renderSrc)
 	setProcessorCount++
 }
