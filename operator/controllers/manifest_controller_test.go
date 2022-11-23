@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"os/user"
 	"path/filepath"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -20,7 +21,6 @@ import (
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"os/user"
 )
 
 var ErrManifestStateMisMatch = errors.New("ManifestState mismatch")
@@ -111,6 +111,13 @@ var _ = Describe("Given manifest with oci specs", Ordered, func() {
 		PushToRemoteOCIRegistry(installName, layerInstalls)
 		PushToRemoteOCIRegistry(crdName, layerCRDs)
 	})
+	BeforeEach(func() {
+		//TODO Workaround to kill manifest since it is not cleaned up properly, this should be removed ASAP
+		fschartPath := util.GetFsChartPath(
+			createImageSpec(installName, server.Listener.Addr().String(), layerInstalls))
+		manifestPath := util.GetFsManifestChartPath(fschartPath)
+		_ = os.Remove(manifestPath)
+	})
 	DescribeTable("Test ModuleStatus",
 		func(givenCondition func(manifest *v1alpha1.Manifest) error, expectManifestState func(manifestName string) error,
 			expectedHelmClientCache func(cacheKey string) bool,
@@ -126,19 +133,23 @@ var _ = Describe("Given manifest with oci specs", Ordered, func() {
 		Entry("When manifestCR contains a valid install OCI image specification, "+
 			"expect state in ready and helmClient cache exist",
 			withValidInstallImageSpec(installName, false),
-			expectManifestStateIn(v1alpha1.ManifestStateReady), expectHelmClientCacheExist(true)),
+			expectManifestStateIn(v1alpha1.ManifestStateReady), expectHelmClientCacheExist(true),
+		),
 		Entry("When manifestCR contains a valid install OCI image specification and enabled remote, "+
 			"expect state in ready and helmClient cache exist",
 			withValidInstallImageSpec(installName, true),
-			expectManifestStateIn(v1alpha1.ManifestStateReady), expectHelmClientCacheExist(true)),
+			expectManifestStateIn(v1alpha1.ManifestStateReady), expectHelmClientCacheExist(true),
+		),
 		Entry("When manifestCR contains valid install and CRD image specification, "+
 			"expect state in ready and helmClient cache exist",
 			withValidInstallAndCRDsImageSpec(installName, crdName, true),
-			expectManifestStateIn(v1alpha1.ManifestStateReady), expectHelmClientCacheExist(true)),
+			expectManifestStateIn(v1alpha1.ManifestStateReady), expectHelmClientCacheExist(true),
+		),
 		Entry("When manifestCR contains an invalid install OCI image specification, "+
 			"expect state in error and no helmClient cache exit",
 			withInvalidInstallImageSpec(false),
-			expectManifestStateIn(v1alpha1.ManifestStateError), expectHelmClientCacheExist(false)),
+			expectManifestStateIn(v1alpha1.ManifestStateError), expectHelmClientCacheExist(false),
+		),
 	)
 })
 
