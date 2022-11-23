@@ -231,11 +231,12 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger logr.L
 			return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateProcessing,
 				"resources not ready")
 		} else if err != nil {
-			logger.Error(err, fmt.Sprintf("error while performing consistency check on manifest %s",
-				namespacedName))
-			internalUtil.AddReadyConditionForResponses([]*internalTypes.InstallResponse{chartResponse}, logger,
-				manifestObj)
-			return r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error())
+			logger.Error(err, fmt.Sprintf("error while performing consistency check on manifest %s", namespacedName))
+			internalUtil.AddReadyConditionForResponses([]*internalTypes.InstallResponse{chartResponse}, logger, manifestObj)
+			if err := r.updateManifestStatus(ctx, manifestObj, v1alpha1.ManifestStateError, err.Error()); err != nil {
+				return err
+			}
+			return err
 		}
 	}
 	return nil
@@ -315,8 +316,7 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger log
 				// as this will hinder deletion
 				var pathErr *fs.PathError
 				pathError = errors.As(response.Err, &pathErr)
-				logger.Error(fmt.Errorf("chart installation failure for '%s': %w",
-					response.ResNamespacedName.String(), response.Err), "")
+				logger.Error(response.Err, fmt.Sprintf("chart installation failure for '%s'", response.ResNamespacedName.String()))
 				errorState = true
 			} else if !response.Ready {
 				logger.Info(fmt.Sprintf("chart checks still processing '%s'",

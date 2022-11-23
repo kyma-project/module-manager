@@ -41,6 +41,7 @@ import (
 	"github.com/kyma-project/module-manager/operator/controllers"
 	internalTypes "github.com/kyma-project/module-manager/operator/internal/pkg/types"
 	"github.com/kyma-project/module-manager/operator/internal/pkg/util"
+	"github.com/kyma-project/module-manager/operator/pkg/log"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 )
 
@@ -65,9 +66,6 @@ const (
 	helmCacheHome      = "/tmp/caches"
 	helmCacheRepoEnv   = "HELM_REPOSITORY_CACHE"
 	helmRepoEnv        = "HELM_REPOSITORY_CONFIG"
-	layerNameBaseDir   = "some"
-	layerNameSubDir    = "name"
-	secretName         = "some-kyma-name"
 	kustomizeLocalPath = "../pkg/test_samples/kustomize"
 	standardTimeout    = 1 * time.Minute
 	standardInterval   = 250 * time.Millisecond
@@ -87,7 +85,7 @@ var _ = BeforeSuite(func() {
 
 	ctx, cancel = context.WithCancel(context.TODO())
 	logger := zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true))
-	logf.SetLogger(logger)
+	logf.SetLogger(log.ConfigLogger())
 
 	// create registry and server
 	newReg := registry.New()
