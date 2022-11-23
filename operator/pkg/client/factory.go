@@ -8,6 +8,10 @@ import (
 	"github.com/go-logr/logr"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/kube"
+	"helm.sh/helm/v3/pkg/storage"
+	"helm.sh/helm/v3/pkg/storage/driver"
+	apiextv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apiextv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -31,6 +35,8 @@ const (
 	apis = "/apis"
 	api  = "/api"
 )
+
+var addToScheme sync.Once
 
 // SingletonClients serves as a single-minded client interface that combines
 // all kubernetes Client APIs (Helm, Kustomize, Kubernetes, Client-Go) under the hood.
@@ -133,22 +139,40 @@ func NewSingletonClients(info types.ClusterInfo, logger logr.Logger) (*Singleton
 		Client:                      runtimeClient,
 	}
 
-	actionConfig := new(action.Configuration)
-	if err := actionConfig.Init(clients, metav1.NamespaceDefault, "memory",
-		func(format string, v ...interface{}) {
-			format = fmt.Sprintf("%s\n", format)
-			logger.V(util.DebugLogLevel).Info(fmt.Sprintf(format, v...))
-		}); err != nil {
+	// Add CRDs to the scheme. If the call is not originating from a source which adds CRD type to scheme,
+	// this will throw an error.
+	if err = apiextv1.AddToScheme(scheme.Scheme); err != nil {
 		return nil, err
 	}
-
-	kubeClient, ok := actionConfig.KubeClient.(*kube.Client)
-	if !ok {
-		return nil, fmt.Errorf("failed to create kube client")
+	if err = apiextv1beta1.AddToScheme(scheme.Scheme); err != nil {
+		return nil, err
 	}
-	kubeClient.Factory = clients
+	clients.helmClient = &kube.Client{
+		Factory: clients,
+		Log: func(msg string, args ...interface{}) {
+			logger.V(util.DebugLogLevel).Info(msg+"\n", args...)
+		},
+		Namespace: metav1.NamespaceDefault,
+	}
 
-	clients.helmClient = kubeClient
+	// DO NOT CALL INIT
+	actionConfig := new(action.Configuration)
+	actionConfig.KubeClient = clients.helmClient
+	actionConfig.Log = clients.helmClient.Log
+	var store *storage.Storage
+	var drv *driver.Memory
+	if actionConfig.Releases != nil {
+		if mem, ok := actionConfig.Releases.Driver.(*driver.Memory); ok {
+			drv = mem
+		}
+	}
+	if drv == nil {
+		drv = driver.NewMemory()
+	}
+	drv.SetNamespace(metav1.NamespaceDefault)
+	store = storage.Init(drv)
+	actionConfig.Releases = store
+	actionConfig.RESTClientGetter = clients
 	clients.install = action.NewInstall(actionConfig)
 
 	return clients, nil
