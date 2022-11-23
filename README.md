@@ -35,14 +35,14 @@ The Module Manager repository offers the following components:
 
 | System Component                                          | Stability                                                                                         |
 |-----------------------------------------------------------|---------------------------------------------------------------------------------------------------|
-| [Manifest](operator/api/v1alpha1/manifest_types.go)       | Alpha-Grade - do not rely on automation and watch upstream as close as possible                   |
-| [Controller](operator/controllers/manifest_controller.go) | In active development - expect bugs and fast-paced development                                    |
-| [Library](operator/pkg)                                   | In active development - expect bugs and fast-paced development. Detailed documentation to follow. |
+| [Manifest](api/v1alpha1/manifest_types.go)       | Alpha-Grade - do not rely on automation and watch upstream as close as possible                   |
+| [Controller](controllers/manifest_controller.go) | In active development - expect bugs and fast-paced development                                    |
+| [Library](pkg)                                   | In active development - expect bugs and fast-paced development. Detailed documentation to follow. |
 
 ## Operator specification
 
 Module Manager reconciles the `Manifest` custom resource.
-The `Spec` contains the necessary properties to process installations as seen in the example [Sample Manifest CR](operator/config/samples/operator_v1alpha1_manifest.yaml) and [API definition](operator/api/v1alpha1/manifest_types.go) below.
+The `Spec` contains the necessary properties to process installations as seen in the example [Sample Manifest CR](config/samples/operator_v1alpha1_manifest.yaml) and [API definition](api/v1alpha1/manifest_types.go) below.
 
 ### Manifest custom resource
 
@@ -116,16 +116,16 @@ spec:
 
 ## Manifest library
 
-The operator uses the [manifest library](https://pkg.go.dev/github.com/kyma-project/module-manager/operator/pkg/manifest) to process deployments on clusters.
+The operator uses the [manifest library](https://pkg.go.dev/github.com/kyma-project/module-manager/pkg/manifest) to process deployments on clusters.
 
 The manifest library supports Helm chart installations from two sources: **helm repositories** and **local paths**. Additionally, it helps to process local installations of CRs, CRDs and custom state checks.
 
 >**NOTE:** We plan to offer [Kustomize installation support](https://github.com/kyma-project/module-manager/issues/124), along with the existing helm installation soon. 
 
 Use the manifest library to simply process deployments on target clusters, or use it within your own operator to process deployment operations.
-For example, [template-operator](https://github.com/kyma-project/template-operator) uses the manifest library (through the [declarative](operator/pkg/declarative) library) to perform necessary operations on target clusters during reconciliations.
-To get started, simply import package `github.com/kyma-project/module-manager/operator/pkg/manifest` to include the main functionality provided by the library to process Helm charts, coupled with additional state handling.
-For more options and information, read the [InstallInfo](operator/pkg/manifest/operations.go) type definition.
+For example, [template-operator](https://github.com/kyma-project/template-operator) uses the manifest library (through the [declarative](pkg/declarative) library) to perform necessary operations on target clusters during reconciliations.
+To get started, simply import package `github.com/kyma-project/module-manager/pkg/manifest` to include the main functionality provided by the library to process Helm charts, coupled with additional state handling.
+For more options and information, read the [InstallInfo](pkg/manifest/operations.go) type definition.
 
 ### Sample usage
 <details>
@@ -138,9 +138,9 @@ package sample
 import (
     "k8s.io/client-go/rest"
     "sigs.k8s.io/controller-runtime/pkg/client"
-    "github.com/kyma-project/module-manager/operator/pkg/manifest"
-	"github.com/kyma-project/module-manager/operator/pkg/types"
-	"github.com/kyma-project/module-manager/operator/pkg/custom"
+    "github.com/kyma-project/module-manager/pkg/manifest"
+	"github.com/kyma-project/module-manager/pkg/types"
+	"github.com/kyma-project/module-manager/pkg/custom"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -211,7 +211,7 @@ return false, err
    | Make command | Description                                          |
    |--------------|------------------------------------------------------|
    | build        | Run fmt, vet and DeepCopy method implementations     |
-   | manifests    | Create RBACs CRDs based on [API types](operator/api) |
+   | manifests    | Create RBACs CRDs based on [API types](api) |
    | install      | Install CRDs                                         |
    | run          | Run operator controller locally                      |
 
