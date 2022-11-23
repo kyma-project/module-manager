@@ -36,8 +36,6 @@ const (
 	api  = "/api"
 )
 
-var addToScheme sync.Once
-
 // SingletonClients serves as a single-minded client interface that combines
 // all kubernetes Client APIs (Helm, Kustomize, Kubernetes, Client-Go) under the hood.
 // It offers a simple initialization lifecycle during creation, but delegates all

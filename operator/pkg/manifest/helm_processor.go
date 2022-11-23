@@ -5,15 +5,16 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
+	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/kube"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	apiMachineryErr "k8s.io/apimachinery/pkg/util/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	manifestTypes "github.com/kyma-project/module-manager/operator/pkg/client"
@@ -21,8 +22,6 @@ import (
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
 )
-
-const resourceValidationErr = "validating manifest resources resulted in an error"
 
 type helm struct {
 	clients     *manifestTypes.SingletonClients
@@ -82,7 +81,7 @@ func (h *helm) GetRawManifest(deployInfo types.InstallInfo) *types.ParsedFile {
 
 	// if Rendered manifest doesn't exist
 	// check newly Rendered manifest here
-	return types.NewParsedFile(h.renderManifestFromChartPath(chartPath, deployInfo.Flags.SetFlags))
+	return types.NewParsedFile(h.renderManifestFromChartPath(deployInfo.Ctx, chartPath, deployInfo.Flags.SetFlags))
 }
 
 // Install transforms and applies Helm based manifest using helm client.
@@ -303,9 +302,15 @@ func (h *helm) downloadChart(repoName, url, chartName string) (string, error) {
 	return h.clients.Install().ChartPathOptions.LocateChart(chartName, h.settings)
 }
 
-func (h *helm) renderManifestFromChartPath(chartPath string, flags types.Flags) (string, error) {
+func (h *helm) renderManifestFromChartPath(ctx context.Context, chartPath string, flags types.Flags) (string, error) {
 	// if Rendered manifest doesn't exist
 	chartRequested, err := h.repoHandler.LoadChart(chartPath, h.clients.Install())
+	if err != nil {
+		return "", err
+	}
+
+	// rendering requires CRDs to be installed so that any resources in the possibly rendered chart can be found
+	err = h.optimizedInstallCRDs(ctx, chartRequested)
 	if err != nil {
 		return "", err
 	}
@@ -319,14 +324,68 @@ func (h *helm) renderManifestFromChartPath(chartPath string, flags types.Flags) 
 	return release.Manifest, nil
 }
 
+// optimizedInstallCRDs is oriented on action.installCRDs, an internal method from HELM used for installing CRDs.
+// Usually, with a rendered release, this method gets called in front of the render to install dependencies before
+// resolving REST Mappings for kubernetes. However, since we do not use releases, but dry-run, we install CRDs
+// in advance.
+// There are 3 key differences between the method in the HELM client and this one
+// First, it resets the singleton client, allowing us to only reset the Mapper once per render process.
+// Second, it parses the manifest string based on the existing methods available in the HELM client.
+// Third, it creates crds and collects requirements concurrently to speed up CRD creation.
+func (h *helm) optimizedInstallCRDs(ctx context.Context, chartRequested *chart.Chart) error {
+	crds := chartRequested.CRDObjects()
+
+	// transform the stringified manifest into our resource list the same way we do for other resources
+	// but without any custom transforms
+	var crdManifest bytes.Buffer
+	for i := range crds {
+		crdManifest.Write(append(bytes.TrimPrefix(crds[i].File.Data, []byte("---\n")), '\n'))
+	}
+	resList, err := h.getTargetResources(ctx, crdManifest.String(), nil, nil)
+	if err != nil {
+		return err
+	}
+
+	crdInstallWaitGroup := sync.WaitGroup{}
+	errors := make(chan error, len(resList))
+	createCRD := func(i int) {
+		defer crdInstallWaitGroup.Done()
+		_, err := h.clients.KubeClient().Create(kube.ResourceList{resList[i]})
+		errors <- err
+	}
+
+	for i := range resList {
+		crdInstallWaitGroup.Add(1)
+		go createCRD(i)
+	}
+	crdInstallWaitGroup.Wait()
+	close(errors)
+
+	for err := range errors {
+		if err == nil || apierrors.IsAlreadyExists(err) {
+			continue
+		}
+		h.logger.Error(err, "failed on crd installation as pre-requisite for helm rendering")
+		return err
+	}
+
+	restMapper, err := h.clients.ToRESTMapper()
+	if err != nil {
+		return err
+	}
+	meta.MaybeResetRESTMapper(restMapper)
+
+	return nil
+}
+
 func (h *helm) setDefaultFlags(releaseName string) {
 	h.clients.Install().DryRun = true
 	h.clients.Install().Atomic = false
 
 	h.clients.Install().WaitForJobs = false
 
-	h.clients.Install().Replace = true     // Skip the name check
-	h.clients.Install().IncludeCRDs = true // include CRDs in the templated output
+	h.clients.Install().Replace = true // Skip the name check
+	h.clients.Install().IncludeCRDs = false
 	h.clients.Install().UseReleaseName = false
 	h.clients.Install().ReleaseName = releaseName
 
@@ -439,42 +498,16 @@ func (h *helm) GetNsResource() (kube.ResourceList, error) {
 func (h *helm) getTargetResources(ctx context.Context, manifest string,
 	transforms []types.ObjectTransform, object types.BaseCustomObject,
 ) (kube.ResourceList, error) {
-	var resourceList kube.ResourceList
-	var err error
-
-	if len(transforms) == 0 {
-		resourceList, err = h.clients.KubeClient().Build(bytes.NewBufferString(manifest), false)
-		// Resource mapping errors are not typed, hence a match will not succeed.
-		// Try resetting mapper and retry. If error still persists - propagate.
-		if err != nil {
-			restMapper, rmErr := h.clients.ToRESTMapper()
-			if err != nil {
-				return nil, rmErr
-			}
-			meta.MaybeResetRESTMapper(restMapper)
-			resourceList, err = h.clients.KubeClient().Build(bytes.NewBufferString(manifest), false)
-		}
-	} else {
-		resourceList, err = h.transformManifestResources(ctx, manifest, transforms, object)
-	}
-
+	resourceList, err := h.transformManifestResources(ctx, manifest, transforms, object)
 	if err != nil {
-		//nolint:errorlint
-		errAggregate, ok := err.(apiMachineryErr.Aggregate)
-		if ok {
-			wrappedErr := resourceValidationErr
-			for _, nestedErr := range errAggregate.Errors() {
-				wrappedErr = fmt.Sprintln(wrappedErr, nestedErr.Error())
-			}
-			return nil, fmt.Errorf(wrappedErr)
-		}
-		return nil, fmt.Errorf("%s: %w", resourceValidationErr, err)
+		return nil, err
 	}
 
 	// verify namespace override if not done by kubeclient
 	if err = overrideNamespace(resourceList, h.clients.Install().Namespace); err != nil {
 		return nil, err
 	}
+
 	return resourceList, nil
 }
 
