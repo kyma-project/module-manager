@@ -20,6 +20,7 @@ import (
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"os/user"
 )
 
 var ErrManifestStateMisMatch = errors.New("ManifestState mismatch")
@@ -276,6 +277,13 @@ func addInstallSpecWithFilePermission(specBytes []byte,
 	remote bool, fileMode os.FileMode,
 ) func(manifest *v1alpha1.Manifest) error {
 	return func(manifest *v1alpha1.Manifest) error {
+		user, err := user.Current()
+		Expect(err).ToNot(HaveOccurred())
+		if user.Username == "root" {
+			Skip("This test is not suitable for user with root privileges")
+		}
+		// should not be run as root user
+		Expect(user.Username).ToNot(Equal("root"))
 		Expect(os.Chmod(kustomizeLocalPath, fileMode)).ToNot(HaveOccurred())
 		return installManifest(manifest, specBytes, types.ImageSpec{}, remote)
 	}
