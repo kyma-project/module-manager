@@ -316,8 +316,7 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger log
 				// as this will hinder deletion
 				var pathErr *fs.PathError
 				pathError = errors.As(response.Err, &pathErr)
-				logger.Error(fmt.Errorf("chart installation failure for '%s': %w",
-					response.ResNamespacedName.String(), response.Err), "")
+				logger.Error(response.Err, fmt.Sprintf("chart installation failure for '%s'", response.ResNamespacedName.String()))
 				errorState = true
 			} else if !response.Ready {
 				logger.Info(fmt.Sprintf("chart checks still processing '%s'",

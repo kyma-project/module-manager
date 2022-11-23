@@ -316,20 +316,24 @@ func parseChartConfigAndValues(install v1alpha1.InstallInfo, configs []interface
 
 // InsertWatcherLabels adds watcher labels to custom resource of the Manifest CR.
 func InsertWatcherLabels(manifestObj *v1alpha1.Manifest) {
-	if manifestObj.Spec.Remote {
-		manifestLabels := manifestObj.Spec.Resource.GetLabels()
-
-		ownedByValue := fmt.Sprintf(labels.OwnedByFormat, manifestObj.Namespace, manifestObj.Name)
-
-		if manifestLabels == nil {
-			manifestLabels = make(map[string]string)
-		}
-
-		manifestLabels[labels.OwnedByLabel] = ownedByValue
-		manifestLabels[labels.WatchedByLabel] = labels.OperatorName
-
-		manifestObj.Spec.Resource.SetLabels(manifestLabels)
+	// Make sure Manifest CR is enabled for remote and Spec.Resource is a valid resource
+	if !manifestObj.Spec.Remote || manifestObj.Spec.Resource.GetKind() == "" {
+		return
 	}
+
+	manifestLabels := manifestObj.Spec.Resource.GetLabels()
+
+	ownedByValue := fmt.Sprintf(labels.OwnedByFormat, manifestObj.Namespace, manifestObj.Name)
+
+	if manifestLabels == nil {
+		manifestLabels = make(map[string]string)
+	}
+
+	manifestLabels[labels.OwnedByLabel] = ownedByValue
+	manifestLabels[labels.WatchedByLabel] = labels.OperatorName
+
+	manifestObj.Spec.Resource.SetLabels(manifestLabels)
+
 }
 
 func getDefaultRESTConfigGetter(ctx context.Context, secretName string, namespace string,

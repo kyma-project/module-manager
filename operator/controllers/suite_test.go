@@ -41,6 +41,7 @@ import (
 	"github.com/kyma-project/module-manager/operator/controllers"
 	internalTypes "github.com/kyma-project/module-manager/operator/internal/pkg/types"
 	"github.com/kyma-project/module-manager/operator/internal/pkg/util"
+	"github.com/kyma-project/module-manager/operator/pkg/log"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 )
 
@@ -87,7 +88,7 @@ var _ = BeforeSuite(func() {
 
 	ctx, cancel = context.WithCancel(context.TODO())
 	logger := zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true))
-	logf.SetLogger(logger)
+	logf.SetLogger(log.ConfigLogger())
 
 	// create registry and server
 	newReg := registry.New()
