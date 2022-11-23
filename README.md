@@ -58,11 +58,11 @@ If `.Spec.Remote.` is set to `true`, the operator looks for a secret with the na
 This secret is used to connect to an existing cluster (target) for `Manifest` resource installations.
 Learn how to create the required secret in [Install Kyma and run lifecycle-manager operator](https://github.com/kyma-project/lifecycle-manager/blob/main/docs/developer/creating-test-environment.md#install-kyma-and-run-lifecycle-manager-operator).
 
-For more details on OCI Image **bundling** and **formats**, read our [bundling and installation guide](https://github.com/kyma-project/lifecycle-manager/tree/main/samples/template-operator#bundling-and-installation).
+For more details on OCI Image **bundling** and **formats**, read our [bundling and installation guide](https://github.com/kyma-project/template-operator#bundling-and-installation).
 You can use the component descriptor generated from this guide to independently build a `Manifest Spec` based on the OCI image specifications.
 
 >**NOTE:** [Lifecycle-Manager](https://github.com/kyma-project/lifecycle-manager#how-it-works) translates these layers from a `ModuleTemplate` resource on the Kyma Control Plane (KCP) and translates them automatically to a subsequent `Manifest` resource.
->Alternatively, you can use your own bundled OCI images. If using additional Helm configuration, you must conform to [.Spec.Config](https://github.com/kyma-project/lifecycle-manager/blob/main/samples/template-operator/config.yaml) format, corresponding to Helm `installation` and `set` value flags, for an installation in `.Spec.Installs[].Name`.
+>Alternatively, you can use your own bundled OCI images. If using additional Helm configuration, you must conform to [.Spec.Config](https://github.com/kyma-project/template-operator/blob/main/config.yaml) format, corresponding to Helm `installation` and `set` value flags, for an installation in `.Spec.Installs[].Name`.
 
 ### Sample resource
 <details>
@@ -123,7 +123,7 @@ The manifest library supports Helm chart installations from two sources: **helm 
 >**NOTE:** We plan to offer [Kustomize installation support](https://github.com/kyma-project/module-manager/issues/124), along with the existing helm installation soon. 
 
 Use the manifest library to simply process deployments on target clusters, or use it within your own operator to process deployment operations.
-For example, [template-operator](https://github.com/kyma-project/lifecycle-manager/tree/main/samples/template-operator) uses the manifest library (through the [declarative](operator/pkg/declarative) library) to perform necessary operations on target clusters during reconciliations.
+For example, [template-operator](https://github.com/kyma-project/template-operator) uses the manifest library (through the [declarative](operator/pkg/declarative) library) to perform necessary operations on target clusters during reconciliations.
 To get started, simply import package `github.com/kyma-project/module-manager/operator/pkg/manifest` to include the main functionality provided by the library to process Helm charts, coupled with additional state handling.
 For more options and information, read the [InstallInfo](operator/pkg/manifest/operations.go) type definition.
 
