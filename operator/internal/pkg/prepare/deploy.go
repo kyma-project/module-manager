@@ -333,7 +333,6 @@ func InsertWatcherLabels(manifestObj *v1alpha1.Manifest) {
 	manifestLabels[labels.WatchedByLabel] = labels.OperatorName
 
 	manifestObj.Spec.Resource.SetLabels(manifestLabels)
-
 }
 
 func getDefaultRESTConfigGetter(ctx context.Context, secretName string, namespace string,

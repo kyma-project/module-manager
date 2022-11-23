@@ -66,9 +66,6 @@ const (
 	helmCacheHome      = "/tmp/caches"
 	helmCacheRepoEnv   = "HELM_REPOSITORY_CACHE"
 	helmRepoEnv        = "HELM_REPOSITORY_CONFIG"
-	layerNameBaseDir   = "some"
-	layerNameSubDir    = "name"
-	secretName         = "some-kyma-name"
 	kustomizeLocalPath = "../pkg/test_samples/kustomize"
 	standardTimeout    = 1 * time.Minute
 	standardInterval   = 250 * time.Millisecond

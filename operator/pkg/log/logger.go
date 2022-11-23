@@ -1,11 +1,12 @@
 package log
 
 import (
+	"os"
+
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zapr"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"os"
 )
 
 func ConfigLogger() logr.Logger {
