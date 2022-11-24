@@ -104,7 +104,7 @@ func verifyCacheEntries(resourceName string, parentKeyName string, flagVariantHa
 		Should(Equal(flagVariantHash))
 }
 
-func verifyNilCacheEntries(resourceName string, parentKeyName string, flagVariantHash uint32) {
+func verifyNilCacheEntries(resourceName string, parentKeyName string, _ uint32) {
 	Expect(rendererCache.GetProcessor(client.ObjectKey{Name: parentKeyName, Namespace: testNs})).
 		Should(BeNil())
 	Expect(rendererCache.GetConfig(client.ObjectKey{Name: resourceName, Namespace: testNs})).

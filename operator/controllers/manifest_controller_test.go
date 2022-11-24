@@ -80,7 +80,7 @@ var _ = Describe("Given manifest with kustomize specs", Ordered, func() {
 		func(givenCondition func(manifest *v1alpha1.Manifest) error,
 			expectedManifestState func(manifestName string) error, expectedFileState func() bool,
 		) {
-			manifest := NewTestManifest()
+			manifest := NewTestManifest("kust")
 			Eventually(givenCondition, standardTimeout, standardInterval).
 				WithArguments(manifest).Should(Succeed())
 			Eventually(expectedManifestState, standardTimeout, standardInterval).
@@ -121,7 +121,7 @@ var _ = Describe("Given manifest with OCI specs", Ordered, func() {
 		func(givenCondition func(manifest *v1alpha1.Manifest) error, expectManifestState func(manifestName string) error,
 			expectedHelmClientCache func(cacheKey string) bool,
 		) {
-			manifest := NewTestManifest()
+			manifest := NewTestManifest("oci")
 			Eventually(givenCondition, standardTimeout, standardInterval).
 				WithArguments(manifest).Should(Succeed())
 			Eventually(expectManifestState, standardTimeout, standardInterval).
@@ -161,7 +161,7 @@ var _ = Describe("Given Manifest CR with Helm specs", func() {
 
 	DescribeTable("Test Helm specs",
 		func(givenCondition func(manifest *v1alpha1.Manifest) error, expectedBehavior func(manifestName string) error) {
-			manifest := NewTestManifest()
+			manifest := NewTestManifest("helm")
 			Eventually(givenCondition, standardTimeout, standardInterval).WithArguments(manifest).Should(Succeed())
 			Eventually(expectedBehavior, standardTimeout, standardInterval).WithArguments(manifest.GetName()).Should(Succeed())
 			Eventually(deleteManifestAndVerify(manifest), standardTimeout, standardInterval).Should(Succeed())
@@ -173,7 +173,7 @@ var _ = Describe("Given Manifest CR with Helm specs", func() {
 
 var _ = Describe("Test multiple Manifest CRs with same parent and OCI spec", Ordered, func() {
 	mainOciTempDir := "multiple"
-	installName := filepath.Join("multiple", "crs")
+	installName := filepath.Join(mainOciTempDir, "crs")
 	BeforeAll(func() {
 		PushToRemoteOCIRegistry(installName, layerInstalls)
 	})
@@ -181,7 +181,7 @@ var _ = Describe("Test multiple Manifest CRs with same parent and OCI spec", Ord
 		Expect(os.RemoveAll(filepath.Join(os.TempDir(), mainOciTempDir))).To(Succeed())
 	})
 	It("should result in Manifest becoming Ready", func() {
-		manifestWithInstall := NewTestManifest()
+		manifestWithInstall := NewTestManifest("multi-oci1")
 		Eventually(withValidInstallImageSpec(installName, false), standardTimeout, standardInterval).
 			WithArguments(manifestWithInstall).Should(Succeed())
 		validImageSpec := createImageSpec(installName, server.Listener.Addr().String(), layerInstalls)
@@ -189,24 +189,23 @@ var _ = Describe("Test multiple Manifest CRs with same parent and OCI spec", Ord
 			WithArguments(manifestWithInstall.GetLabels()[labels.ComponentOwner]).Should(BeTrue())
 		// this will ensure only manifest.yaml remains
 		deleteHelmChartResources(validImageSpec)
-		Eventually(deleteManifestAndVerify(manifestWithInstall), standardTimeout, standardInterval).Should(Succeed())
-		Eventually(expectHelmClientCacheExist(false), standardTimeout, standardInterval).
-			WithArguments(manifestWithInstall.GetLabels()[labels.ComponentOwner]).Should(BeTrue())
-		manifest2WithInstall := NewTestManifest()
+		manifest2WithInstall := NewTestManifest("multi-oci2")
 		// copy owner label over to the new manifest resource
 		manifest2WithInstall.Labels[labels.ComponentOwner] = manifestWithInstall.Labels[labels.ComponentOwner]
 		Eventually(withValidInstallImageSpec(installName, false), standardTimeout, standardInterval).
 			WithArguments(manifest2WithInstall).Should(Succeed())
 		// verify no new Helm resources were created
 		verifyHelmResourcesDeletion(validImageSpec)
-		Eventually(deleteManifestAndVerify(manifest2WithInstall), standardTimeout, standardInterval).Should(Succeed())
 		// fresh Manifest with empty installs
-		manifest3WithInstall := NewTestManifest()
+		manifest3WithoutInstall := NewTestManifest("multi-oci3")
 		Eventually(withEmptyInstallImageSpec(), standardTimeout, standardInterval).
-			WithArguments(manifest3WithInstall).Should(Succeed())
+			WithArguments(manifest3WithoutInstall).Should(Succeed())
 		// no cache entry created for empty installs
 		Eventually(expectHelmClientCacheExist(false), standardTimeout, standardInterval).
-			WithArguments(manifest3WithInstall.GetLabels()[labels.ComponentOwner]).Should(BeTrue())
+			WithArguments(manifest3WithoutInstall.GetLabels()[labels.ComponentOwner]).Should(BeTrue())
+		Eventually(deleteManifestAndVerify(manifestWithInstall), standardTimeout, standardInterval).Should(Succeed())
+		Eventually(deleteManifestAndVerify(manifest2WithInstall), standardTimeout, standardInterval).Should(Succeed())
+		Eventually(deleteManifestAndVerify(manifest3WithoutInstall), standardTimeout, standardInterval).Should(Succeed())
 	})
 })
 

@@ -15,6 +15,7 @@ import (
 	_ "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/uuid"
 
 	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
@@ -118,10 +119,10 @@ func createImageSpec(name, repo string, ociLayerType OCILayerType) manifestTypes
 	return imageSpec
 }
 
-func NewTestManifest() *v1alpha1.Manifest {
+func NewTestManifest(prefix string) *v1alpha1.Manifest {
 	return &v1alpha1.Manifest{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      string(uuid.NewUUID()),
+			Name:      fmt.Sprintf("%s-%d", prefix, rand.Intn(999999)),
 			Namespace: metav1.NamespaceDefault,
 			Labels: map[string]string{
 				labels.ComponentOwner: string(uuid.NewUUID()),
