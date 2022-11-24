@@ -112,7 +112,6 @@ var _ = Describe("Given manifest with oci specs", Ordered, func() {
 		PushToRemoteOCIRegistry(crdName, layerCRDs)
 	})
 	BeforeEach(func() {
-		//TODO Workaround to kill manifest since it is not cleaned up properly, this should be removed ASAP
 		fschartPath := util.GetFsChartPath(
 			createImageSpec(installName, server.Listener.Addr().String(), layerInstalls))
 		manifestPath := util.GetFsManifestChartPath(fschartPath)

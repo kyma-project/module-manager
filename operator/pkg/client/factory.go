@@ -10,8 +10,6 @@ import (
 	"helm.sh/helm/v3/pkg/kube"
 	"helm.sh/helm/v3/pkg/storage"
 	"helm.sh/helm/v3/pkg/storage/driver"
-	apiextv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	apiextv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -136,19 +134,10 @@ func NewSingletonClients(info types.ClusterInfo, logger logr.Logger) (*Singleton
 		unstructuredRESTClientCache: map[string]resource.RESTClient{},
 		Client:                      runtimeClient,
 	}
-
-	// Add CRDs to the scheme. If the call is not originating from a source which adds CRD type to scheme,
-	// this will throw an error.
-	if err = apiextv1.AddToScheme(scheme.Scheme); err != nil {
-		return nil, err
-	}
-	if err = apiextv1beta1.AddToScheme(scheme.Scheme); err != nil {
-		return nil, err
-	}
 	clients.helmClient = &kube.Client{
 		Factory: clients,
 		Log: func(msg string, args ...interface{}) {
-			logger.V(util.DebugLogLevel).Info(msg+"\n", args...)
+			logger.V(util.DebugLogLevel).Info(fmt.Sprintf(msg, args...))
 		},
 		Namespace: metav1.NamespaceDefault,
 	}
@@ -182,7 +171,7 @@ func (s *SingletonClients) clientCacheKeyForMapping(mapping *meta.RESTMapping) s
 }
 
 func (s *SingletonClients) DynamicResourceInterface(obj *unstructured.Unstructured) (dynamic.ResourceInterface, error) {
-	mapping, err := getResourceMapping(obj, s.discoveryShortcutExpander)
+	mapping, err := getResourceMapping(obj, s.discoveryShortcutExpander, false)
 	if err != nil {
 		return nil, err
 	}
@@ -212,8 +201,8 @@ func (s *SingletonClients) DynamicResourceInterface(obj *unstructured.Unstructur
 	return dynamicResource, nil
 }
 
-func (s *SingletonClients) ResourceInfo(obj *unstructured.Unstructured) (*resource.Info, error) {
-	mapping, err := getResourceMapping(obj, s.discoveryShortcutExpander)
+func (s *SingletonClients) ResourceInfo(obj *unstructured.Unstructured, retryOnNoMatch bool) (*resource.Info, error) {
+	mapping, err := getResourceMapping(obj, s.discoveryShortcutExpander, retryOnNoMatch)
 	if err != nil {
 		return nil, err
 	}

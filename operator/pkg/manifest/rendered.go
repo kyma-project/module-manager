@@ -34,7 +34,7 @@ func (r *Rendered) GetCachedResources(chartName, chartPath string) *types.Parsed
 	if _, err := os.Stat(chartPath); err != nil {
 		return types.NewParsedFile("", err)
 	}
-	r.logger.Info(fmt.Sprintf("chart dir %s found at path %s will be processed", chartName, chartPath))
+	r.logger.V(util.DebugLogLevel).Info(fmt.Sprintf("chart %s found at path %s", chartName, chartPath))
 
 	// check if pre-Rendered manifest already exists
 	return types.NewParsedFile(util.GetStringifiedYamlFromFilePath(util.GetFsManifestChartPath(chartPath)))

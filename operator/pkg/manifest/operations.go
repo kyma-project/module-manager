@@ -180,7 +180,7 @@ func getManifestProcessor(deployInfo types.InstallInfo, logger logr.Logger) (typ
 	case resource.HelmKind, resource.UnknownKind:
 		// create HelmClient instance
 		return NewHelmProcessor(singletonClients, cli.New(), logger,
-			render, deployInfo)
+			render, deployInfo, true)
 	case resource.KustomizeKind:
 		// create dynamic client for rest config
 		if err != nil {
@@ -231,8 +231,7 @@ func (o *Operations) consistencyCheck(deployInfo types.InstallInfo) (bool, error
 
 func (o *Operations) install(deployInfo types.InstallInfo) (bool, error) {
 	// install crds first - if present do not update!
-	if err := resource.CheckCRDs(deployInfo.Ctx, deployInfo.Crds, o.client,
-		true); err != nil {
+	if err := resource.CheckCRDs(deployInfo.Ctx, deployInfo.Crds, o.client, true); err != nil {
 		return false, err
 	}
 
@@ -301,6 +300,7 @@ func (o *Operations) getManifestForChartPath(deployInfo types.InstallInfo) *type
 	// If the location doesn't exist or has permission issues, it will be ignored.
 	parsedFile := o.renderSrc.GetManifestResources(deployInfo.ChartName, deployInfo.ChartPath)
 	if parsedFile.IsResultConclusive() {
+		o.logger.V(util.DebugLogLevel).Info("resolved manifest from chart-path")
 		return parsedFile.FilterOsErrors()
 	}
 
@@ -309,6 +309,7 @@ func (o *Operations) getManifestForChartPath(deployInfo types.InstallInfo) *type
 	// it will be ignored.
 	parsedFile = o.renderSrc.GetCachedResources(deployInfo.ChartName, deployInfo.ChartPath)
 	if parsedFile.IsResultConclusive() {
+		o.logger.V(util.DebugLogLevel).Info("resolved manifest (cached from a previous render) from chart-path")
 		return parsedFile.FilterOsErrors()
 	}
 
@@ -321,6 +322,7 @@ func (o *Operations) getManifestForChartPath(deployInfo types.InstallInfo) *type
 		// no manifest could be processed
 		return parsedFile
 	}
+	o.logger.V(util.DebugLogLevel).Info("rendered manifest from chart-path")
 
 	// 4. persist static charts
 	// if deployInfo.ChartPath is not passed, it means that the chart is not static
