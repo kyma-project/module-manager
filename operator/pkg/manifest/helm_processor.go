@@ -67,21 +67,29 @@ func NewHelmProcessor(clients *manifestTypes.SingletonClients, settings *cli.Env
 }
 
 // GetRawManifest returns processed resource manifest using helm client.
-func (h *helm) GetRawManifest(deployInfo types.InstallInfo) *types.ParsedFile {
-	var err error
-	chartPath := deployInfo.ChartPath
-	if chartPath == "" {
-		// legacy case - download chart from helm repo
-		chartPath, err = h.downloadChart(deployInfo.RepoName, deployInfo.URL, deployInfo.ChartName)
-		if err != nil {
-			return types.NewParsedFile("", err)
-		}
+func (h *helm) GetRawManifest(info types.InstallInfo) *types.ParsedFile {
+	chartPath, err := h.ResolveChartPath(info)
+	if err != nil {
+		return types.NewParsedFile("", err)
 	}
 	h.logger.V(util.DebugLogLevel).Info("chart located", "path", chartPath)
 
 	// if Rendered manifest doesn't exist
 	// check newly Rendered manifest here
-	return types.NewParsedFile(h.renderManifestFromChartPath(deployInfo.Ctx, chartPath, deployInfo.Flags.SetFlags))
+	return types.NewParsedFile(h.renderManifestFromChartPath(info.Ctx, chartPath, info.Flags.SetFlags))
+}
+
+func (h *helm) ResolveChartPath(info types.InstallInfo) (string, error) {
+	chartPath := info.ChartPath
+	if chartPath == "" {
+		var err error
+		// legacy case - download chart from helm repo
+		chartPath, err = h.downloadChart(info.RepoName, info.URL, info.ChartName)
+		if err != nil {
+			return "", err
+		}
+	}
+	return chartPath, nil
 }
 
 // Install transforms and applies Helm based manifest using helm client.
@@ -123,10 +131,10 @@ func (h *helm) Install(stringifedManifest string, deployInfo types.InstallInfo, 
 }
 
 // Uninstall transforms and deletes Helm based manifest using helm client.
-func (h *helm) Uninstall(stringifedManifest string, deployInfo types.InstallInfo, transforms []types.ObjectTransform,
+func (h *helm) Uninstall(stringifedManifest string, info types.InstallInfo, transforms []types.ObjectTransform,
 ) (bool, error) {
 	// convert for Helm processing
-	resourceLists, err := h.parseToResourceLists(stringifedManifest, deployInfo, transforms)
+	resourceLists, err := h.parseToResourceLists(stringifedManifest, info, transforms)
 	if err != nil {
 		return false, err
 	}
@@ -138,24 +146,63 @@ func (h *helm) Uninstall(stringifedManifest string, deployInfo types.InstallInfo
 	}
 
 	h.logger.V(util.DebugLogLevel).Info("uninstalled Helm chart resources",
-		"chart", deployInfo.ChartName,
-		"release", deployInfo.ReleaseName,
-		"resource", client.ObjectKeyFromObject(deployInfo.BaseResource).String())
+		"chart", info.ChartName,
+		"release", info.ReleaseName,
+		"resource", client.ObjectKeyFromObject(info.BaseResource).String())
 
 	// verify resource uninstallation
-	if ready, err := h.verifyResources(deployInfo.Ctx, resourceLists,
-		deployInfo.CheckReadyStates, types.OperationDelete); !ready || err != nil {
+	if ready, err := h.verifyResources(
+		info.Ctx, resourceLists,
+		info.CheckReadyStates, types.OperationDelete); !ready || err != nil {
 		return ready, err
 	}
 
+	// delete all crds located in the original helm chart
+	if err := h.uninstallChartCRDs(info); err != nil {
+		return false, err
+	}
+
 	// update Helm repositories
-	if deployInfo.UpdateRepositories {
-		if err = h.updateRepos(deployInfo.Ctx); err != nil {
+	if info.UpdateRepositories {
+		if err = h.updateRepos(info.Ctx); err != nil {
 			return false, err
 		}
 	}
 
 	return true, nil
+}
+
+func (h *helm) uninstallChartCRDs(info types.InstallInfo) error {
+	chartPath, err := h.ResolveChartPath(info)
+	if err != nil {
+		return err
+	}
+	loadedChart, err := h.repoHandler.LoadChart(chartPath, h.clients.Install())
+	if err != nil {
+		return err
+	}
+	crds, err := h.crdsFromChart(loadedChart)
+	if err != nil {
+		return err
+	}
+	resList, err := h.getTargetResources(info.Ctx, crds.String(), nil, nil)
+	if err != nil {
+		return err
+	}
+
+	_, deleteErrs := h.clients.KubeClient().Delete(resList)
+	criticalDeleteErrs := make([]error, 0, len(deleteErrs))
+	for i := range deleteErrs {
+		if deleteErrs[i] != nil && !apierrors.IsNotFound(deleteErrs[i]) {
+			criticalDeleteErrs = append(criticalDeleteErrs, deleteErrs[i])
+		}
+	}
+
+	if criticalDeleteErrs != nil || len(criticalDeleteErrs) > 0 {
+		return types.NewMultiError(criticalDeleteErrs)
+	}
+
+	return nil
 }
 
 // IsConsistent indicates if helm installation is consistent with the desired manifest resources.
@@ -333,15 +380,12 @@ func (h *helm) renderManifestFromChartPath(ctx context.Context, chartPath string
 // Second, it parses the manifest string based on the existing methods available in the HELM client.
 // Third, it creates crds and collects requirements concurrently to speed up CRD creation.
 func (h *helm) optimizedInstallCRDs(ctx context.Context, chartRequested *chart.Chart) error {
-	crds := chartRequested.CRDObjects()
-
-	// transform the stringified manifest into our resource list the same way we do for other resources
-	// but without any custom transforms
-	var crdManifest bytes.Buffer
-	for i := range crds {
-		crdManifest.Write(append(bytes.TrimPrefix(crds[i].File.Data, []byte("---\n")), '\n'))
+	crds, err := h.crdsFromChart(chartRequested)
+	if err != nil {
+		return err
 	}
-	resList, err := h.getTargetResources(ctx, crdManifest.String(), nil, nil)
+
+	resList, err := h.getTargetResources(ctx, crds.String(), nil, nil)
 	if err != nil {
 		return err
 	}
@@ -376,6 +420,17 @@ func (h *helm) optimizedInstallCRDs(ctx context.Context, chartRequested *chart.C
 	meta.MaybeResetRESTMapper(restMapper)
 
 	return nil
+}
+
+func (h *helm) crdsFromChart(chart *chart.Chart) (*bytes.Buffer, error) {
+	crds := chart.CRDObjects()
+	// transform the stringified manifest into our resource list the same way we do for other resources
+	// but without any custom transforms
+	var crdManifest bytes.Buffer
+	for i := range crds {
+		crdManifest.Write(append(bytes.TrimPrefix(crds[i].File.Data, []byte("---\n")), '\n'))
+	}
+	return &crdManifest, nil
 }
 
 func (h *helm) setDefaultFlags(releaseName string) {
