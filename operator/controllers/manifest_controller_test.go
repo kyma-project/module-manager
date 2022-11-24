@@ -5,22 +5,24 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"os/user"
 	"path/filepath"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	errors2 "k8s.io/apimachinery/pkg/api/errors"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
 	"github.com/kyma-project/module-manager/operator/api/v1alpha1"
 	"github.com/kyma-project/module-manager/operator/pkg/labels"
 	"github.com/kyma-project/module-manager/operator/pkg/types"
 	"github.com/kyma-project/module-manager/operator/pkg/util"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"os/user"
 )
 
 var ErrManifestStateMisMatch = errors.New("ManifestState mismatch")
@@ -46,7 +48,7 @@ func setHelmEnv() {
 
 var _ = Describe("Given manifest with kustomize specs", Ordered, func() {
 	remoteKustomizeSpec := types.KustomizeSpec{
-		URL:  "https://github.com/kyma-project/module-manager//operator/config/default?ref=main",
+		URL:  "https://github.com/kyma-project/lifecycle-manager//config/default?ref=main",
 		Type: "kustomize",
 	}
 	remoteKustomizeSpecBytes, err := json.Marshal(remoteKustomizeSpec)
@@ -74,75 +76,80 @@ var _ = Describe("Given manifest with kustomize specs", Ordered, func() {
 		Expect(os.Chmod(kustomizeLocalPath, fs.ModePerm)).To(Succeed())
 		Expect(os.RemoveAll(filepath.Join(kustomizeLocalPath, util.ManifestDir))).To(Succeed())
 	})
-	DescribeTable("Test file permission",
+	DescribeTable("Testing Kustomize test entries",
 		func(givenCondition func(manifest *v1alpha1.Manifest) error,
 			expectedManifestState func(manifestName string) error, expectedFileState func() bool,
 		) {
-			manifest := NewTestManifest("manifest", "kyma")
-
+			manifest := NewTestManifest()
 			Eventually(givenCondition, standardTimeout, standardInterval).
 				WithArguments(manifest).Should(Succeed())
 			Eventually(expectedManifestState, standardTimeout, standardInterval).
 				WithArguments(manifest.GetName()).Should(Succeed())
 			Eventually(expectedFileState, standardTimeout, standardInterval).Should(BeTrue())
+			Eventually(deleteManifestAndVerify(manifest), standardTimeout, standardInterval).Should(Succeed())
 		},
-		Entry("When manifestCR contains a valid remote Kustomize specification, expect state in ready",
+		Entry("When Manifest CR contains a valid remote Kustomize specification, expect state in ready",
 			addInstallSpec(remoteKustomizeSpecBytes, false),
 			expectManifestStateIn(v1alpha1.ManifestStateReady), skipExpect()),
-		Entry("When manifestCR contains a valid local Kustomize specification, expect state in ready",
+		Entry("When Manifest CR contains a valid local Kustomize specification, expect state in ready",
 			addInstallSpec(localKustomizeSpecBytes, false),
 			expectManifestStateIn(v1alpha1.ManifestStateReady), skipExpect()),
-		Entry("When manifestCR contains an invalid local Kustomize specification, expect state in error",
+		Entry("When Manifest CR contains an invalid local Kustomize specification, expect state in error",
 			addInstallSpec(invalidKustomizeSpecBytes, false),
 			expectManifestStateIn(v1alpha1.ManifestStateError), skipExpect()),
 		Entry("When local Kustomize with read rights only, expect state in error and file permission denied",
 			addInstallSpecWithFilePermission(localKustomizeSpecBytes, false, 0o444),
 			expectManifestStateIn(v1alpha1.ManifestStateError), expectFilePermissionDeniedError()),
-		Entry("When local kustomize with execute rights only, expect state in ready and file not exit",
+		Entry("When local Kustomize with execute rights only, expect state in ready and file not exit",
 			addInstallSpecWithFilePermission(localKustomizeSpecBytes, false, 0o555),
 			expectManifestStateIn(v1alpha1.ManifestStateReady), expectFileNotExistError()),
 	)
 })
 
-var _ = Describe("Given manifest with oci specs", Ordered, func() {
-	installName := "valid-install-layer"
-	crdName := "valid-crd-layer"
+var _ = Describe("Given manifest with OCI specs", Ordered, func() {
+	mainOciTempDir := "main-dir"
+	installName := filepath.Join(mainOciTempDir, "installs")
+	crdName := filepath.Join(mainOciTempDir, "crds")
 	BeforeAll(func() {
 		PushToRemoteOCIRegistry(installName, layerInstalls)
 		PushToRemoteOCIRegistry(crdName, layerCRDs)
 	})
-	DescribeTable("Test ModuleStatus",
+	BeforeEach(func() {
+		Expect(os.RemoveAll(filepath.Join(os.TempDir(), mainOciTempDir))).To(Succeed())
+	})
+	DescribeTable("Test OCI specs",
 		func(givenCondition func(manifest *v1alpha1.Manifest) error, expectManifestState func(manifestName string) error,
 			expectedHelmClientCache func(cacheKey string) bool,
 		) {
-			manifest := NewTestManifest("manifest", "kyma")
+			manifest := NewTestManifest()
 			Eventually(givenCondition, standardTimeout, standardInterval).
 				WithArguments(manifest).Should(Succeed())
 			Eventually(expectManifestState, standardTimeout, standardInterval).
 				WithArguments(manifest.GetName()).Should(Succeed())
 			Eventually(expectedHelmClientCache, standardTimeout, standardInterval).
-				WithArguments(manifest.GetLabels()[labels.CacheKey]).Should(BeTrue())
+				WithArguments(manifest.GetLabels()[labels.ComponentOwner]).Should(BeTrue())
+			Eventually(deleteManifestAndVerify(manifest), standardTimeout, standardInterval).Should(Succeed())
 		},
-		Entry("When manifestCR contains a valid install OCI image specification, "+
+		Entry("When Manifest CR contains a valid install OCI image specification, "+
 			"expect state in ready and helmClient cache exist",
 			withValidInstallImageSpec(installName, false),
 			expectManifestStateIn(v1alpha1.ManifestStateReady), expectHelmClientCacheExist(true)),
-		Entry("When manifestCR contains a valid install OCI image specification and enabled remote, "+
+		Entry("When Manifest CR contains a valid install OCI image specification and enabled remote, "+
 			"expect state in ready and helmClient cache exist",
 			withValidInstallImageSpec(installName, true),
 			expectManifestStateIn(v1alpha1.ManifestStateReady), expectHelmClientCacheExist(true)),
-		Entry("When manifestCR contains valid install and CRD image specification, "+
+		Entry("When Manifest CR contains valid install and CRD image specification, "+
 			"expect state in ready and helmClient cache exist",
 			withValidInstallAndCRDsImageSpec(installName, crdName, true),
 			expectManifestStateIn(v1alpha1.ManifestStateReady), expectHelmClientCacheExist(true)),
-		Entry("When manifestCR contains an invalid install OCI image specification, "+
+		Entry("When Manifest CR contains an invalid install OCI image specification, "+
 			"expect state in error and no helmClient cache exit",
 			withInvalidInstallImageSpec(false),
 			expectManifestStateIn(v1alpha1.ManifestStateError), expectHelmClientCacheExist(false)),
 	)
 })
 
-var _ = Describe("Given manifest with helm specs", func() {
+var _ = Describe("Given Manifest CR with Helm specs", func() {
 	setHelmEnv()
 	validHelmChartSpec := types.HelmChartSpec{
 		ChartName: "nginx-ingress",
@@ -152,29 +159,54 @@ var _ = Describe("Given manifest with helm specs", func() {
 	validHelmChartSpecBytes, err := json.Marshal(validHelmChartSpec)
 	Expect(err).ToNot(HaveOccurred())
 
-	DescribeTable("Test ModuleStatus",
+	DescribeTable("Test Helm specs",
 		func(givenCondition func(manifest *v1alpha1.Manifest) error, expectedBehavior func(manifestName string) error) {
-			manifest := NewTestManifest("manifest", "kyma")
+			manifest := NewTestManifest()
 			Eventually(givenCondition, standardTimeout, standardInterval).WithArguments(manifest).Should(Succeed())
 			Eventually(expectedBehavior, standardTimeout, standardInterval).WithArguments(manifest.GetName()).Should(Succeed())
+			Eventually(deleteManifestAndVerify(manifest), standardTimeout, standardInterval).Should(Succeed())
 		},
 		Entry("When manifestCR contains a valid helm repo, expect state in ready",
 			addInstallSpec(validHelmChartSpecBytes, false), expectManifestStateIn(v1alpha1.ManifestStateReady)),
 	)
 })
 
-var _ = Describe("Test helm resources cleanup", Ordered, func() {
-	name := "valid-image-2"
+var _ = Describe("Test multiple Manifest CRs with same parent and OCI spec", Ordered, func() {
+	mainOciTempDir := "multiple"
+	installName := filepath.Join("multiple", "crs")
 	BeforeAll(func() {
-		PushToRemoteOCIRegistry(name, layerInstalls)
+		PushToRemoteOCIRegistry(installName, layerInstalls)
 	})
-	It("should result in Kyma becoming Ready", func() {
-		manifest := NewTestManifest("manifest", "kyma")
-		Eventually(withValidInstallImageSpec(name, false), standardTimeout, standardInterval).
-			WithArguments(manifest).Should(Succeed())
-		validImageSpec := createImageSpec(name, server.Listener.Addr().String(), layerInstalls)
+	BeforeEach(func() {
+		Expect(os.RemoveAll(filepath.Join(os.TempDir(), mainOciTempDir))).To(Succeed())
+	})
+	It("should result in Manifest becoming Ready", func() {
+		manifestWithInstall := NewTestManifest()
+		Eventually(withValidInstallImageSpec(installName, false), standardTimeout, standardInterval).
+			WithArguments(manifestWithInstall).Should(Succeed())
+		validImageSpec := createImageSpec(installName, server.Listener.Addr().String(), layerInstalls)
+		Eventually(expectHelmClientCacheExist(true), standardTimeout, standardInterval).
+			WithArguments(manifestWithInstall.GetLabels()[labels.ComponentOwner]).Should(BeTrue())
+		// this will ensure only manifest.yaml remains
 		deleteHelmChartResources(validImageSpec)
+		Eventually(deleteManifestAndVerify(manifestWithInstall), standardTimeout, standardInterval).Should(Succeed())
+		Eventually(expectHelmClientCacheExist(false), standardTimeout, standardInterval).
+			WithArguments(manifestWithInstall.GetLabels()[labels.ComponentOwner]).Should(BeTrue())
+		manifest2WithInstall := NewTestManifest()
+		// copy owner label over to the new manifest resource
+		manifest2WithInstall.Labels[labels.ComponentOwner] = manifestWithInstall.Labels[labels.ComponentOwner]
+		Eventually(withValidInstallImageSpec(installName, false), standardTimeout, standardInterval).
+			WithArguments(manifest2WithInstall).Should(Succeed())
+		// verify no new Helm resources were created
 		verifyHelmResourcesDeletion(validImageSpec)
+		Eventually(deleteManifestAndVerify(manifest2WithInstall), standardTimeout, standardInterval).Should(Succeed())
+		// fresh Manifest with empty installs
+		manifest3WithInstall := NewTestManifest()
+		Eventually(withEmptyInstallImageSpec(), standardTimeout, standardInterval).
+			WithArguments(manifest3WithInstall).Should(Succeed())
+		// no cache entry created for empty installs
+		Eventually(expectHelmClientCacheExist(false), standardTimeout, standardInterval).
+			WithArguments(manifest3WithInstall.GetLabels()[labels.ComponentOwner]).Should(BeTrue())
 	})
 })
 
@@ -199,6 +231,12 @@ func withValidInstallImageSpec(name string, remote bool) func(manifest *v1alpha1
 		imageSpecByte, err := json.Marshal(validImageSpec)
 		Expect(err).ToNot(HaveOccurred())
 		return installManifest(manifest, imageSpecByte, types.ImageSpec{}, remote)
+	}
+}
+
+func withEmptyInstallImageSpec() func(manifest *v1alpha1.Manifest) error {
+	return func(manifest *v1alpha1.Manifest) error {
+		return installManifest(manifest, nil, types.ImageSpec{}, false)
 	}
 }
 
@@ -264,6 +302,24 @@ func expectHelmClientCacheExist(expectExist bool) func(componentOwner string) bo
 			return renderSrc != nil
 		}
 		return renderSrc == nil
+	}
+}
+
+func deleteManifestAndVerify(manifest *v1alpha1.Manifest) func() error {
+	return func() error {
+		// reverting permissions for deletion - in case it was changed during tests
+		if err := os.Chmod(kustomizeLocalPath, fs.ModePerm); err != nil {
+			return err
+		}
+		if err := k8sClient.Delete(ctx, manifest); err != nil && !errors2.IsNotFound(err) {
+			return err
+		}
+		newManifest := v1alpha1.Manifest{}
+		err := k8sClient.Get(ctx, client.ObjectKeyFromObject(manifest), &newManifest)
+		if errors2.IsNotFound(err) {
+			return nil
+		}
+		return err
 	}
 }
 

@@ -1,20 +1,20 @@
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  name: samplecrds.operator.kyma-project.io
+  name: kustomcrds.operator.kyma-project.io
 spec:
   group: operator.kyma-project.io
   names:
-    kind: SampleCRD
-    listKind: SampleCRDList
-    plural: samplecrds
-    singular: samplecrd
+    kind: KustomCRD
+    listKind: KustomCRDList
+    plural: kustomcrds
+    singular: kustomcrd
   scope: Namespaced
   versions:
     - name: v1alpha1
       schema:
         openAPIV3Schema:
-          description: SampleCRD is the Schema for a component API.
+          description: KustomCRD is the Schema for a component API.
           properties:
             apiVersion:
               description: 'APIVersion defines the versioned schema of this representation
@@ -29,7 +29,7 @@ spec:
             metadata:
               type: object
             spec:
-              description: Spec defines the desired state of Sample CRD.
+              description: Spec defines the desired state of Kustom CRD.
               properties:
                 randomkey:
                   description: Its random!
@@ -38,10 +38,10 @@ spec:
                 - randomkey
               type: object
             status:
-              description: Status defines the observed state of Sample CRD
+              description: Status defines the observed state of Kustom CRD
               properties:
                 state:
-                  description: State signifies current state of Sample CRD. Value can be one
+                  description: State signifies current state of Kustom CRD. Value can be one
                     of ("Ready", "Processing", "Error", "Deleting").
                   enum:
                     - Processing

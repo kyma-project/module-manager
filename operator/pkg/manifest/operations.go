@@ -282,7 +282,7 @@ func (o *Operations) uninstall(deployInfo types.InstallInfo) (bool, error) {
 		return false, err
 	}
 
-	// delete crds first - if not present ignore!
+	// delete crds last - if not present ignore!
 	if err := resource.RemoveCRDs(deployInfo.Ctx, deployInfo.Crds, o.client); err != nil {
 		return false, err
 	}
