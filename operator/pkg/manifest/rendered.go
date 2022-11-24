@@ -51,7 +51,7 @@ func (r *Rendered) DeleteCachedResources(chartPath string) *types.ParsedFile {
 }
 
 // GetManifestResources returns a pre-rendered resource manifest located at the passed chartPath.
-func (r *Rendered) GetManifestResources(chartName, chartPath string) *types.ParsedFile {
+func (r *Rendered) GetManifestResources(chartPath string) *types.ParsedFile {
 	if emptyPath(chartPath) {
 		return &types.ParsedFile{}
 	}

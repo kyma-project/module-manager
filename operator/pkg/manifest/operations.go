@@ -274,6 +274,10 @@ func (o *Operations) uninstall(deployInfo types.InstallInfo) (bool, error) {
 	if parsedFile.GetRawError() != nil {
 		return false, parsedFile.GetRawError()
 	}
+	// remove cached manifest
+	if parsedFile := o.renderSrc.DeleteCachedResources(deployInfo.ChartPath); parsedFile.GetRawError() != nil {
+		return false, parsedFile.GetRawError()
+	}
 
 	// uninstall resources
 	consistent, err := o.renderSrc.Uninstall(parsedFile.GetContent(), deployInfo, o.resourceTransforms)
@@ -293,12 +297,12 @@ func (o *Operations) uninstall(deployInfo types.InstallInfo) (bool, error) {
 	return true, err
 }
 
-func (o *Operations) getManifestForChartPath(deployInfo types.InstallInfo) *types.ParsedFile {
+func (o *Operations) getManifestForChartPath(installInfo types.InstallInfo) *types.ParsedFile {
 	// 1. check provided manifest file
-	// It is expected for deployInfo.ChartPath to contain ONE .yaml or .yml file,
+	// It is expected for installInfo.ChartPath to contain ONE .yaml or .yml file,
 	// which is assumed to contain a list of resources to be processed.
 	// If the location doesn't exist or has permission issues, it will be ignored.
-	parsedFile := o.renderSrc.GetManifestResources(deployInfo.ChartName, deployInfo.ChartPath)
+	parsedFile := o.renderSrc.GetManifestResources(installInfo.ChartPath)
 	if parsedFile.IsResultConclusive() {
 		o.logger.V(util.DebugLogLevel).Info("resolved manifest from chart-path")
 		return parsedFile.FilterOsErrors()
@@ -307,7 +311,7 @@ func (o *Operations) getManifestForChartPath(deployInfo types.InstallInfo) *type
 	// 2. check cached manifest from previous processing
 	// If the rendered manifest folder doesn't exist or has permission issues,
 	// it will be ignored.
-	parsedFile = o.renderSrc.GetCachedResources(deployInfo.ChartName, deployInfo.ChartPath)
+	parsedFile = o.renderSrc.GetCachedResources(installInfo.ChartName, installInfo.ChartPath)
 	if parsedFile.IsResultConclusive() {
 		o.logger.V(util.DebugLogLevel).Info("resolved manifest (cached from a previous render) from chart-path")
 		return parsedFile.FilterOsErrors()
@@ -316,7 +320,7 @@ func (o *Operations) getManifestForChartPath(deployInfo types.InstallInfo) *type
 	// 3. render new manifests
 	// Depending upon the chart the request will be sent to a processor,
 	// either Helm or Kustomize.
-	parsedFile = o.renderSrc.GetRawManifest(deployInfo)
+	parsedFile = o.renderSrc.GetRawManifest(installInfo)
 	// If there is any type of error return from here, as there is nothing to be cached.
 	if parsedFile.GetRawError() != nil {
 		// no manifest could be processed
@@ -325,12 +329,12 @@ func (o *Operations) getManifestForChartPath(deployInfo types.InstallInfo) *type
 	o.logger.V(util.DebugLogLevel).Info("rendered manifest from chart-path")
 
 	// 4. persist static charts
-	// if deployInfo.ChartPath is not passed, it means that the chart is not static
-	if deployInfo.ChartPath == "" {
+	// if installInfo.ChartPath is not passed, it means that the chart is not static
+	if installInfo.ChartPath == "" {
 		return parsedFile
 	}
-	// Write Rendered manifest static chart to deployInfo.ChartPath.
+	// Write Rendered manifest static chart to installInfo.ChartPath.
 	// If the location doesn't exist or has permission issues, it will be ignored.
-	err := util.WriteToFile(util.GetFsManifestChartPath(deployInfo.ChartPath), []byte(parsedFile.GetContent()))
+	err := util.WriteToFile(util.GetFsManifestChartPath(installInfo.ChartPath), []byte(parsedFile.GetContent()))
 	return types.NewParsedFile(parsedFile.GetContent(), err).FilterOsErrors()
 }
