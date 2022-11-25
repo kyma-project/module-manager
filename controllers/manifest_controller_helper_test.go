@@ -3,7 +3,6 @@ package controllers_test
 import (
 	"fmt"
 	"io"
-	"math/rand"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -13,13 +12,16 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/partial"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/types"
+	_ "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/rand"
+	"k8s.io/apimachinery/pkg/util/uuid"
+
 	"github.com/kyma-project/module-manager/api/v1alpha1"
 	"github.com/kyma-project/module-manager/pkg/labels"
 	manifestTypes "github.com/kyma-project/module-manager/pkg/types"
 	"github.com/kyma-project/module-manager/pkg/util"
-	_ "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type mockLayer struct {
@@ -67,19 +69,18 @@ func CreateImageSpecLayer(ociLayerType OCILayerType) v1.Layer {
 	if ociLayerType == layerCRDs {
 		layer, err = partial.CompressedToLayer(mockLayer{filePath: "../pkg/test_samples/oci/crd.tgz"})
 	} else {
-		layer, err = partial.CompressedToLayer(mockLayer{filePath: "../pkg/test_samples/oci/compressed.tgz"})
+		layer, err = partial.CompressedToLayer(mockLayer{filePath: "../pkg/test_samples/oci/helm_chart_with_crds.tgz"})
 	}
 	Expect(err).ToNot(HaveOccurred())
 	return layer
 }
 
-type OCILayerType string
+type OCILayerType int
 
 // Valid Helm States.
 const (
-	layerCRDs OCILayerType = "crds"
-
-	layerInstalls OCILayerType = "Installs"
+	layerCRDs OCILayerType = iota
+	layerInstalls
 )
 
 func PushToRemoteOCIRegistry(layerName string, ociLayerType OCILayerType) {
@@ -118,30 +119,16 @@ func createImageSpec(name, repo string, ociLayerType OCILayerType) manifestTypes
 	return imageSpec
 }
 
-func NewTestManifest(name string, componentOwner string) *v1alpha1.Manifest {
+func NewTestManifest(prefix string) *v1alpha1.Manifest {
 	return &v1alpha1.Manifest{
-		TypeMeta: metav1.TypeMeta{
-			Kind: "Manifest",
-		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name + RandString(8),
+			Name:      fmt.Sprintf("%s-%d", prefix, rand.Intn(999999)),
 			Namespace: metav1.NamespaceDefault,
 			Labels: map[string]string{
-				labels.ComponentOwner: componentOwner,
-				labels.CacheKey:       RandString(8),
+				labels.ComponentOwner: string(uuid.NewUUID()),
 			},
 		},
 	}
-}
-
-const letterBytes = "abcdefghijklmnopqrstuvwxyz"
-
-func RandString(n int) string {
-	b := make([]byte, n)
-	for i := range b {
-		b[i] = letterBytes[rand.Intn(len(letterBytes))] //nolint:gosec
-	}
-	return string(b)
 }
 
 func deleteHelmChartResources(imageSpec manifestTypes.ImageSpec) {

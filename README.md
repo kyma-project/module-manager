@@ -22,7 +22,7 @@ As a meta-controller, it manages the entire installation lifecycle of individual
 For more information, see the [architecture summary](https://github.com/kyma-project/lifecycle-manager#architecture).
 
 The Module Manager repository contains:
-* An **operator**, which reconciles [Manifest](https://github.com/kyma-project/module-manager/blob/main/operator/api/v1alpha1/manifest_types.go)
+* An **operator**, which reconciles [Manifest](https://github.com/kyma-project/module-manager/blob/main/api/v1alpha1/manifest_types.go)
 * The relevant **library packages** to perform reconciliation of resources, configurations, and custom resource state handling. 
   The library packages be used independently of the operator and is consumed as a helper library by other modules in the Kyma ecosystem.
 

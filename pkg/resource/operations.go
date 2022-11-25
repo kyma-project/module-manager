@@ -91,7 +91,7 @@ func GetStringifiedYamlFromDirPath(dirPath string, logger logr.Logger) (string, 
 		logger.V(util.DebugLogLevel).Info(fmt.Sprintf("no yaml file found at file path %s", dirPath))
 		return "", nil
 	} else if childCount > 1 {
-		logger.V(util.DebugLogLevel).Info(fmt.Sprintf("more than onw yaml file found at file path %s", dirPath))
+		logger.V(util.DebugLogLevel).Info(fmt.Sprintf("more than one yaml file found at file path %s", dirPath))
 		return "", nil
 	}
 	file := dirEntries[0]

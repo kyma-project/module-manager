@@ -54,7 +54,7 @@ func (s *SingletonClients) UnstructuredClientForMapping(mapping *meta.RESTMappin
 	if err != nil {
 		return nil, err
 	}
-	s.structuredRESTClientCache[key] = client
+	s.unstructuredRESTClientCache[key] = client
 	return client, err
 }
 

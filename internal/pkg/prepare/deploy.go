@@ -113,7 +113,7 @@ func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo types
 		return defaultClusterInfo, nil
 	}
 
-	kymaOwnerLabel, err := util.GetResourceLabel(manifestObj, labels.ComponentOwner)
+	kymaOwnerLabel, err := util.GetResourceLabel(manifestObj, labels.CacheKey)
 	if err != nil {
 		return types.ClusterInfo{}, err
 	}

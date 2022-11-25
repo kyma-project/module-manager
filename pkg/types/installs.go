@@ -34,7 +34,7 @@ type ManifestClient interface {
 
 	// GetManifestResources returns a pre-rendered resource manifest file located at the passed chartPath.
 	// If multiple YAML files are present at the dirPath, it cannot resolve the file to be used, hence will not process.
-	GetManifestResources(chartName, dirPath string) *ParsedFile
+	GetManifestResources(dirPath string) *ParsedFile
 
 	// InvalidateConfigAndRenderedManifest compares the cached hash with the processed hash for helm flags.
 	// On mismatch, it invalidates the cached manifest and resets flags on client.

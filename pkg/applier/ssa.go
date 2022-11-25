@@ -120,9 +120,8 @@ func (s *SetApplier) adjustNs(objects *types.ManifestResources, namespace string
 
 		restMapping, err = mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 		if err != nil {
-			if resettableMapper, isResettable := mapper.(meta.ResettableRESTMapper); isResettable &&
-				meta.IsNoMatchError(err) {
-				resettableMapper.Reset()
+			if meta.IsNoMatchError(err) {
+				meta.MaybeResetRESTMapper(mapper)
 			}
 			return fmt.Errorf("error getting rest mapping for %v: %w", gvk, err)
 		}

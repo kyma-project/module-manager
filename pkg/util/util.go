@@ -56,29 +56,31 @@ func GetNamespaceObjBytes(clientNs string) ([]byte, error) {
 }
 
 func FilterExistingResources(resources kube.ResourceList) (kube.ResourceList, error) {
-	var existingResources kube.ResourceList
-
-	err := resources.Visit(func(info *resource.Info, err error) error {
-		if err != nil {
-			return err
-		}
-
+	existingResources := kube.ResourceList{}
+	errs := make([]error, 0, len(resources))
+	for i := range resources {
+		info := resources[i]
 		helper := resource.NewHelper(info.Client, info.Mapping)
-		_, err = helper.Get(info.Namespace, info.Name)
+		_, err := helper.Get(info.Namespace, info.Name)
 		if err != nil {
 			if apierrors.IsNotFound(err) {
-				return nil
+				continue
 			}
-			return errors.Wrapf(err, "could not get information about the resource %s / %s", info.Name, info.Namespace)
+			errs = append(errs, errors.Wrapf(err,
+				"could not get information about the resource %s / %s", info.Name, info.Namespace))
+			continue
 		}
 
 		// TODO: Adapt standard labels / annotations here
 
 		existingResources.Append(info)
-		return nil
-	})
+	}
 
-	return existingResources, err
+	if len(errs) > 0 {
+		return existingResources, types.NewMultiError(errs)
+	}
+
+	return existingResources, nil
 }
 
 func CleanFilePathJoin(root, dest string) (string, error) {
