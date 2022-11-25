@@ -171,7 +171,7 @@ func (s *SingletonClients) clientCacheKeyForMapping(mapping *meta.RESTMapping) s
 }
 
 func (s *SingletonClients) DynamicResourceInterface(obj *unstructured.Unstructured) (dynamic.ResourceInterface, error) {
-	mapping, err := getResourceMapping(obj, s.discoveryShortcutExpander, false)
+	mapping, err := getResourceMapping(obj, s.discoveryShortcutExpander, true)
 	if err != nil {
 		return nil, err
 	}

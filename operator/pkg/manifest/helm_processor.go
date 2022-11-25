@@ -71,7 +71,7 @@ func NewHelmProcessor(clients *manifestTypes.SingletonClients, settings *cli.Env
 
 // GetRawManifest returns processed resource manifest using helm client.
 func (h *helm) GetRawManifest(info types.InstallInfo) *types.ParsedFile {
-	chartPath, err := h.ResolveChartPath(info)
+	chartPath, err := h.resolveChartPath(info)
 	if err != nil {
 		return types.NewParsedFile("", err)
 	}
@@ -82,7 +82,7 @@ func (h *helm) GetRawManifest(info types.InstallInfo) *types.ParsedFile {
 	return types.NewParsedFile(h.renderManifestFromChartPath(info.Ctx, chartPath, info.Flags.SetFlags))
 }
 
-func (h *helm) ResolveChartPath(info types.InstallInfo) (string, error) {
+func (h *helm) resolveChartPath(info types.InstallInfo) (string, error) {
 	chartPath := info.ChartPath
 	if chartPath == "" {
 		var err error
@@ -205,7 +205,7 @@ func (h *helm) Uninstall(stringifedManifest string, info types.InstallInfo, tran
 // render. Unlike our optimized installation, this one is built sequentially as we do not need the performance
 // here.
 func (h *helm) uninstallChartCRDs(info types.InstallInfo) error {
-	chartPath, err := h.ResolveChartPath(info)
+	chartPath, err := h.resolveChartPath(info)
 	if err != nil {
 		return err
 	}
@@ -617,14 +617,14 @@ func (h *helm) GetNsResource() (kube.ResourceList, error) {
 func (h *helm) getTargetResources(ctx context.Context, manifest string,
 	transforms []types.ObjectTransform, object types.BaseCustomObject, retryOnNoMatch bool,
 ) (kube.ResourceList, error) {
-	resourceList, resourceListErr := h.resourceListFromManifest(ctx, manifest, transforms, object, retryOnNoMatch)
+	resourceList, err := h.resourceListFromManifest(ctx, manifest, transforms, object, retryOnNoMatch)
 
 	// verify namespace override if not done by kubeclient
-	if namespaceErr := overrideNamespace(resourceList, h.clients.Install().Namespace); namespaceErr != nil {
-		return resourceList, namespaceErr
+	if err := overrideNamespace(resourceList, h.clients.Install().Namespace); err != nil {
+		return nil, err
 	}
 
-	return resourceList, resourceListErr
+	return resourceList, err
 }
 
 func (h *helm) resourceListFromManifest(ctx context.Context, manifest string,
