@@ -20,7 +20,8 @@ func getResourceMapping(obj runtime.Object, mapper meta.RESTMapper, retryOnNoMat
 		// return second call after reset
 		mapping, err = mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 		if err != nil {
-			return nil, fmt.Errorf("rest mapping for %s could not be resolved after reset: %w", obj, err)
+			return nil, fmt.Errorf("rest mapping for %s could not be resolved after reset: %w",
+				obj.GetObjectKind().GroupVersionKind().String(), err)
 		}
 	}
 

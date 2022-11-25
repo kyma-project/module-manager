@@ -349,7 +349,7 @@ func (r *ManifestReconciler) ResponseHandlerFunc(ctx context.Context, logger log
 		}
 
 		// finalizer removal failure - set error state
-		logger.V(util.DebugLogLevel).Error(err, "unexpected error while removing finalizer from",
+		logger.Error(err, "unexpected error while removing finalizer from",
 			"resource", namespacedName)
 		errorState = true
 	}
