@@ -69,7 +69,7 @@ func CreateImageSpecLayer(ociLayerType OCILayerType) v1.Layer {
 	if ociLayerType == layerCRDs {
 		layer, err = partial.CompressedToLayer(mockLayer{filePath: "../pkg/test_samples/oci/crd.tgz"})
 	} else {
-		layer, err = partial.CompressedToLayer(mockLayer{filePath: "../pkg/test_samples/oci/compressed.tgz"})
+		layer, err = partial.CompressedToLayer(mockLayer{filePath: "../pkg/test_samples/oci/helm_chart_with_crds.tgz"})
 	}
 	Expect(err).ToNot(HaveOccurred())
 	return layer

@@ -134,11 +134,10 @@ func NewSingletonClients(info types.ClusterInfo, logger logr.Logger) (*Singleton
 		unstructuredRESTClientCache: map[string]resource.RESTClient{},
 		Client:                      runtimeClient,
 	}
-
 	clients.helmClient = &kube.Client{
 		Factory: clients,
 		Log: func(msg string, args ...interface{}) {
-			logger.V(util.DebugLogLevel).Info(msg+"\n", args...)
+			logger.V(util.DebugLogLevel).Info(fmt.Sprintf(msg, args...))
 		},
 		Namespace: metav1.NamespaceDefault,
 	}
@@ -172,7 +171,7 @@ func (s *SingletonClients) clientCacheKeyForMapping(mapping *meta.RESTMapping) s
 }
 
 func (s *SingletonClients) DynamicResourceInterface(obj *unstructured.Unstructured) (dynamic.ResourceInterface, error) {
-	mapping, err := getResourceMapping(obj, s.discoveryShortcutExpander)
+	mapping, err := getResourceMapping(obj, s.discoveryShortcutExpander, true)
 	if err != nil {
 		return nil, err
 	}
@@ -202,8 +201,8 @@ func (s *SingletonClients) DynamicResourceInterface(obj *unstructured.Unstructur
 	return dynamicResource, nil
 }
 
-func (s *SingletonClients) ResourceInfo(obj *unstructured.Unstructured) (*resource.Info, error) {
-	mapping, err := getResourceMapping(obj, s.discoveryShortcutExpander)
+func (s *SingletonClients) ResourceInfo(obj *unstructured.Unstructured, retryOnNoMatch bool) (*resource.Info, error) {
+	mapping, err := getResourceMapping(obj, s.discoveryShortcutExpander, retryOnNoMatch)
 	if err != nil {
 		return nil, err
 	}

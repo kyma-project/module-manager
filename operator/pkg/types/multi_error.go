@@ -6,16 +6,16 @@ import (
 )
 
 func NewMultiError(errs []error) *MultiError {
-	return &MultiError{errs: errs}
+	return &MultiError{Errs: errs}
 }
 
 type MultiError struct {
-	errs []error
+	Errs []error
 }
 
 func (m MultiError) Error() string {
 	buf := &bytes.Buffer{}
-	for _, err := range m.errs {
+	for _, err := range m.Errs {
 		_, _ = fmt.Fprintf(buf, "%v\n", err.Error())
 	}
 	return buf.String()

@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"fmt"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -49,7 +48,7 @@ func (p *ProxyClient) RESTMapper() meta.RESTMapper {
 
 // Create implements client.Client.
 func (p *ProxyClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
-	if _, err := getResourceMapping(obj, p.mapper); err != nil {
+	if _, err := getResourceMapping(obj, p.mapper, true); err != nil {
 		return err
 	}
 	return p.baseClient.Create(ctx, obj, opts...)
@@ -57,7 +56,7 @@ func (p *ProxyClient) Create(ctx context.Context, obj client.Object, opts ...cli
 
 // Update implements client.Client.
 func (p *ProxyClient) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
-	if _, err := getResourceMapping(obj, p.mapper); err != nil {
+	if _, err := getResourceMapping(obj, p.mapper, true); err != nil {
 		return err
 	}
 	return p.baseClient.Update(ctx, obj, opts...)
@@ -65,7 +64,7 @@ func (p *ProxyClient) Update(ctx context.Context, obj client.Object, opts ...cli
 
 // Delete implements client.Client.
 func (p *ProxyClient) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
-	if _, err := getResourceMapping(obj, p.mapper); err != nil {
+	if _, err := getResourceMapping(obj, p.mapper, true); err != nil {
 		return err
 	}
 	return p.baseClient.Delete(ctx, obj, opts...)
@@ -74,7 +73,7 @@ func (p *ProxyClient) Delete(ctx context.Context, obj client.Object, opts ...cli
 // DeleteAllOf implements client.Client.
 func (p *ProxyClient) DeleteAllOf(ctx context.Context, obj client.Object, opts ...client.DeleteAllOfOption,
 ) error {
-	if _, err := getResourceMapping(obj, p.mapper); err != nil {
+	if _, err := getResourceMapping(obj, p.mapper, true); err != nil {
 		return err
 	}
 	return p.baseClient.DeleteAllOf(ctx, obj, opts...)
@@ -83,7 +82,7 @@ func (p *ProxyClient) DeleteAllOf(ctx context.Context, obj client.Object, opts .
 // Patch implements client.Client.
 func (p *ProxyClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption,
 ) error {
-	if _, err := getResourceMapping(obj, p.mapper); err != nil {
+	if _, err := getResourceMapping(obj, p.mapper, true); err != nil {
 		return err
 	}
 	return p.baseClient.Patch(ctx, obj, patch, opts...)
@@ -91,16 +90,16 @@ func (p *ProxyClient) Patch(ctx context.Context, obj client.Object, patch client
 
 // Get implements client.Client.
 func (p *ProxyClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object) error {
-	if _, err := getResourceMapping(obj, p.mapper); err != nil {
-		return fmt.Errorf("%s %v", restMappingErr, obj.GetResourceVersion())
+	if _, err := getResourceMapping(obj, p.mapper, true); err != nil {
+		return err
 	}
 	return p.baseClient.Get(ctx, key, obj)
 }
 
 // List implements client.Client.
 func (p *ProxyClient) List(ctx context.Context, obj client.ObjectList, opts ...client.ListOption) error {
-	if _, err := getResourceMapping(obj, p.mapper); err != nil {
-		return fmt.Errorf("%s %v", restMappingErr, obj.GetResourceVersion())
+	if _, err := getResourceMapping(obj, p.mapper, true); err != nil {
+		return err
 	}
 	return p.baseClient.List(ctx, obj, opts...)
 }

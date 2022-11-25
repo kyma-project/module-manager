@@ -145,7 +145,8 @@ var _ = Describe("Given manifest with OCI specs", Ordered, func() {
 		Entry("When Manifest CR contains an invalid install OCI image specification, "+
 			"expect state in error and no helmClient cache exit",
 			withInvalidInstallImageSpec(false),
-			expectManifestStateIn(v1alpha1.ManifestStateError), expectHelmClientCacheExist(false)),
+			expectManifestStateIn(v1alpha1.ManifestStateError), expectHelmClientCacheExist(false),
+		),
 	)
 })
 
