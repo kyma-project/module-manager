@@ -1,6 +1,8 @@
 package types
 
-import "os"
+import (
+	"os"
+)
 
 // ParsedFile contains the parsed content and any error encountered during processing of a file.
 //

@@ -22,7 +22,7 @@ func getResourceMapping(obj runtime.Object, mapper meta.RESTMapper) (*meta.RESTM
 		// return second call after reset
 		mapping, err = mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 		if err != nil {
-			return nil, fmt.Errorf("%s %v", restMappingErr, obj)
+			return nil, fmt.Errorf("%s %v", restMappingErr, obj.GetObjectKind().GroupVersionKind().String())
 		}
 	}
 
