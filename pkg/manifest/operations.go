@@ -211,7 +211,7 @@ func (o *Operations) consistencyCheck(deployInfo types.InstallInfo) (bool, error
 	}
 
 	// process manifest
-	parsedFile := o.getManifestForChartPath(deployInfo)
+	parsedFile := o.GetManifestForChartPath(deployInfo)
 	if parsedFile.GetRawError() != nil {
 		return false, parsedFile
 	}
@@ -236,7 +236,7 @@ func (o *Operations) install(deployInfo types.InstallInfo) (bool, error) {
 	}
 
 	// process manifest
-	parsedFile := o.getManifestForChartPath(deployInfo)
+	parsedFile := o.GetManifestForChartPath(deployInfo)
 	if parsedFile.GetRawError() != nil {
 		return false, parsedFile.GetRawError()
 	}
@@ -270,7 +270,7 @@ func (o *Operations) uninstall(deployInfo types.InstallInfo) (bool, error) {
 	}
 
 	// process manifest
-	parsedFile := o.getManifestForChartPath(deployInfo)
+	parsedFile := o.GetManifestForChartPath(deployInfo)
 	if parsedFile.GetRawError() != nil {
 		return false, parsedFile.GetRawError()
 	}
@@ -297,7 +297,14 @@ func (o *Operations) uninstall(deployInfo types.InstallInfo) (bool, error) {
 	return true, err
 }
 
-func (o *Operations) getManifestForChartPath(installInfo types.InstallInfo) *types.ParsedFile {
+func (o *Operations) GetManifestForChartPath(installInfo types.InstallInfo) *types.ParsedFile {
+	if installInfo.DisableCache {
+		return o.renderSrc.GetRawManifest(installInfo)
+	}
+	return o.getManifestForChartPathWithCache(installInfo)
+}
+
+func (o *Operations) getManifestForChartPathWithCache(installInfo types.InstallInfo) *types.ParsedFile {
 	// 1. check provided manifest file
 	// It is expected for installInfo.ChartPath to contain ONE .yaml or .yml file,
 	// which is assumed to contain a list of resources to be processed.

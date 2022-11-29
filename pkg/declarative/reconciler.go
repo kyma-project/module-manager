@@ -40,6 +40,7 @@ type ManifestReconciler struct {
 type manifestOptions struct {
 	force            bool
 	verify           bool
+	disableCache     bool
 	resourceLabels   map[string]string
 	objectTransforms []types.ObjectTransform
 	manifestResolver types.ManifestResolver

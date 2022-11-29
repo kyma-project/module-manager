@@ -26,15 +26,26 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	//+kubebuilder:scaffold:imports
+	"k8s.io/client-go/rest"
+	"path/filepath"
+	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	"time"
 )
 
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
 var (
-	ctx    context.Context    //nolint:gochecknoglobals
-	cancel context.CancelFunc //nolint:gochecknoglobals
-	logger logr.Logger        //nolint:gochecknoglobals
+	ctx     context.Context      //nolint:gochecknoglobals
+	cancel  context.CancelFunc   //nolint:gochecknoglobals
+	logger  logr.Logger          //nolint:gochecknoglobals
+	testEnv *envtest.Environment //nolint:gochecknoglobals
+	cfg     rest.Config          //nolint:gochecknoglobals
+)
+
+const (
+	Timeout  = time.Second * 10
+	Interval = time.Millisecond * 250
 )
 
 func TestAPIs(t *testing.T) {
@@ -49,6 +60,16 @@ var _ = BeforeSuite(func() {
 	logger = zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true))
 	logf.SetLogger(logger)
 
+	By("bootstrapping test environment")
+	testEnv = &envtest.Environment{
+		CRDDirectoryPaths:     []string{filepath.Join("..", "config", "crd", "bases")},
+		ErrorIfCRDPathMissing: false,
+	}
+
+	cfg, err := testEnv.Start()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(cfg).NotTo(BeNil())
+
 	go func() {
 		defer GinkgoRecover()
 	}()
@@ -56,5 +77,7 @@ var _ = BeforeSuite(func() {
 
 var _ = AfterSuite(func() {
 	cancel()
+	err := testEnv.Stop()
+	Expect(err).NotTo(HaveOccurred())
 	By("tearing down the test environment")
 })

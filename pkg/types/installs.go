@@ -177,6 +177,8 @@ type InstallInfo struct {
 	CheckReadyStates bool
 	// UpdateRepositories indicates if repositories should be updated
 	UpdateRepositories bool
+	// DisableCache indicates if final manifest.yaml should be cached
+	DisableCache bool
 }
 
 // ChartInfo defines helm chart information.

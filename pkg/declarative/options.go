@@ -53,3 +53,12 @@ func WithFinalizer(finalizer string) ReconcilerOption {
 		return allOptions
 	}
 }
+
+// WithCacheDisabled use this option to control whether final manifest.yaml should be cached.
+// Use it only for testing purpose, disable cache in production code will affect the runtime controller performance.
+func WithCacheDisabled(disable bool) ReconcilerOption {
+	return func(manifestOptions manifestOptions) manifestOptions {
+		manifestOptions.disableCache = disable
+		return manifestOptions
+	}
+}

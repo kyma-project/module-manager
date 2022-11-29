@@ -7,7 +7,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kyma-project/module-manager/pkg/labels"
@@ -53,7 +52,7 @@ func getDeployInfo(resourceName, parentCacheKey, chartPath, url string, flags ty
 			ChartName: "someChartName",
 		},
 		ClusterInfo: types.ClusterInfo{
-			Config: &rest.Config{},
+			Config: &cfg,
 		},
 		ResourceInfo: types.ResourceInfo{
 			BaseResource: &unstructured.Unstructured{
