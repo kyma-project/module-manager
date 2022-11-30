@@ -44,7 +44,7 @@ func NewKustomizeProcessor(
 }
 
 // GetRawManifest returns processed resource manifest using kustomize client.
-func (k *kustomize) GetRawManifest(deployInfo types.InstallInfo) *types.ParsedFile {
+func (k *kustomize) GetRawManifest(deployInfo *types.InstallInfo) *types.ParsedFile {
 	opts := krusty.MakeDefaultOptions()
 	kustomizer := krusty.MakeKustomizer(opts)
 
@@ -73,8 +73,8 @@ func (k *kustomize) GetRawManifest(deployInfo types.InstallInfo) *types.ParsedFi
 }
 
 // Install transforms and applies the kustomize manifest using server side apply.
-func (k *kustomize) Install(manifest string, deployInfo types.InstallInfo,
-	transforms []types.ObjectTransform,
+func (k *kustomize) Install(manifest string, deployInfo *types.InstallInfo,
+	transforms []types.ObjectTransform, _ []types.PostRun,
 ) (bool, error) {
 	// transform
 	objects, err := util.Transform(deployInfo.Ctx, manifest, deployInfo.BaseResource, transforms)
@@ -87,8 +87,8 @@ func (k *kustomize) Install(manifest string, deployInfo types.InstallInfo,
 }
 
 // Uninstall transforms and deletes kustomize based manifest using dynamic client.
-func (k *kustomize) Uninstall(manifest string, deployInfo types.InstallInfo,
-	transforms []types.ObjectTransform,
+func (k *kustomize) Uninstall(manifest string, deployInfo *types.InstallInfo,
+	transforms []types.ObjectTransform, _ []types.PostRun,
 ) (bool, error) {
 	// transform
 	objects, err := util.Transform(deployInfo.Ctx, manifest, deployInfo.BaseResource, transforms)
@@ -105,14 +105,14 @@ func (k *kustomize) Uninstall(manifest string, deployInfo types.InstallInfo,
 }
 
 // IsConsistent indicates if kustomize installation is consistent with the desired manifest resources.
-func (k *kustomize) IsConsistent(manifest string, deployInfo types.InstallInfo,
-	transforms []types.ObjectTransform,
+func (k *kustomize) IsConsistent(manifest string, deployInfo *types.InstallInfo,
+	transforms []types.ObjectTransform, postRuns []types.PostRun,
 ) (bool, error) {
 	// TODO evaluate a better consistency check
-	return k.Install(manifest, deployInfo, transforms)
+	return k.Install(manifest, deployInfo, transforms, postRuns)
 }
 
-func (k *kustomize) InvalidateConfigAndRenderedManifest(_ types.InstallInfo, _ uint32) (uint32, error) {
+func (k *kustomize) InvalidateConfigAndRenderedManifest(_ *types.InstallInfo, _ uint32) (uint32, error) {
 	// TODO implement invalidation logic
 	return 0, nil
 }

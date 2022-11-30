@@ -62,7 +62,7 @@ type RequeueIntervals struct {
 }
 
 type OperationRequest struct {
-	Info         types.InstallInfo
+	Info         *types.InstallInfo
 	Mode         internalTypes.Mode
 	ResponseChan internalTypes.ResponseChan
 }
@@ -212,8 +212,11 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, logger logr.L
 	}
 
 	for _, deployInfo := range deployInfos {
-		ready, err := manifest.ConsistencyCheck(logger, deployInfo, []types.ObjectTransform{},
-			r.CacheManager.GetRendererCache())
+		ready, err := manifest.ConsistencyCheck(manifest.OperationOptions{
+			Logger:      logger,
+			InstallInfo: deployInfo,
+			Cache:       r.CacheManager.GetRendererCache(),
+		})
 
 		// prepare chart response object
 		chartResponse := &internalTypes.InstallResponse{
@@ -266,7 +269,7 @@ func (r *ManifestReconciler) updateManifestStatus(ctx context.Context, manifestO
 	return r.Status().Update(ctx, manifestObj.SetObservedGeneration())
 }
 
-func (r *ManifestReconciler) HandleCharts(deployInfo types.InstallInfo, mode internalTypes.Mode,
+func (r *ManifestReconciler) HandleCharts(deployInfo *types.InstallInfo, mode internalTypes.Mode,
 	logger logr.Logger,
 ) *internalTypes.InstallResponse {
 	// evaluate create or delete chart
@@ -274,12 +277,16 @@ func (r *ManifestReconciler) HandleCharts(deployInfo types.InstallInfo, mode int
 
 	var ready bool
 	var err error
+
+	options := manifest.OperationOptions{
+		Logger:      logger,
+		InstallInfo: deployInfo,
+		Cache:       r.CacheManager.GetRendererCache(),
+	}
 	if create {
-		ready, err = manifest.InstallChart(logger, deployInfo, []types.ObjectTransform{},
-			r.CacheManager.GetRendererCache())
+		ready, err = manifest.InstallChart(options)
 	} else {
-		ready, err = manifest.UninstallChart(logger, deployInfo, []types.ObjectTransform{},
-			r.CacheManager.GetRendererCache())
+		ready, err = manifest.UninstallChart(options)
 	}
 
 	return &internalTypes.InstallResponse{

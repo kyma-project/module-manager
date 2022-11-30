@@ -23,13 +23,13 @@ type Resource struct {
 }
 
 func (r *Resource) DefaultFn(context.Context, *unstructured.Unstructured, logr.Logger,
-	types.ClusterInfo,
+	*types.ClusterInfo,
 ) (bool, error) {
 	return true, nil
 }
 
 func (r *Resource) CheckFn(ctx context.Context, manifestObj *unstructured.Unstructured, logger logr.Logger,
-	clusterInfo types.ClusterInfo,
+	clusterInfo *types.ClusterInfo,
 ) (bool, error) {
 	// if manifest resource is in deleting state - validate check
 	if !manifestObj.GetDeletionTimestamp().IsZero() {

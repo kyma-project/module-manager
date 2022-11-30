@@ -50,7 +50,7 @@ func getDirContent(filePath string) ([]fs.DirEntry, error) {
 	return dirEntries, err
 }
 
-func GetChartKind(deployInfo types.InstallInfo) (ChartKind, error) {
+func GetChartKind(deployInfo *types.InstallInfo) (ChartKind, error) {
 	// URLs are not verified at this state
 	if deployInfo.URL != "" {
 		// URL without RepoName is expected for Kustomize
