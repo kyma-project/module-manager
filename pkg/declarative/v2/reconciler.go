@@ -1,14 +1,12 @@
 package v2
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sync"
 
 	manifestClient "github.com/kyma-project/module-manager/pkg/client"
 	manifestLabels "github.com/kyma-project/module-manager/pkg/labels"
@@ -22,7 +20,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
@@ -34,19 +31,23 @@ import (
 )
 
 const (
-	FinalizerDefault  = "declarative.kyma-project.io/finalizer"
-	FieldOwnerDefault = "declarative.kyma-project.io/applier"
+	FinalizerDefault     = "declarative.kyma-project.io/finalizer"
+	FieldOwnerDefault    = "declarative.kyma-project.io/applier"
+	EventRecorderDefault = "declarative.kyma-project.io/events"
 )
 
-func New(mgr manager.Manager, objType Object, options ...Option) *ManifestReconciler {
+func New(mgr manager.Manager, prototype Object, options ...Option) *ManifestReconciler {
 	r := &ManifestReconciler{}
-	r.prototype = objType
-	r.Client = mgr.GetClient()
+	r.prototype = prototype
+
 	r.SingletonClientCache = NewMemorySingletonClientCache()
+	r.Client = mgr.GetClient()
 	r.Config = mgr.GetConfig()
-	r.EventRecorder = mgr.GetEventRecorderFor(objType.GetName())
+	r.EventRecorder = mgr.GetEventRecorderFor(EventRecorderDefault)
+
+	r.ReconcilerOptions = &ReconcilerOptions{}
 	for i := range options {
-		options[i].Apply(r)
+		options[i].Apply(r.ReconcilerOptions)
 	}
 
 	if r.Namespace == "" {
@@ -70,30 +71,15 @@ func New(mgr manager.Manager, objType Object, options ...Option) *ManifestReconc
 }
 
 type ManifestReconciler struct {
-	prototype runtime.Object
+	prototype Object
+
 	client.Client
-	Config *rest.Config
 	record.EventRecorder
-	ManifestSpecSource
+	Config *rest.Config
+
 	SingletonClientCache
-	Namespace            string
-	Values               map[string]interface{}
-	FieldOwner           client.FieldOwner
-	Finalizer            string
-	CustomResourceLabels labels.Set
-	PostRenderTransforms []types.ObjectTransform
-}
 
-func (r *ManifestReconciler) GetPrototype() (Object, error) {
-	obj, ok := r.prototype.DeepCopyObject().(Object)
-	if !ok {
-		return nil, fmt.Errorf("invalid custom resource object type for reconciliation")
-	}
-	return obj, nil
-}
-
-type ManifestSpecSource interface {
-	ResolveManifestSpec(ctx context.Context, object Object) (*ManifestSpec, error)
+	*ReconcilerOptions
 }
 
 type Scope struct {
@@ -107,13 +93,31 @@ type ManifestSpec struct {
 	Values       map[string]interface{}
 }
 
+var (
+	crdCondition = metav1.Condition{
+		Type:    "CRDs",
+		Reason:  "Ready",
+		Status:  metav1.ConditionFalse,
+		Message: "CustomResourceDefinitions are installed and ready for use",
+	}
+	resourceCondition = metav1.Condition{
+		Type:    "Resources",
+		Reason:  "Ready",
+		Status:  metav1.ConditionFalse,
+		Message: "resources are parsed and ready for use",
+	}
+	installationCondition = metav1.Condition{
+		Type:    "Installation",
+		Reason:  "Ready",
+		Status:  metav1.ConditionFalse,
+		Message: "installation is finished",
+	}
+)
+
 func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	obj, err := r.GetPrototype()
-	if err != nil {
-		return ctrl.Result{}, err
-	}
+	obj := r.prototype.DeepCopyObject().(Object)
 
 	if err := r.Get(ctx, req.NamespacedName, obj); err != nil {
 		logger.Info(req.NamespacedName.String() + " got deleted!")
@@ -135,24 +139,20 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return r.ssa(ctx, obj)
 	}
 
-	crdCondition := metav1.Condition{
-		Type:    "CRDs",
-		Reason:  "Synced",
-		Status:  metav1.ConditionFalse,
-		Message: "CRDs are installed and ready for use",
-	}
-	resourceCondition := metav1.Condition{
-		Type:    "Resources",
-		Reason:  "SyncResourceParsed",
-		Status:  metav1.ConditionFalse,
-		Message: "Resources are parsed and ready for use",
-	}
+	crdCondition := *crdCondition.DeepCopy()
+	resourceCondition := *resourceCondition.DeepCopy()
+	installationCondition := *installationCondition.DeepCopy()
+
+	crdCondition.ObservedGeneration = obj.GetGeneration()
+	resourceCondition.ObservedGeneration = obj.GetGeneration()
+	installationCondition.ObservedGeneration = obj.GetGeneration()
 
 	// Processing
 	if status.State == "" {
 		status.Conditions = make([]metav1.Condition, 0, 2)
 		meta.SetStatusCondition(&status.Conditions, crdCondition)
 		meta.SetStatusCondition(&status.Conditions, resourceCondition)
+		meta.SetStatusCondition(&status.Conditions, installationCondition)
 		status.Synced = make([]Resource, 0)
 		obj.SetStatus(status.WithState(StateProcessing))
 		return r.ssaStatus(ctx, obj)
@@ -177,7 +177,7 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		Object: obj,
 	}
 
-	clientsCacheKey := discoverCacheKey(ctx, scope.Object)
+	clientsCacheKey := cacheKeyFromObject(ctx, scope.Object)
 	var clients *manifestClient.SingletonClients
 
 	if clients = r.GetClients(clientsCacheKey); clients == nil {
@@ -226,60 +226,34 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return r.ssaStatus(ctx, obj)
 	}
 
+	crds, err := getCRDs(clients, chrt.CRDObjects())
+
+	if err != nil {
+		r.Event(obj, "Warning", "CRDParsing", err.Error())
+		crdCondition.Status = metav1.ConditionFalse
+		meta.SetStatusCondition(&status.Conditions, crdCondition)
+		obj.SetStatus(status.WithState(StateError))
+		return r.ssaStatus(ctx, obj)
+	}
+
 	if obj.GetDeletionTimestamp().IsZero() && !meta.IsStatusConditionTrue(status.Conditions, "CRDs") {
-		crdFiles := chrt.CRDObjects()
-		var crdManifest bytes.Buffer
-		for i := range crdFiles {
-			crdManifest.Write(append(bytes.TrimPrefix(crdFiles[i].File.Data, []byte("---\n")), '\n'))
-		}
-		crdsObjects, err := util.ParseManifestStringToObjects(crdManifest.String())
-		if err != nil {
-			r.Event(obj, "Warning", "ManifestParsing", err.Error())
-			obj.SetStatus(status.WithState(StateError))
-			return r.ssaStatus(ctx, obj)
-		}
-		var crds kube.ResourceList
-		errs := make([]error, 0, len(crdsObjects.Items))
-		for _, crd := range crdsObjects.Items {
-			crdInfo, err := clients.ResourceInfo(crd, true)
-			if err != nil {
-				errs = append(errs, err)
-				continue
-			}
-			crds = append(crds, crdInfo)
-		}
-
-		if len(errs) > 0 {
-			r.Event(obj, "Warning", "CRDParsing", types.NewMultiError(errs).Error())
-			crdCondition.Status = metav1.ConditionFalse
-			meta.SetStatusCondition(&status.Conditions, crdCondition)
-			obj.SetStatus(status.WithState(StateError))
-			return r.ssaStatus(ctx, obj)
-		}
-
-		crdInstallWaitGroup := sync.WaitGroup{}
-		errChan := make(chan error, len(crds))
-		createCRD := func(i int) {
-			defer crdInstallWaitGroup.Done()
-			_, err := clients.KubeClient().Create(kube.ResourceList{crds[i]})
-			errChan <- err
-		}
-
-		for i := range crds {
-			crdInstallWaitGroup.Add(1)
-			go createCRD(i)
-		}
-		crdInstallWaitGroup.Wait()
-		close(errChan)
-
-		for err := range errChan {
-			if err == nil || apierrors.IsAlreadyExists(err) {
-				continue
-			}
+		if err := installCRDs(clients, crds); err != nil {
 			r.Event(obj, "Warning", "CRDInstallation", err.Error())
 			meta.SetStatusCondition(&status.Conditions, crdCondition)
 			obj.SetStatus(status.WithState(StateError))
 			return r.ssaStatus(ctx, obj)
+		}
+
+		crdsReady, err := CheckReady(ctx, clients, crds)
+		if err != nil {
+			r.Event(obj, "Warning", "CRDReadyCheck", err.Error())
+			obj.SetStatus(status.WithState(StateError))
+			return r.ssaStatus(ctx, obj)
+		}
+
+		if !crdsReady {
+			r.Event(obj, "Normal", "CRDReadyCheck", "crds are not yet ready...")
+			return ctrl.Result{Requeue: true}, nil
 		}
 
 		restMapper, _ := clients.ToRESTMapper()
@@ -336,13 +310,13 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	for _, transform := range r.PostRenderTransforms {
 		if err := transform(ctx, obj, targetResources); err != nil {
-			r.Event(obj, "Warning", "ManifestParsing", err.Error())
+			r.Event(obj, "Warning", "PostRenderTransform", err.Error())
 			obj.SetStatus(status.WithState(StateError))
 			return r.ssaStatus(ctx, obj)
 		}
 	}
 
-	// CUSTOMIZATION
+	// CUSTOMIZATION TODO skip if customlabels are empty
 	for _, targetResource := range targetResources.Items {
 		lbls := targetResource.GetLabels()
 		if lbls == nil {
@@ -371,9 +345,6 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			meta.SetStatusCondition(&status.Conditions, resourceCondition)
 			obj.SetStatus(status.WithState(StateError))
 			return r.ssaStatus(ctx, obj)
-		} else {
-			resourceCondition.Status = metav1.ConditionTrue
-			meta.SetStatusCondition(&status.Conditions, resourceCondition)
 		}
 	} else {
 		target = kube.ResourceList{}
@@ -403,31 +374,36 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		meta.SetStatusCondition(&status.Conditions, resourceCondition)
 		obj.SetStatus(status.WithState(StateError))
 		return r.ssaStatus(ctx, obj)
-	} else {
+	}
+
+	if !meta.IsStatusConditionTrue(status.Conditions, resourceCondition.Type) {
 		resourceCondition.Status = metav1.ConditionTrue
 		meta.SetStatusCondition(&status.Conditions, resourceCondition)
+		obj.SetStatus(status)
+		return r.ssaStatus(ctx, obj)
 	}
 
 	toDelete := current.Difference(target)
-	if len(toDelete) > 0 {
-		_, errs = clients.KubeClient().Delete(toDelete)
-		if errs != nil {
-			r.Event(obj, "Warning", "Deletion", types.NewMultiError(errs).Error())
-			obj.SetStatus(status.WithState(StateError))
-			return r.ssaStatus(ctx, obj)
-		}
-	}
-
-	for i := range toDelete {
-		err := toDelete[i].Get()
-		if err == nil || !apierrors.IsNotFound(err) {
-			r.Event(obj, "Warning", "DeletionCheck", err.Error())
-			obj.SetStatus(status.WithState(StateError))
-			return r.ssaStatus(ctx, obj)
-		}
+	if deleted, err := DeleteAndVerify(clients, toDelete); err != nil {
+		r.Event(obj, "Warning", "Deletion", types.NewMultiError(errs).Error())
+		obj.SetStatus(status.WithState(StateError))
+		return r.ssaStatus(ctx, obj)
+	} else if !deleted {
+		r.Event(obj, "Normal", "Deletion", "deletion not succeeded yet")
+		return ctrl.Result{Requeue: true}, nil
 	}
 
 	if !obj.GetDeletionTimestamp().IsZero() {
+		if deleted, err := DeleteAndVerify(clients, crds); err != nil {
+			r.Event(obj, "Warning", "CRDUninstallation", types.NewMultiError(errs).Error())
+			obj.SetStatus(status.WithState(StateError))
+			return r.ssaStatus(ctx, obj)
+		} else if !deleted {
+			r.Event(obj, "Normal", "CRDUninstallation", "crds not uninstalled yet")
+			obj.SetStatus(status.WithState(StateDeleting))
+			return r.ssaStatus(ctx, obj)
+		}
+
 		if controllerutil.RemoveFinalizer(obj, r.Finalizer) {
 			return r.ssa(ctx, obj)
 		}
@@ -436,19 +412,33 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return r.ssaStatus(ctx, obj)
 	}
 
-	// this catches all resources in target that were created externally or if the synced
-	// info is not up-to-date. If there is one missing in current its added.
-	for i := range target {
-		if target[i].Get() == nil && !current.Contains(target[i]) {
-			current.Append(target[i])
+	if r.ServerSideApply {
+		logger.V(util.DebugLogLevel).Info("ServerSideApply", "resources", len(target))
+		// Runtime Complexity of this Branch is N as only SSA Patch is required
+		for i := range target {
+			if err := r.Patch(ctx, target[i].Object.(*unstructured.Unstructured),
+				client.Apply, client.ForceOwnership, r.FieldOwner); err != nil {
+				r.Event(obj, "Warning", "SSA", err.Error())
+				obj.SetStatus(status.WithState(StateError))
+				return r.ssaStatus(ctx, obj)
+			}
 		}
-	}
+	} else {
+		// Runtime Complexity of this Branch is 2N as Gets and Updates are sequential
+		// this catches all resources in target that were created externally or if the synced
+		// info is not up-to-date. If there is one missing in current its added.
+		for i := range target {
+			if target[i].Get() == nil && !current.Contains(target[i]) {
+				current.Append(target[i])
+			}
+		}
 
-	_, err = clients.KubeClient().Update(current, target, false)
-	if err != nil {
-		r.Event(obj, "Warning", "Update", err.Error())
-		obj.SetStatus(status.WithState(StateError))
-		return r.ssaStatus(ctx, obj)
+		_, err = clients.KubeClient().Update(current, target, false)
+		if err != nil {
+			r.Event(obj, "Warning", "Update", err.Error())
+			obj.SetStatus(status.WithState(StateError))
+			return r.ssaStatus(ctx, obj)
+		}
 	}
 
 	status.Synced = make([]Resource, 0, len(target))
@@ -464,23 +454,11 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		})
 	}
 
-	resourcesReady := true
-	clientSet, _ := clients.KubernetesClientSet()
-	checker := kube.NewReadyChecker(clientSet, func(format string, args ...interface{}) {
-		logger.V(util.DebugLogLevel).Info(fmt.Sprintf(format, args...))
-	}, kube.PausedAsReady(true), kube.CheckJobs(true))
-
-	for i := range target {
-		ready, err := checker.IsReady(ctx, target[i])
-		if err != nil {
-			r.Event(obj, "Warning", "ReadyCheck", err.Error())
-			obj.SetStatus(status.WithState(StateError))
-			return r.ssaStatus(ctx, obj)
-		}
-		if !ready {
-			resourcesReady = false
-			break
-		}
+	resourcesReady, err := CheckReady(ctx, clients, target)
+	if err != nil {
+		r.Event(obj, "Warning", "ReadyCheck", err.Error())
+		obj.SetStatus(status.WithState(StateError))
+		return r.ssaStatus(ctx, obj)
 	}
 
 	if !resourcesReady {
@@ -489,9 +467,15 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return r.ssaStatus(ctx, obj)
 	}
 
-	r.Event(obj, "Normal", "ResourceReadyCheck", "resources are ready!")
-	obj.SetStatus(status.WithState(StateReady))
-	return ctrl.Result{}, r.Patch(ctx, obj, client.Apply, client.ForceOwnership, r.FieldOwner)
+	if !meta.IsStatusConditionTrue(status.Conditions, installationCondition.Type) {
+		r.Event(obj, "Normal", "ResourceReadyCheck", "resources are ready!")
+		installationCondition.Status = metav1.ConditionTrue
+		meta.SetStatusCondition(&status.Conditions, installationCondition)
+		obj.SetStatus(status.WithState(StateReady))
+		return r.ssaStatus(ctx, obj)
+	}
+
+	return ctrl.Result{}, nil
 }
 
 func (r *ManifestReconciler) ssaStatus(ctx context.Context, obj client.Object) (ctrl.Result, error) {
@@ -502,7 +486,7 @@ func (r *ManifestReconciler) ssa(ctx context.Context, obj client.Object) (ctrl.R
 	return ctrl.Result{Requeue: true}, r.Patch(ctx, obj, client.Apply, client.ForceOwnership, r.FieldOwner)
 }
 
-func discoverCacheKey(ctx context.Context, resource client.Object) client.ObjectKey {
+func cacheKeyFromObject(ctx context.Context, resource client.Object) client.ObjectKey {
 	logger := log.FromContext(ctx)
 
 	if resource == nil {
@@ -513,16 +497,56 @@ func discoverCacheKey(ctx context.Context, resource client.Object) client.Object
 	objectKey := client.ObjectKeyFromObject(resource)
 	var labelErr *types.LabelNotFoundError
 	if errors.As(err, &labelErr) {
-		logger.V(util.DebugLogLevel).Info(manifestLabels.CacheKey+" missing on resource, it will be cached "+
+		logger.V(4).Info(manifestLabels.CacheKey+" missing on resource, it will be cached "+
 			"based on resource name and namespace.",
 			"resource", objectKey)
 		return objectKey
 	}
 
-	logger.V(util.DebugLogLevel).Info("resource will be cached based on "+manifestLabels.CacheKey,
+	logger.V(4).Info("resource will be cached based on "+manifestLabels.CacheKey,
 		"resource", objectKey,
 		"label", manifestLabels.CacheKey,
 		"labelValue", label)
 
 	return client.ObjectKey{Name: label, Namespace: resource.GetNamespace()}
+}
+
+func DeleteAndVerify(clients *manifestClient.SingletonClients, resources kube.ResourceList) (bool, error) {
+	if len(resources) > 0 {
+		_, errs := clients.KubeClient().Delete(resources)
+		if errs != nil {
+			return false, types.NewMultiError(errs)
+		}
+	}
+	for i := range resources {
+		err := resources[i].Get()
+		if err == nil {
+			return false, nil
+		}
+		if err != nil && !apierrors.IsNotFound(err) {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+func CheckReady(ctx context.Context, clients *manifestClient.SingletonClients, target kube.ResourceList) (bool, error) {
+	logger := log.FromContext(ctx)
+	resourcesReady := true
+	clientSet, _ := clients.KubernetesClientSet()
+	checker := kube.NewReadyChecker(clientSet, func(format string, args ...interface{}) {
+		logger.V(util.DebugLogLevel).Info(fmt.Sprintf(format, args...))
+	}, kube.PausedAsReady(true), kube.CheckJobs(true))
+
+	for i := range target {
+		ready, err := checker.IsReady(ctx, target[i])
+		if err != nil {
+			return false, err
+		}
+		if !ready {
+			resourcesReady = false
+			break
+		}
+	}
+	return resourcesReady, nil
 }
