@@ -464,11 +464,11 @@ func (h *helm) optimizedInstallCRDs(ctx context.Context, chartRequested *chart.C
 	}
 
 	crdInstallWaitGroup := sync.WaitGroup{}
-	errors := make(chan error, len(resList))
+	errs := make(chan error, len(resList))
 	createCRD := func(i int) {
 		defer crdInstallWaitGroup.Done()
 		_, err := h.clients.KubeClient().Create(kube.ResourceList{resList[i]})
-		errors <- err
+		errs <- err
 	}
 
 	for i := range resList {
@@ -476,9 +476,9 @@ func (h *helm) optimizedInstallCRDs(ctx context.Context, chartRequested *chart.C
 		go createCRD(i)
 	}
 	crdInstallWaitGroup.Wait()
-	close(errors)
+	close(errs)
 
-	for err := range errors {
+	for err := range errs {
 		if err == nil || apierrors.IsAlreadyExists(err) {
 			continue
 		}
