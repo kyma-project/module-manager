@@ -22,6 +22,7 @@ import (
 
 	"github.com/kyma-project/module-manager/pkg/types"
 	"github.com/kyma-project/module-manager/pkg/util"
+	"strings"
 )
 
 type helm struct {
@@ -158,7 +159,7 @@ func (h *helm) Uninstall(stringifedManifest string, info types.InstallInfo, tran
 
 	// uninstall resources
 	_, err = h.uninstallResources(resourceLists)
-	if err != nil {
+	if IgnoreHelmClientNotFound(err) != nil {
 		return false, err
 	}
 
@@ -198,6 +199,14 @@ func (h *helm) Uninstall(stringifedManifest string, info types.InstallInfo, tran
 	}
 
 	return true, nil
+}
+
+func IgnoreHelmClientNotFound(err error) error {
+	// Refactoring this error check after this PR get merged and released https://github.com/helm/helm/pull/11591
+	if err != nil && strings.Contains(err.Error(), "object not found, skipping delete") {
+		return nil
+	}
+	return err
 }
 
 // uninstallChartCRDs uses a types.InstallInfo to lookup a chart and then tries to remove all CRDs found within it

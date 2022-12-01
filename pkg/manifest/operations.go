@@ -7,7 +7,6 @@ import (
 	"github.com/go-logr/logr"
 	"helm.sh/helm/v3/pkg/cli"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	manifestClient "github.com/kyma-project/module-manager/pkg/client"
@@ -16,6 +15,7 @@ import (
 	"github.com/kyma-project/module-manager/pkg/resource"
 	"github.com/kyma-project/module-manager/pkg/types"
 	"github.com/kyma-project/module-manager/pkg/util"
+	"k8s.io/apimachinery/pkg/api/meta"
 )
 
 type Operations struct {
@@ -25,6 +25,11 @@ type Operations struct {
 	resourceTransforms []types.ObjectTransform
 	client             client.Client
 }
+
+var (
+	ErrCRsNotRemoved  = errors.New("CustomResources not completely removed")
+	ErrCRDsNotRemoved = errors.New("CRDs not completely removed")
+)
 
 // InstallChart installs the resources based on types.InstallInfo and an appropriate rendering mechanism.
 func InstallChart(logger logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
@@ -264,9 +269,9 @@ func (o *Operations) uninstall(deployInfo types.InstallInfo) (bool, error) {
 	// delete crs first - proceed only if not found
 	// proceed if CR type doesn't exist anymore - since associated CRDs might be deleted from resource uninstallation
 	// since there might be a deletion process to be completed by other manifest resources
-	deleted, err := resource.RemoveCRs(deployInfo.Ctx, deployInfo.CustomResources, o.client)
-	if !meta.IsNoMatchError(err) && (err != nil || !deleted) {
-		return false, err
+	crDeleted := resource.RemoveCRs(deployInfo.Ctx, deployInfo.CustomResources, o.client)
+	if !crDeleted {
+		return false, ErrCRsNotRemoved
 	}
 
 	// process manifest
@@ -281,13 +286,14 @@ func (o *Operations) uninstall(deployInfo types.InstallInfo) (bool, error) {
 
 	// uninstall resources
 	consistent, err := o.renderSrc.Uninstall(parsedFile.GetContent(), deployInfo, o.resourceTransforms)
-	if err != nil || !consistent {
+	if !noResourceFound(err) || !consistent {
 		return false, err
 	}
 
 	// delete crds last - if not present ignore!
-	if err := resource.RemoveCRDs(deployInfo.Ctx, deployInfo.Crds, o.client); err != nil {
-		return false, err
+	crdDeleted := resource.RemoveCRDs(deployInfo.Ctx, deployInfo.Crds, o.client)
+	if !crdDeleted {
+		return false, ErrCRDsNotRemoved
 	}
 
 	// custom states check
@@ -295,6 +301,10 @@ func (o *Operations) uninstall(deployInfo types.InstallInfo) (bool, error) {
 		return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.BaseResource, o.logger, deployInfo.ClusterInfo)
 	}
 	return true, err
+}
+
+func noResourceFound(err error) bool {
+	return err == nil || apierrors.IsNotFound(err) || meta.IsNoMatchError(err)
 }
 
 func (o *Operations) getManifestForChartPath(installInfo types.InstallInfo) *types.ParsedFile {
