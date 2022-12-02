@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"time"
 
 	manifestClient "github.com/kyma-project/module-manager/pkg/client"
 	manifestLabels "github.com/kyma-project/module-manager/pkg/labels"
@@ -215,64 +216,69 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return r.ssaStatus(ctx, obj)
 	}
 
-	var targetResources *types.ManifestResources
-
-	manifestFilePath := filepath.Join(spec.ChartPath, "manifest")
-	cacheFilePath := filepath.Join(manifestFilePath, spec.ManifestName)
-	hashedValues, _ := util.CalculateHash(spec.Values)
-	cacheFilePath = fmt.Sprintf("%s-%v.yaml", cacheFilePath, hashedValues)
-	err = filepath.Walk(
-		manifestFilePath, func(path string, info fs.FileInfo, err error) error {
-			if info.IsDir() {
-				return nil
-			}
-			oldCachedManifest := filepath.Join(manifestFilePath, info.Name())
-			if oldCachedManifest != cacheFilePath {
-				return os.Remove(oldCachedManifest)
-			}
-			return nil
-		},
-	)
-	cacheFile := types.NewParsedFile(util.GetStringifiedYamlFromFilePath(cacheFilePath))
-
-	if cacheFile.GetRawError() != nil {
-		release, err := clients.Install().Run(chrt, spec.Values)
-		if err != nil {
-			r.Event(obj, "Warning", "HelmRenderRun", err.Error())
-			obj.SetStatus(status.WithState(StateError))
-			return r.ssaStatus(ctx, obj)
-		}
-		targetResources, err = util.ParseManifestStringToObjects(release.Manifest)
-		if err != nil {
-			r.Event(obj, "Warning", "ManifestParsing", err.Error())
-			obj.SetStatus(status.WithState(StateError))
-			return r.ssaStatus(ctx, obj)
-		}
-		if err := util.WriteToFile(cacheFilePath, []byte(release.Manifest)); err != nil {
-			r.Event(obj, "Warning", "ManifestWriting", err.Error())
-			obj.SetStatus(status.WithState(StateError))
-			return r.ssaStatus(ctx, obj)
-		}
-	} else {
-		targetResources, err = util.ParseManifestStringToObjects(cacheFile.GetContent())
-		if err != nil {
-			r.Event(obj, "Warning", "ManifestParsing", err.Error())
-			obj.SetStatus(status.WithState(StateError))
-			return r.ssaStatus(ctx, obj)
-		}
-	}
-
-	for _, transform := range r.PostRenderTransforms {
-		if err := transform(ctx, obj, targetResources); err != nil {
-			r.Event(obj, "Warning", "PostRenderTransform", err.Error())
-			obj.SetStatus(status.WithState(StateError))
-			return r.ssaStatus(ctx, obj)
-		}
-	}
-
 	var target, current kube.ResourceList
 
 	if obj.GetDeletionTimestamp().IsZero() {
+		var targetResources *types.ManifestResources
+
+		manifestFilePath := filepath.Join(spec.ChartPath, "manifest")
+		cacheFilePath := filepath.Join(manifestFilePath, spec.ManifestName)
+		hashedValues, _ := util.CalculateHash(spec.Values)
+		cacheFilePath = fmt.Sprintf("%s-%v.yaml", cacheFilePath, hashedValues)
+		err = filepath.Walk(
+			manifestFilePath, func(path string, info fs.FileInfo, err error) error {
+				if info == nil || info.IsDir() {
+					return nil
+				}
+				oldCachedManifest := filepath.Join(manifestFilePath, info.Name())
+				if oldCachedManifest != cacheFilePath {
+					return os.Remove(oldCachedManifest)
+				}
+				return nil
+			},
+		)
+		cacheFile := types.NewParsedFile(util.GetStringifiedYamlFromFilePath(cacheFilePath))
+
+		if cacheFile.GetRawError() != nil {
+			renderStart := time.Now()
+			logger.Info("no cached manifest, rendering again", "hash", hashedValues)
+			release, err := clients.Install().Run(chrt, spec.Values)
+			if err != nil {
+				logger.Info("rendering failed", "time", time.Now().Sub(renderStart))
+				r.Event(obj, "Warning", "HelmRenderRun", err.Error())
+				obj.SetStatus(status.WithState(StateError))
+				return r.ssaStatus(ctx, obj)
+			}
+			logger.Info("rendering finished", "time", time.Now().Sub(renderStart))
+			targetResources, err = util.ParseManifestStringToObjects(release.Manifest)
+			if err != nil {
+				r.Event(obj, "Warning", "ManifestParsing", err.Error())
+				obj.SetStatus(status.WithState(StateError))
+				return r.ssaStatus(ctx, obj)
+			}
+			if err := util.WriteToFile(cacheFilePath, []byte(release.Manifest)); err != nil {
+				r.Event(obj, "Warning", "ManifestWriting", err.Error())
+				obj.SetStatus(status.WithState(StateError))
+				return r.ssaStatus(ctx, obj)
+			}
+		} else {
+			logger.V(util.DebugLogLevel).Info("reuse manifest from cache", "hash", hashedValues)
+			targetResources, err = util.ParseManifestStringToObjects(cacheFile.GetContent())
+			if err != nil {
+				r.Event(obj, "Warning", "ManifestParsing", err.Error())
+				obj.SetStatus(status.WithState(StateError))
+				return r.ssaStatus(ctx, obj)
+			}
+		}
+
+		for _, transform := range r.PostRenderTransforms {
+			if err := transform(ctx, obj, targetResources); err != nil {
+				r.Event(obj, "Warning", "PostRenderTransform", err.Error())
+				obj.SetStatus(status.WithState(StateError))
+				return r.ssaStatus(ctx, obj)
+			}
+		}
+
 		target, err = resourcesFromManifest(clients, targetResources)
 		if err != nil {
 			r.Event(obj, "Warning", "TargetResourceParsing", err.Error())
@@ -287,7 +293,7 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	if current, err = resourcesFromStatus(clients, status); err != nil {
 		r.Event(obj, "Warning", "CurrentResourceParsing", err.Error())
-		resourceCondition.Status = "NotReady"
+		resourceCondition.Status = metav1.ConditionFalse
 		meta.SetStatusCondition(&status.Conditions, resourceCondition)
 		obj.SetStatus(status.WithState(StateError))
 		return r.ssaStatus(ctx, obj)
@@ -390,7 +396,6 @@ func (r *ManifestReconciler) initializeClients(
 	if clients = r.GetClients(clientsCacheKey); clients == nil {
 		clients, err = manifestClient.NewSingletonClients(
 			&types.ClusterInfo{
-				Client: r.Client,
 				Config: r.Config,
 			}, log.FromContext(ctx),
 		)
@@ -404,6 +409,8 @@ func (r *ManifestReconciler) initializeClients(
 		clients.Install().CreateNamespace = true
 		clients.Install().UseReleaseName = false
 		clients.Install().IsUpgrade = true
+		clients.Install().DisableHooks = true
+		clients.Install().DisableOpenAPIValidation = true
 		if clients.Install().Version == "" && clients.Install().Devel {
 			clients.Install().Version = ">0.0.0-0"
 		}
@@ -411,12 +418,11 @@ func (r *ManifestReconciler) initializeClients(
 		r.SetClients(clientsCacheKey, clients)
 	}
 
-	if r.Namespace != metav1.NamespaceNone && r.Namespace != metav1.NamespaceDefault {
-		clients.Install().Namespace = r.Namespace
-		clients.KubeClient().Namespace = r.Namespace
-	}
+	clients.Install().Namespace = r.Namespace
+	clients.KubeClient().Namespace = r.Namespace
 
-	if clients.Install().CreateNamespace {
+	if r.Namespace != metav1.NamespaceNone && r.Namespace != metav1.NamespaceDefault &&
+		clients.Install().CreateNamespace {
 		err := clients.Patch(ctx, namespace(r.Namespace), client.Apply, client.ForceOwnership, r.FieldOwner)
 		if err != nil {
 			return nil, err

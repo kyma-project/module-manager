@@ -10,6 +10,7 @@ import (
 	"github.com/kyma-project/module-manager/pkg/types"
 	"github.com/kyma-project/module-manager/pkg/util"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -46,20 +47,29 @@ func resourcesFromStatus(clients *moduleClient.SingletonClients, status Status) 
 	var current []*resource.Info
 	errs := make([]error, 0, len(status.Synced))
 	for _, synced := range status.Synced {
-		unstruct := &unstructured.Unstructured{}
-		unstruct.SetName(synced.Name)
-		unstruct.SetNamespace(synced.Namespace)
-		unstruct.SetGroupVersionKind(
+		obj := &unstructured.Unstructured{}
+		obj.SetName(synced.Name)
+		obj.SetNamespace(synced.Namespace)
+		obj.SetGroupVersionKind(
 			schema.GroupVersionKind{
 				Group:   synced.Group,
 				Version: synced.Version,
 				Kind:    synced.Kind,
 			},
 		)
-		resourceInfo, err := clients.ResourceInfo(unstruct, true)
+		resourceInfo, err := clients.ResourceInfo(obj, true)
 		if err != nil {
 			errs = append(errs, err)
 			continue
+		}
+		if resourceInfo.Namespaced() {
+			defaultNamespace := clients.KubeClient().Namespace
+			if resourceInfo.Namespace == "" {
+				resourceInfo.Namespace = defaultNamespace
+			}
+			if obj.GetNamespace() == "" {
+				obj.SetNamespace(defaultNamespace)
+			}
 		}
 		current = append(current, resourceInfo)
 	}
@@ -79,6 +89,15 @@ func resourcesFromManifest(clients *moduleClient.SingletonClients, resources *ty
 		if err != nil {
 			errs = append(errs, err)
 			continue
+		}
+		if resourceInfo.Namespaced() {
+			defaultNamespace := clients.KubeClient().Namespace
+			if resourceInfo.Namespace == "" {
+				resourceInfo.Namespace = defaultNamespace
+			}
+			if obj.GetNamespace() == "" {
+				obj.SetNamespace(defaultNamespace)
+			}
 		}
 		target = append(target, resourceInfo)
 	}
@@ -121,9 +140,19 @@ func resourcesServerSideApply(
 
 	patch := func(info *resource.Info) {
 		patchStart := time.Now()
-		patchResults <- clients.Patch(ctx, info.Object.(*unstructured.Unstructured),
+		unstruct, err := runtime.DefaultUnstructuredConverter.ToUnstructured(info.Object)
+		if err != nil {
+			patchResults <- fmt.Errorf("unstructured Conversion in SSA for %s failed: %w", info.ObjectName(), err)
+		}
+		obj := &unstructured.Unstructured{Object: unstruct}
+		err = clients.Client.Patch(ctx, obj,
 			client.Apply, client.ForceOwnership, owner,
 		)
+		if err != nil {
+			patchResults <- fmt.Errorf("SSA for %s failed: %w", info.ObjectName(), err)
+		} else {
+			patchResults <- nil
+		}
 		logger.V(util.DebugLogLevel).Info(fmt.Sprintf("updating %s", info.ObjectName()),
 			"time", time.Now().Sub(patchStart))
 	}
