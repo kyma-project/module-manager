@@ -119,11 +119,11 @@ func resourcesServerSideApply(
 
 	patch := func(info *resource.Info) {
 		patchStart := time.Now()
-		logger.V(util.DebugLogLevel).Info(fmt.Sprintf("updating %s", info.ObjectName()),
-			"time", time.Now().Sub(patchStart))
 		patchResults <- clients.Patch(ctx, info.Object.(*unstructured.Unstructured),
 			client.Apply, client.ForceOwnership, owner,
 		)
+		logger.V(util.DebugLogLevel).Info(fmt.Sprintf("updating %s", info.ObjectName()),
+			"time", time.Now().Sub(patchStart))
 	}
 
 	for i := range resources {
