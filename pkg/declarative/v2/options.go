@@ -2,9 +2,11 @@ package v2
 
 import (
 	"context"
+	"time"
 
 	"github.com/kyma-project/module-manager/pkg/types"
 	"k8s.io/apimachinery/pkg/labels"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -20,6 +22,10 @@ type ReconcilerOptions struct {
 
 	PostRenderTransforms []ObjectTransform
 	PostRuns             []PostRun
+
+	DisableWarning bool
+
+	CtrlOnSuccess ctrl.Result
 }
 
 type Option interface {
@@ -109,4 +115,16 @@ type WithPostRun []PostRun
 
 func (o WithPostRun) Apply(options *ReconcilerOptions) {
 	options.PostRuns = append(options.PostRuns, o...)
+}
+
+type WithDisableWarning bool
+
+func (o WithDisableWarning) Apply(options *ReconcilerOptions) {
+	options.DisableWarning = bool(o)
+}
+
+type WithPeriodicConsistencyCheck time.Duration
+
+func (o WithPeriodicConsistencyCheck) Apply(options *ReconcilerOptions) {
+	options.CtrlOnSuccess.RequeueAfter = time.Duration(o)
 }

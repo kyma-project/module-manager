@@ -42,6 +42,11 @@ func New(mgr manager.Manager, prototype Object, options ...Option) *ManifestReco
 	r.EventRecorder = mgr.GetEventRecorderFor(EventRecorderDefault)
 
 	r.ReconcilerOptions = &ReconcilerOptions{}
+	r.PostRenderTransforms = append(r.PostRenderTransforms,
+		managedByDeclarativeV2,
+		kymaComponentTransform,
+	)
+
 	for i := range options {
 		options[i].Apply(r.ReconcilerOptions)
 	}
@@ -55,6 +60,10 @@ func New(mgr manager.Manager, prototype Object, options ...Option) *ManifestReco
 	}
 	if r.Finalizer == "" {
 		r.Finalizer = FinalizerDefault
+	}
+
+	if !r.DisableWarning {
+		r.PostRenderTransforms = append(r.PostRenderTransforms, disclaimerTransform)
 	}
 
 	return r
@@ -179,7 +188,7 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return r.ssaStatus(ctx, obj)
 	}
 
-	if obj.GetDeletionTimestamp().IsZero() && !meta.IsStatusConditionTrue(status.Conditions, "CRDs") {
+	if obj.GetDeletionTimestamp().IsZero() && !meta.IsStatusConditionTrue(status.Conditions, crdCondition.Type) {
 		if err := installCRDs(clients, crds); err != nil {
 			r.Event(obj, "Warning", "CRDInstallation", err.Error())
 			meta.SetStatusCondition(&status.Conditions, crdCondition)
@@ -312,7 +321,7 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 
 		if controllerutil.RemoveFinalizer(obj, r.Finalizer) {
-			return r.ssa(ctx, obj)
+			return ctrl.Result{}, r.Update(ctx, obj) // here we cannot SSA since the Patching out will not work.
 		}
 
 		obj.SetStatus(status.WithState(StateDeleting))
@@ -320,20 +329,23 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if r.ServerSideApply {
-		if err := resourcesServerSideApply(ctx, clients, r.FieldOwner, target); err != nil {
+		if err = resourcesServerSideApply(ctx, clients, r.FieldOwner, target); err != nil {
 			r.Event(obj, "Warning", "ServerSideApply", err.Error())
-			obj.SetStatus(status.WithState(StateError))
-			return r.ssaStatus(ctx, obj)
 		}
 	} else {
-		if err := resourcesClientSideApply(clients, current, target); err != nil {
+		if err = resourcesClientSideApply(clients, current, target); err != nil {
 			r.Event(obj, "Warning", "ClientSideApply", err.Error())
-			obj.SetStatus(status.WithState(StateError))
-			return r.ssaStatus(ctx, obj)
 		}
 	}
 
-	replaceSyncedWithResources(status, target)
+	if err != nil {
+		installationCondition.Status = metav1.ConditionFalse
+		meta.SetStatusCondition(&status.Conditions, installationCondition)
+		obj.SetStatus(status.WithState(StateError))
+		return r.ssaStatus(ctx, obj)
+	}
+
+	status = replaceSyncedWithResources(status, target)
 
 	for i := range r.PostRuns {
 		if err := r.PostRuns[i](ctx, r.Client, obj); err != nil {
@@ -356,7 +368,7 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return r.ssaStatus(ctx, obj)
 	}
 
-	if !meta.IsStatusConditionTrue(status.Conditions, installationCondition.Type) {
+	if !meta.IsStatusConditionTrue(status.Conditions, installationCondition.Type) || status.State != StateReady {
 		r.Event(obj, "Normal", "ResourceReadyCheck", "resources are ready!")
 		installationCondition.Status = metav1.ConditionTrue
 		meta.SetStatusCondition(&status.Conditions, installationCondition)
@@ -364,7 +376,7 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return r.ssaStatus(ctx, obj)
 	}
 
-	return ctrl.Result{}, nil
+	return r.CtrlOnSuccess, nil
 }
 
 func (r *ManifestReconciler) initializeClients(

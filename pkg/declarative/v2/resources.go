@@ -3,6 +3,7 @@ package v2
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	moduleClient "github.com/kyma-project/module-manager/pkg/client"
@@ -23,7 +24,7 @@ import (
 	"k8s.io/cli-runtime/pkg/resource"
 )
 
-func replaceSyncedWithResources(status Status, resources []*resource.Info) {
+func replaceSyncedWithResources(status Status, resources []*resource.Info) Status {
 	status.Synced = make([]Resource, 0, len(resources))
 	for _, info := range resources {
 		status.Synced = append(
@@ -38,6 +39,7 @@ func replaceSyncedWithResources(status Status, resources []*resource.Info) {
 			},
 		)
 	}
+	return status
 }
 
 func resourcesFromStatus(clients *moduleClient.SingletonClients, status Status) (kube.ResourceList, error) {
@@ -131,7 +133,7 @@ func resourcesServerSideApply(
 	}
 
 	var errs []error
-	for i := 0; i < len(patchResults); i++ {
+	for i := 0; i < len(resources); i++ {
 		err := <-patchResults
 		if err != nil {
 			errs = append(errs, err)
@@ -167,23 +169,45 @@ func deleteAndVerify(clients *moduleClient.SingletonClients, resources kube.Reso
 	return true, nil
 }
 
-func checkReady(ctx context.Context, clients *moduleClient.SingletonClients, target kube.ResourceList) (bool, error) {
+func checkReady(ctx context.Context, clients *moduleClient.SingletonClients, resources kube.ResourceList) (bool, error) {
+	start := time.Now()
 	logger := log.FromContext(ctx)
-	resourcesReady := true
+	logger.V(util.DebugLogLevel).Info("ReadyCheck", "resources", len(resources))
 	clientSet, _ := clients.KubernetesClientSet()
 	checker := kube.NewReadyChecker(clientSet, func(format string, args ...interface{}) {
 		logger.V(util.DebugLogLevel).Info(fmt.Sprintf(format, args...))
 	}, kube.PausedAsReady(true), kube.CheckJobs(true))
 
-	for i := range target {
-		ready, err := checker.IsReady(ctx, target[i])
-		if err != nil {
-			return false, err
-		}
+	readyCheckResults := make(chan error, len(resources))
+	readyMu := sync.Mutex{}
+	resourcesReady := true
+
+	isReady := func(i int) {
+		ready, err := checker.IsReady(ctx, resources[i])
+		readyMu.Lock()
+		defer readyMu.Unlock()
 		if !ready {
 			resourcesReady = false
-			break
+		}
+		readyCheckResults <- err
+	}
+
+	for i := range resources {
+		go isReady(i)
+	}
+
+	var errs []error
+	for i := 0; i < len(resources); i++ {
+		err := <-readyCheckResults
+		if err != nil {
+			errs = append(errs, err)
 		}
 	}
+
+	if len(errs) > 0 {
+		return resourcesReady, types.NewMultiError(errs)
+	}
+	logger.V(util.DebugLogLevel).Info("ReadyCheck finished", "time", time.Now().Sub(start))
+
 	return resourcesReady, nil
 }

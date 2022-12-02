@@ -20,9 +20,15 @@ type Status struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Enum=Processing;Deleting;Ready;Error
 	State State `json:"state"`
-	// Conditions associated with CustomStatus.
+
+	// Conditions contain a set of conditionals to determine the State of Status.
+	// If all Conditions are met, State is expected to be in StateReady.
 	Conditions []metav1.Condition `json:"conditions"`
 
+	// Synced determine a list of Resources that are currently actively synced.
+	// All resources that are synced are considered for orphan removal on configuration changes,
+	// and it is used to determine effective differences from one state to the next.
+	//+listType=atomic
 	Synced []Resource `json:"synced"`
 }
 
