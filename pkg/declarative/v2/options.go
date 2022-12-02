@@ -10,13 +10,16 @@ import (
 
 type ReconcilerOptions struct {
 	ManifestSpecSource
-	Namespace            string
-	Values               map[string]interface{}
-	FieldOwner           client.FieldOwner
-	Finalizer            string
-	CustomResourceLabels labels.Set
-	PostRenderTransforms []types.ObjectTransform
-	ServerSideApply      bool
+
+	Namespace string
+
+	Finalizer string
+
+	ServerSideApply bool
+	FieldOwner      client.FieldOwner
+
+	PostRenderTransforms []ObjectTransform
+	PostRuns             []PostRun
 }
 
 type Option interface {
@@ -27,12 +30,6 @@ type WithNamespace string
 
 func (o WithNamespace) Apply(options *ReconcilerOptions) {
 	options.Namespace = string(o)
-}
-
-type WithValues types.Flags
-
-func (o WithValues) Apply(options *ReconcilerOptions) {
-	options.Values = o
 }
 
 type WithFieldOwner client.FieldOwner
@@ -50,7 +47,20 @@ func (o WithFinalizer) Apply(options *ReconcilerOptions) {
 type WithCustomResourceLabels labels.Set
 
 func (o WithCustomResourceLabels) Apply(options *ReconcilerOptions) {
-	options.CustomResourceLabels = labels.Set(o)
+	labelTransform := func(ctx context.Context, object Object, resources *types.ManifestResources) error {
+		for _, targetResource := range resources.Items {
+			lbls := targetResource.GetLabels()
+			if lbls == nil {
+				lbls = labels.Set{}
+			}
+			for s := range o {
+				lbls[s] = o[s]
+			}
+			targetResource.SetLabels(lbls)
+		}
+		return nil
+	}
+	options.PostRenderTransforms = append(options.PostRenderTransforms, labelTransform)
 }
 
 type ManifestSpecSource interface {
@@ -69,20 +79,34 @@ func (o ManifestSpecSourceOption) Apply(options *ReconcilerOptions) {
 	options.ManifestSpecSource = o
 }
 
-func WithPostRenderTransform(transforms ...types.ObjectTransform) PostRenderTransformOption {
+type ObjectTransform = func(context.Context, Object, *types.ManifestResources) error
+
+func WithPostRenderTransform(transforms ...ObjectTransform) PostRenderTransformOption {
 	return PostRenderTransformOption{transforms}
 }
 
 type PostRenderTransformOption struct {
-	ObjectTransforms []types.ObjectTransform
+	ObjectTransforms []ObjectTransform
 }
 
 func (o PostRenderTransformOption) Apply(options *ReconcilerOptions) {
-	options.PostRenderTransforms = o.ObjectTransforms
+	options.PostRenderTransforms = append(options.PostRenderTransforms, o.ObjectTransforms...)
 }
 
 type WithServerSideApply bool
 
 func (o WithServerSideApply) Apply(options *ReconcilerOptions) {
 	options.ServerSideApply = bool(o)
+}
+
+type PostRun = func(
+	ctx context.Context,
+	client client.Client,
+	obj Object,
+) error
+
+type WithPostRun []PostRun
+
+func (o WithPostRun) Apply(options *ReconcilerOptions) {
+	options.PostRuns = append(options.PostRuns, o...)
 }

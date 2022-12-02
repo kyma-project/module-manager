@@ -28,7 +28,7 @@ type Status struct {
 
 type State string
 
-// Valid CustomObject States.
+// Valid States.
 const (
 	// StateReady signifies CustomObject is ready and has been installed successfully.
 	StateReady State = "Ready"

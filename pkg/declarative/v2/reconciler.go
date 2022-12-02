@@ -15,12 +15,8 @@ import (
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/kube"
 	v1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -53,18 +49,12 @@ func New(mgr manager.Manager, prototype Object, options ...Option) *ManifestReco
 	if r.Namespace == "" {
 		r.Namespace = v1.NamespaceDefault
 	}
-	if r.Values == nil {
-		r.Values = WithValues{}
-	}
 
 	if r.FieldOwner == "" {
 		r.FieldOwner = FieldOwnerDefault
 	}
 	if r.Finalizer == "" {
 		r.Finalizer = FinalizerDefault
-	}
-	if r.CustomResourceLabels == nil {
-		r.CustomResourceLabels = labels.Set{}
 	}
 
 	return r
@@ -124,7 +114,7 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Required for SSA
+	// ServerSideApply requires nil ManagedFields
 	obj.SetManagedFields(nil)
 
 	status := obj.GetStatus()
@@ -164,62 +154,15 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		obj.SetStatus(status.WithState(StateError))
 		return r.ssaStatus(ctx, obj)
 	}
-	for key := range r.Values {
-		spec.Values[key] = r.Values[key]
+
+	clients, err := r.initializeClients(ctx, obj, spec)
+	if err != nil {
+		r.Event(obj, "Warning", "ClientInitialization", err.Error())
+		obj.SetStatus(status.WithState(StateError))
+		return r.ssaStatus(ctx, obj)
 	}
 
-	scope := &Scope{
-		ManifestSpec: spec,
-		ClusterInfo: &types.ClusterInfo{
-			Client: r.Client,
-			Config: r.Config,
-		},
-		Object: obj,
-	}
-
-	clientsCacheKey := cacheKeyFromObject(ctx, scope.Object)
-	var clients *manifestClient.SingletonClients
-
-	if clients = r.GetClients(clientsCacheKey); clients == nil {
-		clients, err = manifestClient.NewSingletonClients(scope.ClusterInfo, logger)
-		if err != nil {
-			r.Event(obj, "Warning", "NewSingletonClients", err.Error())
-			obj.SetStatus(status.WithState(StateError))
-			return r.ssaStatus(ctx, obj)
-		}
-
-		clients.Install().Atomic = false
-		clients.Install().Replace = true
-		clients.Install().DryRun = true
-		clients.Install().IncludeCRDs = false
-		clients.Install().CreateNamespace = true
-		clients.Install().UseReleaseName = false
-		clients.Install().IsUpgrade = true
-		if clients.Install().Version == "" && clients.Install().Devel {
-			clients.Install().Version = ">0.0.0-0"
-		}
-
-		clients.Install().ReleaseName = scope.ManifestName
-		r.SetClients(clientsCacheKey, clients)
-	}
-
-	if clients.Install().CreateNamespace && r.Namespace != "" || r.Namespace != "default" {
-		clients.Install().Namespace = r.Namespace
-		clients.KubeClient().Namespace = r.Namespace
-
-		err := clients.Patch(ctx, &v1.Namespace{
-			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Namespace"},
-			ObjectMeta: metav1.ObjectMeta{Name: r.Namespace},
-		}, client.Apply, client.ForceOwnership, r.FieldOwner)
-
-		if err != nil {
-			r.Event(obj, "Warning", "NamespaceSSA", err.Error())
-			obj.SetStatus(status.WithState(StateError))
-			return r.ssaStatus(ctx, obj)
-		}
-	}
-
-	chrt, err := loader.Load(scope.ChartPath)
+	chrt, err := loader.Load(spec.ChartPath)
 	if err != nil {
 		r.Event(obj, "Warning", "ChartLoading", err.Error())
 		obj.SetStatus(status.WithState(StateError))
@@ -244,7 +187,7 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			return r.ssaStatus(ctx, obj)
 		}
 
-		crdsReady, err := CheckReady(ctx, clients, crds)
+		crdsReady, err := checkReady(ctx, clients, crds)
 		if err != nil {
 			r.Event(obj, "Warning", "CRDReadyCheck", err.Error())
 			obj.SetStatus(status.WithState(StateError))
@@ -265,20 +208,22 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	var targetResources *types.ManifestResources
 
-	manifestFilePath := filepath.Join(scope.ChartPath, "manifest")
-	cacheFilePath := filepath.Join(manifestFilePath, scope.ManifestName)
+	manifestFilePath := filepath.Join(spec.ChartPath, "manifest")
+	cacheFilePath := filepath.Join(manifestFilePath, spec.ManifestName)
 	hashedValues, _ := util.CalculateHash(spec.Values)
 	cacheFilePath = fmt.Sprintf("%s-%v.yaml", cacheFilePath, hashedValues)
-	err = filepath.Walk(manifestFilePath, func(path string, info fs.FileInfo, err error) error {
-		if info.IsDir() {
+	err = filepath.Walk(
+		manifestFilePath, func(path string, info fs.FileInfo, err error) error {
+			if info.IsDir() {
+				return nil
+			}
+			oldCachedManifest := filepath.Join(manifestFilePath, info.Name())
+			if oldCachedManifest != cacheFilePath {
+				return os.Remove(oldCachedManifest)
+			}
 			return nil
-		}
-		oldCachedManifest := filepath.Join(manifestFilePath, info.Name())
-		if oldCachedManifest != cacheFilePath {
-			return os.Remove(oldCachedManifest)
-		}
-		return nil
-	})
+		},
+	)
 	cacheFile := types.NewParsedFile(util.GetStringifiedYamlFromFilePath(cacheFilePath))
 
 	if cacheFile.GetRawError() != nil {
@@ -316,31 +261,12 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 
-	// CUSTOMIZATION TODO skip if customlabels are empty
-	for _, targetResource := range targetResources.Items {
-		lbls := targetResource.GetLabels()
-		if lbls == nil {
-			lbls = labels.Set{}
-		}
-		for s := range r.CustomResourceLabels {
-			lbls[s] = r.CustomResourceLabels[s]
-		}
-		targetResource.SetLabels(lbls)
-	}
+	var target, current kube.ResourceList
 
-	var target kube.ResourceList
 	if obj.GetDeletionTimestamp().IsZero() {
-		errs := make([]error, 0, len(targetResources.Items))
-		for _, obj := range targetResources.Items {
-			resourceInfo, err := clients.ResourceInfo(obj, true)
-			if err != nil {
-				errs = append(errs, err)
-				continue
-			}
-			target = append(target, resourceInfo)
-		}
-		if len(errs) > 0 {
-			r.Event(obj, "Warning", "TargetResourceParsing", types.NewMultiError(errs).Error())
+		target, err = resourcesFromManifest(clients, targetResources)
+		if err != nil {
+			r.Event(obj, "Warning", "TargetResourceParsing", err.Error())
 			resourceCondition.Status = metav1.ConditionFalse
 			meta.SetStatusCondition(&status.Conditions, resourceCondition)
 			obj.SetStatus(status.WithState(StateError))
@@ -350,26 +276,8 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		target = kube.ResourceList{}
 	}
 
-	var current kube.ResourceList
-	errs := make([]error, 0, len(status.Synced))
-	for _, synced := range status.Synced {
-		unstruct := &unstructured.Unstructured{}
-		unstruct.SetName(synced.Name)
-		unstruct.SetNamespace(synced.Namespace)
-		unstruct.SetGroupVersionKind(schema.GroupVersionKind{
-			Group:   synced.Group,
-			Version: synced.Version,
-			Kind:    synced.Kind,
-		})
-		resourceInfo, err := clients.ResourceInfo(unstruct, true)
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		current = append(current, resourceInfo)
-	}
-	if len(errs) > 0 {
-		r.Event(obj, "Warning", "CurrentResourceParsing", types.NewMultiError(errs).Error())
+	if current, err = resourcesFromStatus(clients, status); err != nil {
+		r.Event(obj, "Warning", "CurrentResourceParsing", err.Error())
 		resourceCondition.Status = "NotReady"
 		meta.SetStatusCondition(&status.Conditions, resourceCondition)
 		obj.SetStatus(status.WithState(StateError))
@@ -384,8 +292,8 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	toDelete := current.Difference(target)
-	if deleted, err := DeleteAndVerify(clients, toDelete); err != nil {
-		r.Event(obj, "Warning", "Deletion", types.NewMultiError(errs).Error())
+	if deleted, err := deleteAndVerify(clients, toDelete); err != nil {
+		r.Event(obj, "Warning", "Deletion", err.Error())
 		obj.SetStatus(status.WithState(StateError))
 		return r.ssaStatus(ctx, obj)
 	} else if !deleted {
@@ -394,14 +302,13 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if !obj.GetDeletionTimestamp().IsZero() {
-		if deleted, err := DeleteAndVerify(clients, crds); err != nil {
-			r.Event(obj, "Warning", "CRDUninstallation", types.NewMultiError(errs).Error())
+		if deleted, err := deleteAndVerify(clients, crds); err != nil {
+			r.Event(obj, "Warning", "CRDUninstallation", err.Error())
 			obj.SetStatus(status.WithState(StateError))
 			return r.ssaStatus(ctx, obj)
 		} else if !deleted {
 			r.Event(obj, "Normal", "CRDUninstallation", "crds not uninstalled yet")
-			obj.SetStatus(status.WithState(StateDeleting))
-			return r.ssaStatus(ctx, obj)
+			return ctrl.Result{Requeue: true}, nil
 		}
 
 		if controllerutil.RemoveFinalizer(obj, r.Finalizer) {
@@ -413,48 +320,30 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if r.ServerSideApply {
-		logger.V(util.DebugLogLevel).Info("ServerSideApply", "resources", len(target))
-		// Runtime Complexity of this Branch is N as only SSA Patch is required
-		for i := range target {
-			if err := r.Patch(ctx, target[i].Object.(*unstructured.Unstructured),
-				client.Apply, client.ForceOwnership, r.FieldOwner); err != nil {
-				r.Event(obj, "Warning", "SSA", err.Error())
-				obj.SetStatus(status.WithState(StateError))
-				return r.ssaStatus(ctx, obj)
-			}
+		if err := resourcesServerSideApply(ctx, clients, r.FieldOwner, target); err != nil {
+			r.Event(obj, "Warning", "ServerSideApply", err.Error())
+			obj.SetStatus(status.WithState(StateError))
+			return r.ssaStatus(ctx, obj)
 		}
 	} else {
-		// Runtime Complexity of this Branch is 2N as Gets and Updates are sequential
-		// this catches all resources in target that were created externally or if the synced
-		// info is not up-to-date. If there is one missing in current its added.
-		for i := range target {
-			if target[i].Get() == nil && !current.Contains(target[i]) {
-				current.Append(target[i])
-			}
-		}
-
-		_, err = clients.KubeClient().Update(current, target, false)
-		if err != nil {
-			r.Event(obj, "Warning", "Update", err.Error())
+		if err := resourcesClientSideApply(clients, current, target); err != nil {
+			r.Event(obj, "Warning", "ClientSideApply", err.Error())
 			obj.SetStatus(status.WithState(StateError))
 			return r.ssaStatus(ctx, obj)
 		}
 	}
 
-	status.Synced = make([]Resource, 0, len(target))
-	for _, info := range target {
-		status.Synced = append(status.Synced, Resource{
-			Name:      info.Name,
-			Namespace: info.Namespace,
-			GroupVersionKind: metav1.GroupVersionKind{
-				Group:   info.Mapping.GroupVersionKind.Group,
-				Version: info.Mapping.GroupVersionKind.Version,
-				Kind:    info.Mapping.GroupVersionKind.Kind,
-			},
-		})
+	replaceSyncedWithResources(status, target)
+
+	for i := range r.PostRuns {
+		if err := r.PostRuns[i](ctx, r.Client, obj); err != nil {
+			r.Event(obj, "Warning", "PostRun", err.Error())
+			obj.SetStatus(status.WithState(StateError))
+			return r.ssaStatus(ctx, obj)
+		}
 	}
 
-	resourcesReady, err := CheckReady(ctx, clients, target)
+	resourcesReady, err := checkReady(ctx, clients, target)
 	if err != nil {
 		r.Event(obj, "Warning", "ReadyCheck", err.Error())
 		obj.SetStatus(status.WithState(StateError))
@@ -478,12 +367,51 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	return ctrl.Result{}, nil
 }
 
-func (r *ManifestReconciler) ssaStatus(ctx context.Context, obj client.Object) (ctrl.Result, error) {
-	return ctrl.Result{Requeue: true}, r.Status().Patch(ctx, obj, client.Apply, client.ForceOwnership, r.FieldOwner)
-}
+func (r *ManifestReconciler) initializeClients(
+	ctx context.Context, obj Object, spec *ManifestSpec,
+) (*manifestClient.SingletonClients, error) {
+	var err error
+	var clients *manifestClient.SingletonClients
 
-func (r *ManifestReconciler) ssa(ctx context.Context, obj client.Object) (ctrl.Result, error) {
-	return ctrl.Result{Requeue: true}, r.Patch(ctx, obj, client.Apply, client.ForceOwnership, r.FieldOwner)
+	clientsCacheKey := cacheKeyFromObject(ctx, obj)
+
+	if clients = r.GetClients(clientsCacheKey); clients == nil {
+		clients, err = manifestClient.NewSingletonClients(
+			&types.ClusterInfo{
+				Client: r.Client,
+				Config: r.Config,
+			}, log.FromContext(ctx),
+		)
+		if err != nil {
+			return nil, err
+		}
+		clients.Install().Atomic = false
+		clients.Install().Replace = true
+		clients.Install().DryRun = true
+		clients.Install().IncludeCRDs = false
+		clients.Install().CreateNamespace = true
+		clients.Install().UseReleaseName = false
+		clients.Install().IsUpgrade = true
+		if clients.Install().Version == "" && clients.Install().Devel {
+			clients.Install().Version = ">0.0.0-0"
+		}
+		clients.Install().ReleaseName = spec.ManifestName
+		r.SetClients(clientsCacheKey, clients)
+	}
+
+	if r.Namespace != metav1.NamespaceNone && r.Namespace != metav1.NamespaceDefault {
+		clients.Install().Namespace = r.Namespace
+		clients.KubeClient().Namespace = r.Namespace
+	}
+
+	if clients.Install().CreateNamespace {
+		err := clients.Patch(ctx, namespace(r.Namespace), client.Apply, client.ForceOwnership, r.FieldOwner)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return clients, nil
 }
 
 func cacheKeyFromObject(ctx context.Context, resource client.Object) client.ObjectKey {
@@ -511,42 +439,17 @@ func cacheKeyFromObject(ctx context.Context, resource client.Object) client.Obje
 	return client.ObjectKey{Name: label, Namespace: resource.GetNamespace()}
 }
 
-func DeleteAndVerify(clients *manifestClient.SingletonClients, resources kube.ResourceList) (bool, error) {
-	if len(resources) > 0 {
-		_, errs := clients.KubeClient().Delete(resources)
-		if errs != nil {
-			return false, types.NewMultiError(errs)
-		}
-	}
-	for i := range resources {
-		err := resources[i].Get()
-		if err == nil {
-			return false, nil
-		}
-		if err != nil && !apierrors.IsNotFound(err) {
-			return false, err
-		}
-	}
-	return true, nil
+func (r *ManifestReconciler) ssaStatus(ctx context.Context, obj client.Object) (ctrl.Result, error) {
+	return ctrl.Result{Requeue: true}, r.Status().Patch(ctx, obj, client.Apply, client.ForceOwnership, r.FieldOwner)
 }
 
-func CheckReady(ctx context.Context, clients *manifestClient.SingletonClients, target kube.ResourceList) (bool, error) {
-	logger := log.FromContext(ctx)
-	resourcesReady := true
-	clientSet, _ := clients.KubernetesClientSet()
-	checker := kube.NewReadyChecker(clientSet, func(format string, args ...interface{}) {
-		logger.V(util.DebugLogLevel).Info(fmt.Sprintf(format, args...))
-	}, kube.PausedAsReady(true), kube.CheckJobs(true))
+func (r *ManifestReconciler) ssa(ctx context.Context, obj client.Object) (ctrl.Result, error) {
+	return ctrl.Result{Requeue: true}, r.Patch(ctx, obj, client.Apply, client.ForceOwnership, r.FieldOwner)
+}
 
-	for i := range target {
-		ready, err := checker.IsReady(ctx, target[i])
-		if err != nil {
-			return false, err
-		}
-		if !ready {
-			resourcesReady = false
-			break
-		}
+func namespace(name string) *v1.Namespace {
+	return &v1.Namespace{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Namespace"},
+		ObjectMeta: metav1.ObjectMeta{Name: name},
 	}
-	return resourcesReady, nil
 }
