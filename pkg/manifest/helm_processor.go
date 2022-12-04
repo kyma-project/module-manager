@@ -326,8 +326,7 @@ func (h *helm) uninstallResources(resourceLists types.ResourceLists) (*kube.Resu
 	var response *kube.Result
 	var delErrors []error
 	if resourceLists.Installed != nil {
-		// add namespace to deleted resources
-		response, delErrors = h.clients.KubeClient().Delete(resourceLists.GetResourcesToBeDeleted())
+		response, delErrors = h.clients.KubeClient().Delete(resourceLists.Installed)
 		if len(delErrors) > 0 {
 			var wrappedError error
 			for _, err := range delErrors {

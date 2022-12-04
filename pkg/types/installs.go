@@ -157,10 +157,6 @@ func (r *ResourceLists) GetWaitForResources() kube.ResourceList {
 	return append(r.Target, r.Namespace...)
 }
 
-func (r *ResourceLists) GetResourcesToBeDeleted() kube.ResourceList {
-	return append(r.Installed, r.Namespace...)
-}
-
 // InstallInfo represents deployment information artifacts to be processed.
 type InstallInfo struct {
 	// ChartInfo represents chart information to be processed
