@@ -24,7 +24,7 @@ func Test_uninstallSuccess(t *testing.T) {
 		},
 		{
 			name: "when api not found error, expect uninstall successfully",
-			args: args{err: &apierrors.StatusError{metav1.Status{
+			args: args{err: &apierrors.StatusError{ErrStatus: metav1.Status{
 				Status: metav1.StatusFailure,
 				Reason: metav1.StatusReasonNotFound,
 			}}},
