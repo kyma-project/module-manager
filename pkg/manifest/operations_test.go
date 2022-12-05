@@ -1,14 +1,17 @@
-package manifest
+package manifest_test
 
 import (
 	"errors"
+	"testing"
+
+	"github.com/kyma-project/module-manager/pkg/manifest"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"testing"
 )
 
-func Test_uninstallSuccess(t *testing.T) {
+func Test_UninstallSuccess(t *testing.T) {
+	t.Parallel()
 	type args struct {
 		err error
 	}
@@ -47,9 +50,11 @@ func Test_uninstallSuccess(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			if got := uninstallSuccess(tt.args.err); got != tt.want {
-				t.Errorf("uninstallSuccess() = %v, want %v", got, tt.want)
+			t.Parallel()
+			if got := manifest.UninstallSuccess(tt.args.err); got != tt.want {
+				t.Errorf("UninstallSuccess() = %v, want %v", got, tt.want)
 			}
 		})
 	}

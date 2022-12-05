@@ -290,7 +290,7 @@ func (o *Operations) uninstall(deployInfo types.InstallInfo) (bool, error) {
 	if !consistent {
 		return false, ErrUninstallInconsistent
 	}
-	if !uninstallSuccess(err) {
+	if !UninstallSuccess(err) {
 		return false, err
 	}
 
@@ -307,7 +307,7 @@ func (o *Operations) uninstall(deployInfo types.InstallInfo) (bool, error) {
 	return true, err
 }
 
-func uninstallSuccess(err error) bool {
+func UninstallSuccess(err error) bool {
 	return err == nil || apierrors.IsNotFound(err) || meta.IsNoMatchError(err)
 }
 
