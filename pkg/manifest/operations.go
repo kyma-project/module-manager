@@ -27,8 +27,9 @@ type Operations struct {
 }
 
 var (
-	ErrCRsNotRemoved  = errors.New("CustomResources not completely removed")
-	ErrCRDsNotRemoved = errors.New("CRDs not completely removed")
+	ErrCRsNotRemoved         = errors.New("CustomResources not completely removed")
+	ErrCRDsNotRemoved        = errors.New("CRDs not completely removed")
+	ErrUninstallInconsistent = errors.New("uninstallation inconsistent")
 )
 
 // InstallChart installs the resources based on types.InstallInfo and an appropriate rendering mechanism.
@@ -286,7 +287,10 @@ func (o *Operations) uninstall(deployInfo types.InstallInfo) (bool, error) {
 
 	// uninstall resources
 	consistent, err := o.renderSrc.Uninstall(parsedFile.GetContent(), deployInfo, o.resourceTransforms)
-	if !noResourceFound(err) || !consistent {
+	if !consistent {
+		return false, ErrUninstallInconsistent
+	}
+	if !uninstallSuccess(err) {
 		return false, err
 	}
 
@@ -303,8 +307,8 @@ func (o *Operations) uninstall(deployInfo types.InstallInfo) (bool, error) {
 	return true, err
 }
 
-func noResourceFound(err error) bool {
-	return apierrors.IsNotFound(err) || meta.IsNoMatchError(err)
+func uninstallSuccess(err error) bool {
+	return err == nil || apierrors.IsNotFound(err) || meta.IsNoMatchError(err)
 }
 
 func (o *Operations) getManifestForChartPath(installInfo types.InstallInfo) *types.ParsedFile {
