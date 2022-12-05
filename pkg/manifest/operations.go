@@ -304,7 +304,7 @@ func (o *Operations) uninstall(deployInfo types.InstallInfo) (bool, error) {
 }
 
 func noResourceFound(err error) bool {
-	return err == nil || apierrors.IsNotFound(err) || meta.IsNoMatchError(err)
+	return apierrors.IsNotFound(err) || meta.IsNoMatchError(err)
 }
 
 func (o *Operations) getManifestForChartPath(installInfo types.InstallInfo) *types.ParsedFile {
