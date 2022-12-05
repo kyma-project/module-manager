@@ -207,10 +207,13 @@ func (s *SingletonClients) ResourceInfo(obj *unstructured.Unstructured, retryOnN
 		return nil, err
 	}
 	info := &resource.Info{}
-	clnt, err := s.ClientForMapping(mapping)
+
+	var clnt resource.RESTClient
+	clnt, err = s.UnstructuredClientForMapping(mapping)
 	if err != nil {
 		return nil, err
 	}
+	obj.SetGroupVersionKind(mapping.GroupVersionKind)
 
 	info.Client = clnt
 	info.Mapping = mapping

@@ -3,10 +3,6 @@ package v2
 import (
 	"context"
 	"errors"
-	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
 	"time"
 
 	manifestClient "github.com/kyma-project/module-manager/pkg/client"
@@ -18,8 +14,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -27,70 +21,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
-const (
-	FinalizerDefault     = "declarative.kyma-project.io/finalizer"
-	FieldOwnerDefault    = "declarative.kyma-project.io/applier"
-	EventRecorderDefault = "declarative.kyma-project.io/events"
-)
-
-func New(mgr manager.Manager, prototype Object, options ...Option) *ManifestReconciler {
+func NewFromManager(mgr manager.Manager, prototype Object, options ...Option) *ManifestReconciler {
 	r := &ManifestReconciler{}
 	r.prototype = prototype
-
-	r.SingletonClientCache = NewMemorySingletonClientCache()
-	r.Client = mgr.GetClient()
-	r.Config = mgr.GetConfig()
-	r.EventRecorder = mgr.GetEventRecorderFor(EventRecorderDefault)
-
-	r.ReconcilerOptions = &ReconcilerOptions{}
-	r.PostRenderTransforms = append(r.PostRenderTransforms,
-		managedByDeclarativeV2,
-		kymaComponentTransform,
-	)
-
-	for i := range options {
-		options[i].Apply(r.ReconcilerOptions)
-	}
-
-	if r.Namespace == "" {
-		r.Namespace = v1.NamespaceDefault
-	}
-
-	if r.FieldOwner == "" {
-		r.FieldOwner = FieldOwnerDefault
-	}
-	if r.Finalizer == "" {
-		r.Finalizer = FinalizerDefault
-	}
-
-	if !r.DisableWarning {
-		r.PostRenderTransforms = append(r.PostRenderTransforms, disclaimerTransform)
-	}
-
+	r.ReconcilerOptions = DefaultReconcilerOptions().Apply(WithManager(mgr)).Apply(options...)
 	return r
 }
 
 type ManifestReconciler struct {
 	prototype Object
-
-	client.Client
-	record.EventRecorder
-	Config *rest.Config
-
-	SingletonClientCache
-
 	*ReconcilerOptions
-}
-
-type Scope struct {
-	*ManifestSpec
-	*types.ClusterInfo
-	Object
-}
-type ManifestSpec struct {
-	ManifestName string
-	ChartPath    string
-	Values       map[string]interface{}
 }
 
 var (
@@ -180,7 +120,6 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	crds, err := getCRDs(clients, chrt.CRDObjects())
-
 	if err != nil {
 		r.Event(obj, "Warning", "CRDParsing", err.Error())
 		crdCondition.Status = metav1.ConditionFalse
@@ -221,27 +160,18 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if obj.GetDeletionTimestamp().IsZero() {
 		var targetResources *types.ManifestResources
 
-		manifestFilePath := filepath.Join(spec.ChartPath, "manifest")
-		cacheFilePath := filepath.Join(manifestFilePath, spec.ManifestName)
-		hashedValues, _ := util.CalculateHash(spec.Values)
-		cacheFilePath = fmt.Sprintf("%s-%v.yaml", cacheFilePath, hashedValues)
-		err = filepath.Walk(
-			manifestFilePath, func(path string, info fs.FileInfo, err error) error {
-				if info == nil || info.IsDir() {
-					return nil
-				}
-				oldCachedManifest := filepath.Join(manifestFilePath, info.Name())
-				if oldCachedManifest != cacheFilePath {
-					return os.Remove(oldCachedManifest)
-				}
-				return nil
-			},
-		)
-		cacheFile := types.NewParsedFile(util.GetStringifiedYamlFromFilePath(cacheFilePath))
+		cacheFilePath := newManifestCache(spec)
+		if err := cacheFilePath.Clean(); err != nil {
+			logger.Info("cleaning manifest cache failed")
+			r.Event(obj, "Warning", "ManifestCacheCleanup", err.Error())
+			obj.SetStatus(status.WithState(StateError))
+			return r.ssaStatus(ctx, obj)
+		}
+		cacheFile := cacheFilePath.ReadYAML()
 
 		if cacheFile.GetRawError() != nil {
 			renderStart := time.Now()
-			logger.Info("no cached manifest, rendering again", "hash", hashedValues)
+			logger.Info("no cached manifest, rendering again", "hash", cacheFilePath.hash)
 			release, err := clients.Install().Run(chrt, spec.Values)
 			if err != nil {
 				logger.Info("rendering failed", "time", time.Now().Sub(renderStart))
@@ -256,13 +186,14 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				obj.SetStatus(status.WithState(StateError))
 				return r.ssaStatus(ctx, obj)
 			}
-			if err := util.WriteToFile(cacheFilePath, []byte(release.Manifest)); err != nil {
+			if err := util.WriteToFile(cacheFilePath.String(), []byte(release.Manifest)); err != nil {
 				r.Event(obj, "Warning", "ManifestWriting", err.Error())
 				obj.SetStatus(status.WithState(StateError))
 				return r.ssaStatus(ctx, obj)
 			}
 		} else {
-			logger.V(util.DebugLogLevel).Info("reuse manifest from cache", "hash", hashedValues)
+			logger.V(util.DebugLogLevel).Info("reuse manifest from cache",
+				"hash", cacheFilePath.hash)
 			targetResources, err = util.ParseManifestStringToObjects(cacheFile.GetContent())
 			if err != nil {
 				r.Event(obj, "Warning", "ManifestParsing", err.Error())
@@ -317,13 +248,15 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if !obj.GetDeletionTimestamp().IsZero() {
-		if deleted, err := deleteAndVerify(clients, crds); err != nil {
-			r.Event(obj, "Warning", "CRDUninstallation", err.Error())
-			obj.SetStatus(status.WithState(StateError))
-			return r.ssaStatus(ctx, obj)
-		} else if !deleted {
-			r.Event(obj, "Normal", "CRDUninstallation", "crds not uninstalled yet")
-			return ctrl.Result{Requeue: true}, nil
+		if r.DeleteCRDsOnUninstall {
+			if deleted, err := deleteAndVerify(clients, crds); err != nil {
+				r.Event(obj, "Warning", "CRDUninstallation", err.Error())
+				obj.SetStatus(status.WithState(StateError))
+				return r.ssaStatus(ctx, obj)
+			} else if !deleted {
+				r.Event(obj, "Normal", "CRDUninstallation", "crds not uninstalled yet")
+				return ctrl.Result{Requeue: true}, nil
+			}
 		}
 
 		if controllerutil.RemoveFinalizer(obj, r.Finalizer) {
@@ -334,14 +267,8 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return r.ssaStatus(ctx, obj)
 	}
 
-	if r.ServerSideApply {
-		if err = resourcesServerSideApply(ctx, clients, r.FieldOwner, target); err != nil {
-			r.Event(obj, "Warning", "ServerSideApply", err.Error())
-		}
-	} else {
-		if err = resourcesClientSideApply(clients, current, target); err != nil {
-			r.Event(obj, "Warning", "ClientSideApply", err.Error())
-		}
+	if err = resourcesServerSideApply(ctx, clients, r.FieldOwner, target); err != nil {
+		r.Event(obj, "Warning", "ServerSideApply", err.Error())
 	}
 
 	if err != nil {
@@ -443,13 +370,13 @@ func cacheKeyFromObject(ctx context.Context, resource client.Object) client.Obje
 	objectKey := client.ObjectKeyFromObject(resource)
 	var labelErr *types.LabelNotFoundError
 	if errors.As(err, &labelErr) {
-		logger.V(4).Info(manifestLabels.CacheKey+" missing on resource, it will be cached "+
+		logger.V(util.DebugLogLevel).Info(manifestLabels.CacheKey+" missing on resource, it will be cached "+
 			"based on resource name and namespace.",
 			"resource", objectKey)
 		return objectKey
 	}
 
-	logger.V(4).Info("resource will be cached based on "+manifestLabels.CacheKey,
+	logger.V(util.DebugLogLevel).Info("resource will be cached based on "+manifestLabels.CacheKey,
 		"resource", objectKey,
 		"label", manifestLabels.CacheKey,
 		"labelValue", label)

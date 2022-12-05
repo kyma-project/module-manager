@@ -10,11 +10,9 @@ import (
 	"github.com/kyma-project/module-manager/pkg/types"
 	"github.com/kyma-project/module-manager/pkg/util"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"helm.sh/helm/v3/pkg/kube"
@@ -62,22 +60,13 @@ func resourcesFromStatus(clients *moduleClient.SingletonClients, status Status) 
 			errs = append(errs, err)
 			continue
 		}
-		if resourceInfo.Namespaced() {
-			defaultNamespace := clients.KubeClient().Namespace
-			if resourceInfo.Namespace == "" {
-				resourceInfo.Namespace = defaultNamespace
-			}
-			if obj.GetNamespace() == "" {
-				obj.SetNamespace(defaultNamespace)
-			}
-		}
 		current = append(current, resourceInfo)
 	}
 
 	if len(errs) > 0 {
 		return current, types.NewMultiError(errs)
 	}
-
+	normaliseNamespaces(clients, current)
 	return current, nil
 }
 
@@ -90,39 +79,37 @@ func resourcesFromManifest(clients *moduleClient.SingletonClients, resources *ty
 			errs = append(errs, err)
 			continue
 		}
-		if resourceInfo.Namespaced() {
-			defaultNamespace := clients.KubeClient().Namespace
-			if resourceInfo.Namespace == "" {
-				resourceInfo.Namespace = defaultNamespace
-			}
-			if obj.GetNamespace() == "" {
-				obj.SetNamespace(defaultNamespace)
-			}
-		}
 		target = append(target, resourceInfo)
 	}
 	if len(errs) > 0 {
 		return nil, types.NewMultiError(errs)
 	}
+	normaliseNamespaces(clients, target)
 	return target, nil
 }
 
-func resourcesClientSideApply(
-	clients *moduleClient.SingletonClients,
-	current, target kube.ResourceList,
-) error {
-	// Runtime Complexity of this Branch is 2N as Gets and Updates are sequential
-	// this catches all resources in target that were created externally or if the synced
-	// info is not up-to-date. If there is one missing in current its added.
-	for i := range target {
-		if target[i].Get() == nil && !current.Contains(target[i]) {
-			current.Append(target[i])
+// normaliseNamespaces is only a workaround for malformed resources, e.g. by bad charts or wrong type configs.
+func normaliseNamespaces(
+	clients *moduleClient.SingletonClients, infos []*resource.Info,
+) {
+	for _, info := range infos {
+		obj, ok := info.Object.(metav1.Object)
+		if !ok {
+			continue
+		}
+		if info.Namespaced() {
+			if info.Namespace == "" || obj.GetNamespace() == "" {
+				defaultNamespace := clients.KubeClient().Namespace
+				info.Namespace = defaultNamespace
+				obj.SetNamespace(defaultNamespace)
+			}
+		} else {
+			if info.Namespace != "" || obj.GetNamespace() != "" {
+				info.Namespace = ""
+				obj.SetNamespace("")
+			}
 		}
 	}
-
-	_, err := clients.KubeClient().Update(current, target, false)
-
-	return err
 }
 
 func resourcesServerSideApply(
@@ -138,38 +125,40 @@ func resourcesServerSideApply(
 	// Runtime Complexity of this Branch is N as only ServerSideApplier Patch is required
 	patchResults := make(chan error, len(resources))
 
-	patch := func(info *resource.Info) {
+	patch := func(ctx context.Context, info *resource.Info) {
 		patchStart := time.Now()
-		unstruct, err := runtime.DefaultUnstructuredConverter.ToUnstructured(info.Object)
-		if err != nil {
-			patchResults <- fmt.Errorf("unstructured Conversion in SSA for %s failed: %w", info.ObjectName(), err)
+
+		obj, isTyped := info.Object.(client.Object)
+		if !isTyped {
+			patchResults <- fmt.Errorf("client object conversion in SSA for %s failed", info.ObjectName())
+			return
 		}
-		obj := &unstructured.Unstructured{Object: unstruct}
-		err = clients.Client.Patch(ctx, obj,
+
+		logger.V(util.DebugLogLevel).Info(fmt.Sprintf("updating %s", info.ObjectName()),
+			"time", time.Since(patchStart))
+
+		if err := clients.Client.Patch(ctx, obj,
 			client.Apply, client.ForceOwnership, owner,
-		)
-		if err != nil {
+		); err != nil {
 			patchResults <- fmt.Errorf("SSA for %s failed: %w", info.ObjectName(), err)
 		} else {
 			patchResults <- nil
 		}
-		logger.V(util.DebugLogLevel).Info(fmt.Sprintf("updating %s", info.ObjectName()),
-			"time", time.Now().Sub(patchStart))
 	}
 
 	for i := range resources {
-		go patch(resources[i])
+		i := i
+		go patch(ctx, resources[i])
 	}
 
 	var errs []error
 	for i := 0; i < len(resources); i++ {
-		err := <-patchResults
-		if err != nil {
+		if err := <-patchResults; err != nil {
 			errs = append(errs, err)
 		}
 	}
 
-	ssaFinish := time.Now().Sub(ssaStart)
+	ssaFinish := time.Since(ssaStart)
 
 	if errs != nil {
 		return fmt.Errorf("ServerSideApply failed (after %s): %w", ssaFinish, types.NewMultiError(errs))
@@ -198,7 +187,9 @@ func deleteAndVerify(clients *moduleClient.SingletonClients, resources kube.Reso
 	return true, nil
 }
 
-func checkReady(ctx context.Context, clients *moduleClient.SingletonClients, resources kube.ResourceList) (bool, error) {
+func checkReady(ctx context.Context,
+	clients *moduleClient.SingletonClients, resources kube.ResourceList,
+) (bool, error) {
 	start := time.Now()
 	logger := log.FromContext(ctx)
 	logger.V(util.DebugLogLevel).Info("ReadyCheck", "resources", len(resources))
@@ -236,7 +227,7 @@ func checkReady(ctx context.Context, clients *moduleClient.SingletonClients, res
 	if len(errs) > 0 {
 		return resourcesReady, types.NewMultiError(errs)
 	}
-	logger.V(util.DebugLogLevel).Info("ReadyCheck finished", "time", time.Now().Sub(start))
+	logger.V(util.DebugLogLevel).Info("ReadyCheck finished", "time", time.Since(start))
 
 	return resourcesReady, nil
 }
