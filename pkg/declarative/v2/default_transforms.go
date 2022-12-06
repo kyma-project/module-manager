@@ -38,14 +38,14 @@ func kymaComponentTransform(_ context.Context, obj Object, resources *types.Mani
 }
 
 func managedByDeclarativeV2(_ context.Context, _ Object, resources *types.ManifestResources) error {
-	id := "declarative-v2"
+	managedBy := "declarative-v2"
 	for _, resource := range resources.Items {
 		labels := resource.GetLabels()
 		if labels == nil {
 			labels = make(map[string]string)
 		}
 		// legacy managed by value
-		labels["reconciler.kyma-project.io/managed-by"] = id
+		labels["reconciler.kyma-project.io/managed-by"] = managedBy
 		resource.SetLabels(labels)
 	}
 	return nil

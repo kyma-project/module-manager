@@ -37,6 +37,7 @@ const (
 	YamlDecodeBufferSize            = 2048
 	OthersReadExecuteFilePermission = 0o755
 	DebugLogLevel                   = 2
+	TraceLogLevel                   = 3
 )
 
 func GetNamespaceObjBytes(clientNs string) ([]byte, error) {
