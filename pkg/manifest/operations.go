@@ -21,9 +21,18 @@ import (
 type Operations struct {
 	logger             logr.Logger
 	renderSrc          types.ManifestClient
-	flags              types.ChartFlags
+	installInfo        *types.InstallInfo
 	resourceTransforms []types.ObjectTransform
+	postRuns           []types.PostRun
 	client             client.Client
+}
+
+type OperationOptions struct {
+	Logger             logr.Logger
+	InstallInfo        *types.InstallInfo
+	ResourceTransforms []types.ObjectTransform
+	PostRuns           []types.PostRun
+	Cache              types.RendererCache
 }
 
 var (
@@ -31,47 +40,38 @@ var (
 	ErrCRDsNotRemoved        = errors.New("CRDs not completely removed")
 	ErrUninstallInconsistent = errors.New("uninstallation inconsistent")
 )
-
 // InstallChart installs the resources based on types.InstallInfo and an appropriate rendering mechanism.
-func InstallChart(logger logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
-	cache types.RendererCache,
-) (bool, error) {
-	ops, err := NewOperations(logger, deployInfo, resourceTransforms, cache)
+func InstallChart(options OperationOptions) (bool, error) {
+	ops, err := NewOperations(options)
 	if err != nil {
 		return false, err
 	}
 
-	return ops.install(deployInfo)
+	return ops.install()
 }
 
 // UninstallChart uninstalls the resources based on types.InstallInfo and an appropriate rendering mechanism.
-func UninstallChart(logger logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
-	cache types.RendererCache,
-) (bool, error) {
-	ops, err := NewOperations(logger, deployInfo, resourceTransforms, cache)
+func UninstallChart(options OperationOptions) (bool, error) {
+	ops, err := NewOperations(options)
 	if err != nil {
 		return false, err
 	}
 
-	return ops.uninstall(deployInfo)
+	return ops.uninstall()
 }
 
 // ConsistencyCheck verifies consistency of resources based on types.InstallInfo and an appropriate rendering mechanism.
-func ConsistencyCheck(logger logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
-	cache types.RendererCache,
-) (bool, error) {
-	ops, err := NewOperations(logger, deployInfo, resourceTransforms, cache)
+func ConsistencyCheck(options OperationOptions) (bool, error) {
+	ops, err := NewOperations(options)
 	if err != nil {
 		return false, err
 	}
 
-	return ops.consistencyCheck(deployInfo)
+	return ops.consistencyCheck()
 }
 
-func NewOperations(logger logr.Logger, deployInfo types.InstallInfo, resourceTransforms []types.ObjectTransform,
-	cache types.RendererCache,
-) (*Operations, error) {
-	renderSrc, err := getRenderSrc(cache, deployInfo, logger)
+func NewOperations(options OperationOptions) (*Operations, error) {
+	renderSrc, err := getRenderSrc(options.Cache, options.InstallInfo, options.Logger)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create manifest processor: %w", err)
 	}
@@ -81,10 +81,11 @@ func NewOperations(logger logr.Logger, deployInfo types.InstallInfo, resourceTra
 	}
 
 	ops := &Operations{
-		logger:             logger,
+		logger:             options.Logger,
 		renderSrc:          renderSrc,
-		flags:              deployInfo.Flags,
-		resourceTransforms: resourceTransforms,
+		installInfo:        options.InstallInfo,
+		resourceTransforms: options.ResourceTransforms,
+		postRuns:           options.PostRuns,
 		client:             clusterInfo.Client,
 	}
 
@@ -92,9 +93,9 @@ func NewOperations(logger logr.Logger, deployInfo types.InstallInfo, resourceTra
 }
 
 // getRenderSrc checks if the manifest processor client is cached and returns if available.
-// If not available, it creates a new one based on deployInfo.
+// If not available, it creates a new one based on installInfo.
 // Additionally, it verifies cached configuration for the manifest processor and invalidates it if required.
-func getRenderSrc(cache types.RendererCache, deployInfo types.InstallInfo,
+func getRenderSrc(cache types.RendererCache, deployInfo *types.InstallInfo,
 	logger logr.Logger,
 ) (types.ManifestClient, error) {
 	var renderSrc types.ManifestClient
@@ -170,7 +171,7 @@ func discoverCacheKey(resource client.Object, logger logr.Logger) (client.Object
 
 // getManifestProcessor returns a new types.ManifestClient instance
 // this render source will handle subsequent Operations for manifest resources based on types.InstallInfo.
-func getManifestProcessor(deployInfo types.InstallInfo, logger logr.Logger) (types.ManifestClient, error) {
+func getManifestProcessor(deployInfo *types.InstallInfo, logger logr.Logger) (types.ManifestClient, error) {
 	render := NewRendered(logger)
 
 	singletonClients, err := manifestClient.NewSingletonClients(deployInfo.ClusterInfo, logger)
@@ -197,9 +198,9 @@ func getManifestProcessor(deployInfo types.InstallInfo, logger logr.Logger) (typ
 	return nil, nil
 }
 
-func (o *Operations) consistencyCheck(deployInfo types.InstallInfo) (bool, error) {
+func (o *Operations) consistencyCheck() (bool, error) {
 	// verify CRDs
-	if err := resource.CheckCRDs(deployInfo.Ctx, deployInfo.Crds, o.client,
+	if err := resource.CheckCRDs(o.installInfo.Ctx, o.installInfo.Crds, o.client,
 		false); err != nil {
 		if apierrors.IsNotFound(err) {
 			return false, nil
@@ -208,7 +209,7 @@ func (o *Operations) consistencyCheck(deployInfo types.InstallInfo) (bool, error
 	}
 
 	// verify CR
-	if err := resource.CheckCRs(deployInfo.Ctx, deployInfo.CustomResources, o.client,
+	if err := resource.CheckCRs(o.installInfo.Ctx, o.installInfo.CustomResources, o.client,
 		false); err != nil {
 		if apierrors.IsNotFound(err) {
 			return false, nil
@@ -217,76 +218,84 @@ func (o *Operations) consistencyCheck(deployInfo types.InstallInfo) (bool, error
 	}
 
 	// process manifest
-	parsedFile := o.getManifestForChartPath(deployInfo)
+	parsedFile := o.getManifestForChartPath(o.installInfo)
 	if parsedFile.GetRawError() != nil {
 		return false, parsedFile
 	}
 
 	// consistency check
-	consistent, err := o.renderSrc.IsConsistent(parsedFile.GetContent(), deployInfo, o.resourceTransforms)
+	consistent, err := o.renderSrc.IsConsistent(parsedFile.GetContent(),
+		o.installInfo, o.resourceTransforms, o.postRuns)
 	if err != nil || !consistent {
 		return false, err
 	}
 
 	// custom states check
-	if deployInfo.CheckFn != nil {
-		return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.BaseResource, o.logger, deployInfo.ClusterInfo)
+	if o.installInfo.CheckFn != nil {
+		return o.installInfo.CheckFn(o.installInfo.Ctx, o.installInfo.BaseResource, o.logger, o.installInfo.ClusterInfo)
 	}
 	return true, nil
 }
 
-func (o *Operations) install(deployInfo types.InstallInfo) (bool, error) {
+func (o *Operations) install() (bool, error) {
 	// install crds first - if present do not update!
-	if err := resource.CheckCRDs(deployInfo.Ctx, deployInfo.Crds, o.client, true); err != nil {
+	if err := resource.CheckCRDs(
+		o.installInfo.Ctx, o.installInfo.Crds, o.client, true); err != nil {
 		return false, err
 	}
 
 	// process manifest
-	parsedFile := o.getManifestForChartPath(deployInfo)
+	parsedFile := o.getManifestForChartPath(o.installInfo)
 	if parsedFile.GetRawError() != nil {
 		return false, parsedFile.GetRawError()
 	}
 
 	// install resources
-	consistent, err := o.renderSrc.Install(parsedFile.GetContent(), deployInfo, o.resourceTransforms)
+	consistent, err := o.renderSrc.Install(
+		parsedFile.GetContent(),
+		o.installInfo,
+		o.resourceTransforms,
+		o.postRuns,
+	)
 	if err != nil || !consistent {
 		return false, err
 	}
 
 	// install crs - if present do not update!
-	if err := resource.CheckCRs(deployInfo.Ctx, deployInfo.CustomResources, o.client,
+	if err := resource.CheckCRs(o.installInfo.Ctx, o.installInfo.CustomResources, o.client,
 		true); err != nil {
 		return false, err
 	}
 
 	// custom states check
-	if deployInfo.CheckFn != nil {
-		return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.BaseResource, o.logger, deployInfo.ClusterInfo)
+	if o.installInfo.CheckFn != nil {
+		return o.installInfo.CheckFn(o.installInfo.Ctx, o.installInfo.BaseResource, o.logger, o.installInfo.ClusterInfo)
 	}
 	return true, nil
 }
 
-func (o *Operations) uninstall(deployInfo types.InstallInfo) (bool, error) {
+func (o *Operations) uninstall() (bool, error) {
 	// delete crs first - proceed only if not found
 	// proceed if CR type doesn't exist anymore - since associated CRDs might be deleted from resource uninstallation
 	// since there might be a deletion process to be completed by other manifest resources
-	crDeleted := resource.RemoveCRs(deployInfo.Ctx, deployInfo.CustomResources, o.client)
+	crDeleted := resource.RemoveCRs(o.installInfo.Ctx, o.installInfo.CustomResources, o.client)
 	if !crDeleted {
 		return false, ErrCRsNotRemoved
 	}
 
 	// process manifest
-	parsedFile := o.getManifestForChartPath(deployInfo)
+	parsedFile := o.getManifestForChartPath(o.installInfo)
 	if parsedFile.GetRawError() != nil {
 		return false, parsedFile.GetRawError()
 	}
 	// remove cached manifest
-	if parsedFile := o.renderSrc.DeleteCachedResources(deployInfo.ChartPath); parsedFile.GetRawError() != nil {
+	if parsedFile := o.renderSrc.DeleteCachedResources(o.installInfo.ChartPath); parsedFile.GetRawError() != nil {
 		return false, parsedFile.GetRawError()
 	}
 
 	// uninstall resources
-	consistent, err := o.renderSrc.Uninstall(parsedFile.GetContent(), deployInfo, o.resourceTransforms)
+	consistent, err := o.renderSrc.Uninstall(parsedFile.GetContent(),
+		o.installInfo, o.resourceTransforms, o.postRuns)
 	if !consistent {
 		return false, ErrUninstallInconsistent
 	}
@@ -295,14 +304,14 @@ func (o *Operations) uninstall(deployInfo types.InstallInfo) (bool, error) {
 	}
 
 	// delete crds last - if not present ignore!
-	crdDeleted := resource.RemoveCRDs(deployInfo.Ctx, deployInfo.Crds, o.client)
-	if !crdDeleted {
-		return false, ErrCRDsNotRemoved
-	}
+	crdDeleted :=  resource.RemoveCRDs(o.installInfo.Ctx, o.installInfo.Crds, o.client)
+		if !crdDeleted {
+			return false, ErrCRDsNotRemoved
+		}
 
 	// custom states check
-	if deployInfo.CheckFn != nil {
-		return deployInfo.CheckFn(deployInfo.Ctx, deployInfo.BaseResource, o.logger, deployInfo.ClusterInfo)
+	if o.installInfo.CheckFn != nil {
+		return o.installInfo.CheckFn(o.installInfo.Ctx, o.installInfo.BaseResource, o.logger, o.installInfo.ClusterInfo)
 	}
 	return true, err
 }
@@ -311,7 +320,7 @@ func UninstallSuccess(err error) bool {
 	return err == nil || apierrors.IsNotFound(err) || meta.IsNoMatchError(err)
 }
 
-func (o *Operations) getManifestForChartPath(installInfo types.InstallInfo) *types.ParsedFile {
+func (o *Operations) getManifestForChartPath(installInfo *types.InstallInfo) *types.ParsedFile {
 	// 1. check provided manifest file
 	// It is expected for installInfo.ChartPath to contain ONE .yaml or .yml file,
 	// which is assumed to contain a list of resources to be processed.

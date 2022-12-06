@@ -76,7 +76,7 @@ type SingletonClients struct {
 	unstructuredRESTClientCache map[string]resource.RESTClient
 }
 
-func NewSingletonClients(info types.ClusterInfo, logger logr.Logger) (*SingletonClients, error) {
+func NewSingletonClients(info *types.ClusterInfo, logger logr.Logger) (*SingletonClients, error) {
 	if err := setKubernetesDefaults(info.Config); err != nil {
 		return nil, err
 	}
