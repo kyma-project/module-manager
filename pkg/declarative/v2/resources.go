@@ -6,10 +6,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/imdario/mergo"
 	moduleClient "github.com/kyma-project/module-manager/pkg/client"
 	"github.com/kyma-project/module-manager/pkg/types"
 	"github.com/kyma-project/module-manager/pkg/util"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	machineryTypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -112,15 +116,16 @@ func normaliseNamespaces(
 	}
 }
 
-func resourcesServerSideApply(
+func resourcesPatch(
 	ctx context.Context,
 	clients *moduleClient.SingletonClients,
 	owner client.FieldOwner,
 	resources []*resource.Info,
+	ssa bool,
 ) error {
 	ssaStart := time.Now()
 	logger := log.FromContext(ctx, "owner", owner)
-	logger.V(util.DebugLogLevel).Info("ServerSideApply", "resources", len(resources))
+	logger.V(util.DebugLogLevel).Info("ResourcePatch", "resources", len(resources))
 
 	// Runtime Complexity of this Branch is N as only ServerSideApplier Patch is required
 	patchResults := make(chan error, len(resources))
@@ -128,27 +133,25 @@ func resourcesServerSideApply(
 	patch := func(ctx context.Context, info *resource.Info) {
 		patchStart := time.Now()
 
-		obj, isTyped := info.Object.(client.Object)
-		if !isTyped {
-			patchResults <- fmt.Errorf("client object conversion in SSA for %s failed", info.ObjectName())
-			return
-		}
-
-		logger.V(util.DebugLogLevel).Info(fmt.Sprintf("updating %s", info.ObjectName()),
-			"time", time.Since(patchStart))
-
-		if err := clients.Client.Patch(ctx, obj,
-			client.Apply, client.ForceOwnership, owner,
-		); err != nil {
-			patchResults <- fmt.Errorf("SSA for %s failed: %w", info.ObjectName(), err)
+		var patchType machineryTypes.PatchType
+		if ssa {
+			patchType = machineryTypes.ApplyPatchType
 		} else {
-			patchResults <- nil
+			patchType = machineryTypes.MergePatchType
 		}
+		logger.V(util.DebugLogLevel).Info(
+			fmt.Sprintf("patch %s (%s)", info.ObjectName(), info.Mapping.GroupVersionKind),
+			"patchType", patchType)
+		patchResults <- patchInfo(ctx, clients.Client, info, patchType, owner)
+		logger.V(util.DebugLogLevel).Info(
+			fmt.Sprintf("patch for %s (%s) finished", info.ObjectName(), info.Mapping.GroupVersionKind),
+			"patchType", patchType,
+			"time", time.Since(patchStart))
 	}
 
 	for i := range resources {
 		i := i
-		go patch(ctx, resources[i])
+		patch(ctx, resources[i])
 	}
 
 	var errs []error
@@ -161,11 +164,109 @@ func resourcesServerSideApply(
 	ssaFinish := time.Since(ssaStart)
 
 	if errs != nil {
-		return fmt.Errorf("ServerSideApply failed (after %s): %w", ssaFinish, types.NewMultiError(errs))
+		return fmt.Errorf("ResourcePatch failed (after %s): %w", ssaFinish, types.NewMultiError(errs))
 	}
-	logger.V(util.DebugLogLevel).Info("ServerSideApply finished", "time", ssaFinish)
+	logger.V(util.DebugLogLevel).Info("ResourcePatch finished", "time", ssaFinish)
 
 	return nil
+}
+
+func patchInfo(
+	ctx context.Context,
+	clnt client.Client,
+	info *resource.Info,
+	patchType machineryTypes.PatchType,
+	owner client.FieldOwner,
+) error {
+	logger := log.FromContext(ctx, "patchType", patchType)
+
+	info.Object = convertUnstructuredToTyped(clnt, info.Object, info.Mapping)
+
+	obj, isTyped := info.Object.(client.Object)
+	if !isTyped {
+		return fmt.Errorf("client object conversion in SSA for %s failed", info.ObjectName())
+	}
+
+	var err error
+	switch patchType {
+	case machineryTypes.ApplyPatchType:
+		err = clnt.Patch(ctx, obj, client.Apply, client.ForceOwnership, owner)
+	case machineryTypes.MergePatchType:
+		unstruct := &unstructured.Unstructured{}
+		unstruct.SetGroupVersionKind(info.Mapping.GroupVersionKind)
+		onCluster := convertUnstructuredToTyped(clnt, unstruct, info.Mapping).(client.Object)
+		//Backwards compatible with SSA
+		err := clnt.Get(ctx, client.ObjectKeyFromObject(obj), onCluster)
+		if apierrors.IsNotFound(err) {
+			return clnt.Create(ctx, obj, owner)
+		}
+		if err != nil {
+			return fmt.Errorf("getting original object (merge) for %s (%s) failed: %w",
+				info.ObjectName(), info.Mapping.GroupVersionKind, err)
+		}
+		normaliseAPIVersionKind(obj, onCluster)
+		obj.SetCreationTimestamp(onCluster.GetCreationTimestamp())
+		obj.SetManagedFields(onCluster.GetManagedFields())
+		obj.SetUID(onCluster.GetUID())
+		obj.SetResourceVersion(onCluster.GetResourceVersion())
+		localMerge := onCluster.DeepCopyObject()
+		if err := mergo.Merge(localMerge, obj, mergo.WithOverride); err != nil {
+			return err
+		}
+		var patch []byte
+
+		if _, isUnstructured := obj.(runtime.Unstructured); isUnstructured {
+			patch, err = client.MergeFrom(onCluster).Data(localMerge.(client.Object))
+		} else {
+			patch, err = client.StrategicMergeFrom(onCluster).Data(localMerge.(client.Object))
+		}
+
+		if err != nil {
+			return fmt.Errorf("creating patch for %s (%s) failed: %w",
+				info.ObjectName(), info.Mapping.GroupVersionKind, err)
+		}
+
+		if len(patch) == 0 || string(patch) == "{}" {
+			logger.V(util.DebugLogLevel).Info("patch skipped")
+			return nil
+		}
+
+		err = clnt.Patch(ctx, obj, client.RawPatch(patchType, patch), owner)
+	}
+
+	if err != nil {
+		return fmt.Errorf("patch for %s (%s) failed: %w", info.ObjectName(),
+			info.Mapping.GroupVersionKind, err)
+	}
+
+	return nil
+}
+
+func normaliseAPIVersionKind(from, to client.Object) {
+	typeMeta, err := meta.TypeAccessor(from)
+	if err != nil {
+		return
+	}
+	newTypeMeta, err := meta.TypeAccessor(to)
+	if err != nil {
+		return
+	}
+	newTypeMeta.SetKind(typeMeta.GetKind())
+	newTypeMeta.SetAPIVersion(typeMeta.GetAPIVersion())
+}
+
+// convertWithMapper converts the given object with the optional provided
+// RESTMapping. If no mapping is provided, the default schema versioner is used
+func convertUnstructuredToTyped(clnt client.Client, obj runtime.Object, mapping *meta.RESTMapping) runtime.Object {
+	s := clnt.Scheme()
+	var gv = runtime.GroupVersioner(schema.GroupVersions(s.PrioritizedVersionsAllGroups()))
+	if mapping != nil {
+		gv = mapping.GroupVersionKind.GroupVersion()
+	}
+	if obj, err := s.UnsafeConvertToVersion(obj, gv); err == nil {
+		return obj
+	}
+	return obj
 }
 
 func deleteAndVerify(clients *moduleClient.SingletonClients, resources kube.ResourceList) (bool, error) {

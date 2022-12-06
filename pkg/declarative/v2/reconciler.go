@@ -267,8 +267,8 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return r.ssaStatus(ctx, obj)
 	}
 
-	if err = resourcesServerSideApply(ctx, clients, r.FieldOwner, target); err != nil {
-		r.Event(obj, "Warning", "ServerSideApply", err.Error())
+	if err = resourcesPatch(ctx, clients, r.FieldOwner, target, false); err != nil {
+		r.Event(obj, "Warning", "ResourcePatch", err.Error())
 	}
 
 	if err != nil {
