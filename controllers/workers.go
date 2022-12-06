@@ -33,7 +33,7 @@ func NewManifestWorkers(logger logr.Logger, workersConcurrentManifests int) *Man
 }
 
 func (mw *ManifestWorkerPool) StartWorkers(ctx context.Context, jobChan <-chan OperationRequest,
-	handlerFn func(manifestTypes.InstallInfo, internalTypes.Mode, logr.Logger) *internalTypes.InstallResponse,
+	handlerFn func(*manifestTypes.InstallInfo, internalTypes.Mode, logr.Logger) *internalTypes.InstallResponse,
 ) {
 	for worker := 1; worker <= mw.GetWorkerPoolSize(); worker++ {
 		go func(ctx context.Context, workerId int, deployJob <-chan OperationRequest) {

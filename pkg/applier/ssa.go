@@ -37,7 +37,7 @@ func NewSSAApplier(clients *client.SingletonClients, logger logr.Logger) *SetApp
 	}
 }
 
-func (s *SetApplier) Apply(deployInfo types.InstallInfo, objects *types.ManifestResources,
+func (s *SetApplier) Apply(deployInfo *types.InstallInfo, objects *types.ManifestResources,
 	namespace string,
 ) (bool, error) {
 	// Populate the namespace on any namespace-scoped objects
@@ -67,7 +67,7 @@ func (s *SetApplier) Apply(deployInfo types.InstallInfo, objects *types.Manifest
 	return expectedLength == len(results), nil
 }
 
-func (s *SetApplier) Delete(deployInfo types.InstallInfo, objects *types.ManifestResources,
+func (s *SetApplier) Delete(deployInfo *types.InstallInfo, objects *types.ManifestResources,
 	namespace string,
 ) (bool, error) {
 	// Populate the namespace on any namespace-scoped objects
@@ -140,7 +140,7 @@ func (s *SetApplier) adjustNs(objects *types.ManifestResources, namespace string
 }
 
 func (s *SetApplier) execute(
-	deployInfo types.InstallInfo,
+	deployInfo *types.InstallInfo,
 	objects []*unstructured.Unstructured,
 ) ([]*unstructured.Unstructured, error) {
 	appliedObjects := make([]*unstructured.Unstructured, 0)

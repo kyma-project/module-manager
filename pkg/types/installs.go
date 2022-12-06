@@ -13,16 +13,16 @@ import (
 // ManifestClient offers client utility methods for processing of manifest resources.
 type ManifestClient interface {
 	// GetRawManifest returns processed resource manifest using the client.
-	GetRawManifest(deployInfo InstallInfo) *ParsedFile
+	GetRawManifest(deployInfo *InstallInfo) *ParsedFile
 
 	// Install transforms and applies resources based on InstallInfo.
-	Install(manifest string, deployInfo InstallInfo, transforms []ObjectTransform) (bool, error)
+	Install(manifest string, deployInfo *InstallInfo, transforms []ObjectTransform, postRuns []PostRun) (bool, error)
 
 	// Uninstall transforms and applies resources based on InstallInfo.
-	Uninstall(manifest string, deployInfo InstallInfo, transforms []ObjectTransform) (bool, error)
+	Uninstall(manifest string, deployInfo *InstallInfo, transforms []ObjectTransform, postRuns []PostRun) (bool, error)
 
 	// IsConsistent transforms and checks if resources are consistently installed based on InstallInfo.
-	IsConsistent(manifest string, deployInfo InstallInfo, transforms []ObjectTransform) (bool, error)
+	IsConsistent(manifest string, deployInfo *InstallInfo, transforms []ObjectTransform, postRuns []PostRun) (bool, error)
 
 	// GetCachedResources returns a resource manifest which was already cached during previous operations.
 	// By default, it looks inside <chart-path>/manifest/manifest.yaml
@@ -38,7 +38,7 @@ type ManifestClient interface {
 
 	// InvalidateConfigAndRenderedManifest compares the cached hash with the processed hash for helm flags.
 	// On mismatch, it invalidates the cached manifest and resets flags on client.
-	InvalidateConfigAndRenderedManifest(deployInfo InstallInfo, cachedHash uint32) (uint32, error)
+	InvalidateConfigAndRenderedManifest(deployInfo *InstallInfo, cachedHash uint32) (uint32, error)
 
 	// GetClusterInfo returns Client and REST config for the target cluster
 	GetClusterInfo() (ClusterInfo, error)
@@ -166,9 +166,9 @@ type InstallInfo struct {
 	// ChartInfo represents chart information to be processed
 	*ChartInfo
 	// ResourceInfo represents additional resources to be processed
-	ResourceInfo
+	*ResourceInfo
 	// ClusterInfo represents target cluster information
-	ClusterInfo
+	*ClusterInfo
 	// Ctx hold the current context
 	Ctx context.Context //nolint:containedctx
 	// CheckFn returns a boolean indicating ready state based on custom checks
