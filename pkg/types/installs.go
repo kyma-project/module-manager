@@ -153,10 +153,6 @@ type ResourceLists struct {
 	Namespace kube.ResourceList
 }
 
-func (r *ResourceLists) GetWaitForResources() kube.ResourceList {
-	return append(r.Target, r.Namespace...)
-}
-
 // InstallInfo represents deployment information artifacts to be processed.
 type InstallInfo struct {
 	// ChartInfo represents chart information to be processed

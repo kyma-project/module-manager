@@ -40,6 +40,7 @@ var (
 	ErrCRDsNotRemoved        = errors.New("CRDs not completely removed")
 	ErrUninstallInconsistent = errors.New("uninstallation inconsistent")
 )
+
 // InstallChart installs the resources based on types.InstallInfo and an appropriate rendering mechanism.
 func InstallChart(options OperationOptions) (bool, error) {
 	ops, err := NewOperations(options)
@@ -296,18 +297,18 @@ func (o *Operations) uninstall() (bool, error) {
 	// uninstall resources
 	consistent, err := o.renderSrc.Uninstall(parsedFile.GetContent(),
 		o.installInfo, o.resourceTransforms, o.postRuns)
-	if !consistent {
-		return false, ErrUninstallInconsistent
-	}
 	if !UninstallSuccess(err) {
 		return false, err
 	}
+	if !consistent {
+		return false, ErrUninstallInconsistent
+	}
 
 	// delete crds last - if not present ignore!
-	crdDeleted :=  resource.RemoveCRDs(o.installInfo.Ctx, o.installInfo.Crds, o.client)
-		if !crdDeleted {
-			return false, ErrCRDsNotRemoved
-		}
+	crdDeleted := resource.RemoveCRDs(o.installInfo.Ctx, o.installInfo.Crds, o.client)
+	if !crdDeleted {
+		return false, ErrCRDsNotRemoved
+	}
 
 	// custom states check
 	if o.installInfo.CheckFn != nil {
