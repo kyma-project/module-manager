@@ -168,7 +168,7 @@ func (h *helm) Uninstall(stringifedManifest string, info *types.InstallInfo, tra
 	}
 
 	// uninstall resources
-	_, err = h.uninstallResources(resourceLists)
+	err = h.uninstallResources(resourceLists.Installed)
 	if err != nil {
 		return false, err
 	}
@@ -244,12 +244,14 @@ func (h *helm) uninstallChartCRDs(info *types.InstallInfo) error {
 	if err != nil {
 		return err
 	}
-	resList, err := h.getTargetResources(info.Ctx, crds.String(), nil, nil, false)
+	resourceList, err := h.getTargetResources(info.Ctx, crds.String(), nil, nil, false)
+	if resourceList == nil {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
-
-	_, deleteErrs := h.clients.KubeClient().Delete(resList)
+	_, deleteErrs := h.clients.KubeClient().Delete(resourceList)
 	if len(deleteErrs) > 0 {
 		filteredErrs := filterNotFoundError(deleteErrs)
 		if len(filteredErrs) > 0 {
@@ -337,19 +339,18 @@ func (h *helm) installResources(resourceLists types.ResourceLists, force bool) (
 	return h.clients.KubeClient().Update(resourceLists.Installed, resourceLists.Target, force)
 }
 
-func (h *helm) uninstallResources(resourceLists types.ResourceLists) (*kube.Result, error) {
-	var response *kube.Result
+func (h *helm) uninstallResources(installedResources kube.ResourceList) error {
 	var deleteErrs []error
-	if resourceLists.Installed != nil {
-		response, deleteErrs = h.clients.KubeClient().Delete(resourceLists.Installed)
+	if installedResources != nil {
+		_, deleteErrs = h.clients.KubeClient().Delete(installedResources)
 		if len(deleteErrs) > 0 {
 			filteredErrs := filterNotFoundError(deleteErrs)
 			if len(filteredErrs) > 0 {
-				return nil, types.NewMultiError(filteredErrs)
+				return types.NewMultiError(filteredErrs)
 			}
 		}
 	}
-	return response, nil
+	return nil
 }
 
 func filterNotFoundError(delErrors []error) []error {
