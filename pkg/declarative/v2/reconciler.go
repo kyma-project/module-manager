@@ -50,28 +50,6 @@ const (
 	ConditionReasonReady                 ConditionReason = "Ready"
 )
 
-//nolint:gochecknoglobals
-var (
-	crdCondition = metav1.Condition{
-		Type:    string(ConditionTypeCRDs),
-		Reason:  string(ConditionReasonCRDsAreAvailable),
-		Status:  metav1.ConditionFalse,
-		Message: "CustomResourceDefinitions are installed and ready for use",
-	}
-	resourceCondition = metav1.Condition{
-		Type:    string(ConditionTypeResources),
-		Reason:  string(ConditionReasonResourcesAreAvailable),
-		Status:  metav1.ConditionFalse,
-		Message: "resources are parsed and ready for use",
-	}
-	installationCondition = metav1.Condition{
-		Type:    string(ConditionTypeInstallation),
-		Reason:  string(ConditionReasonReady),
-		Status:  metav1.ConditionFalse,
-		Message: "installation is ready and resources can be used",
-	}
-)
-
 //nolint:funlen,nestif,gocognit,gocyclo,cyclop,maintidx //TODO discuss if worth breaking up or if more readable as is.
 func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
@@ -98,13 +76,29 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return r.ssa(ctx, obj)
 	}
 
-	crdCondition := *crdCondition.DeepCopy()
-	resourceCondition := *resourceCondition.DeepCopy()
-	installationCondition := *installationCondition.DeepCopy()
-
-	crdCondition.ObservedGeneration = obj.GetGeneration()
-	resourceCondition.ObservedGeneration = obj.GetGeneration()
-	installationCondition.ObservedGeneration = obj.GetGeneration()
+	var (
+		crdCondition = metav1.Condition{
+			Type:               string(ConditionTypeCRDs),
+			Reason:             string(ConditionReasonCRDsAreAvailable),
+			Status:             metav1.ConditionFalse,
+			Message:            "CustomResourceDefinitions are installed and ready for use",
+			ObservedGeneration: obj.GetGeneration(),
+		}
+		resourceCondition = metav1.Condition{
+			Type:               string(ConditionTypeResources),
+			Reason:             string(ConditionReasonResourcesAreAvailable),
+			Status:             metav1.ConditionFalse,
+			Message:            "resources are parsed and ready for use",
+			ObservedGeneration: obj.GetGeneration(),
+		}
+		installationCondition = metav1.Condition{
+			Type:               string(ConditionTypeInstallation),
+			Reason:             string(ConditionReasonReady),
+			Status:             metav1.ConditionFalse,
+			Message:            "installation is ready and resources can be used",
+			ObservedGeneration: obj.GetGeneration(),
+		}
+	)
 
 	// Processing
 	if status.State == "" {
