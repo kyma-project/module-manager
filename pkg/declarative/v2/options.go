@@ -2,6 +2,7 @@ package v2
 
 import (
 	"context"
+	"os"
 	"time"
 
 	"github.com/kyma-project/module-manager/pkg/types"
@@ -20,10 +21,10 @@ const (
 	EventRecorderDefault = "declarative.kyma-project.io/events"
 )
 
-func DefaultReconcilerOptions() *ReconcilerOptions {
-	return (&ReconcilerOptions{}).Apply(
+func DefaultOptions() *Options {
+	return (&Options{}).Apply(
 		WithDeleteCRDsOnUninstall(false),
-		WithNamespace(metav1.NamespaceDefault),
+		WithNamespace(metav1.NamespaceDefault, false),
 		WithFinalizer(FinalizerDefault),
 		WithFieldOwner(FieldOwnerDefault),
 		WithPostRenderTransform(
@@ -33,18 +34,23 @@ func DefaultReconcilerOptions() *ReconcilerOptions {
 		),
 		WithConsistencyCheckOnCacheReset(true),
 		WithSingletonClientCache(NewMemorySingletonClientCache()),
+		WithManifestCacheRoot(os.TempDir()),
 	)
 }
 
-type ReconcilerOptions struct {
+type Options struct {
 	record.EventRecorder
 	Config *rest.Config
 	client.Client
 
 	ManifestSpecSource
 	SingletonClientCache
+	ManifestCacheRoot string
+	CustomReadyCheck  ReadyCheck
 
-	Namespace string
+	Namespace       string
+	CreateNamespace bool
+
 	Finalizer string
 
 	ServerSideApply bool
@@ -59,31 +65,42 @@ type ReconcilerOptions struct {
 }
 
 type Option interface {
-	Apply(options *ReconcilerOptions)
+	Apply(options *Options)
 }
 
-func (o *ReconcilerOptions) Apply(options ...Option) *ReconcilerOptions {
+func (o *Options) Apply(options ...Option) *Options {
 	for i := range options {
 		options[i].Apply(o)
 	}
 	return o
 }
 
-type WithNamespace string
+type WithNamespaceOption struct {
+	name            string
+	createIfMissing bool
+}
 
-func (o WithNamespace) Apply(options *ReconcilerOptions) {
-	options.Namespace = string(o)
+func WithNamespace(name string, createIfMissing bool) WithNamespaceOption {
+	return WithNamespaceOption{
+		name:            name,
+		createIfMissing: createIfMissing,
+	}
+}
+
+func (o WithNamespaceOption) Apply(options *Options) {
+	options.Namespace = o.name
+	options.CreateNamespace = o.createIfMissing
 }
 
 type WithFieldOwner client.FieldOwner
 
-func (o WithFieldOwner) Apply(options *ReconcilerOptions) {
+func (o WithFieldOwner) Apply(options *Options) {
 	options.FieldOwner = client.FieldOwner(o)
 }
 
 type WithFinalizer string
 
-func (o WithFinalizer) Apply(options *ReconcilerOptions) {
+func (o WithFinalizer) Apply(options *Options) {
 	options.Finalizer = string(o)
 }
 
@@ -95,7 +112,7 @@ func WithManager(mgr manager.Manager) WithManagerOption {
 	return WithManagerOption{Manager: mgr}
 }
 
-func (o WithManagerOption) Apply(options *ReconcilerOptions) {
+func (o WithManagerOption) Apply(options *Options) {
 	options.EventRecorder = o.GetEventRecorderFor(EventRecorderDefault)
 	options.Config = o.GetConfig()
 	options.Client = o.GetClient()
@@ -103,7 +120,7 @@ func (o WithManagerOption) Apply(options *ReconcilerOptions) {
 
 type WithCustomResourceLabels labels.Set
 
-func (o WithCustomResourceLabels) Apply(options *ReconcilerOptions) {
+func (o WithCustomResourceLabels) Apply(options *Options) {
 	labelTransform := func(ctx context.Context, object Object, resources *types.ManifestResources) error {
 		for _, targetResource := range resources.Items {
 			lbls := targetResource.GetLabels()
@@ -138,8 +155,25 @@ type ManifestSpecSourceOption struct {
 	ManifestSpecSource
 }
 
-func (o ManifestSpecSourceOption) Apply(options *ReconcilerOptions) {
+func (o ManifestSpecSourceOption) Apply(options *Options) {
 	options.ManifestSpecSource = o
+}
+
+// StaticManifestSpecSource is a simple static resolver that always uses the same chart and values.
+type StaticManifestSpecSource struct {
+	ManifestNameFn func(ctx context.Context, obj Object) string
+	ChartPath      string
+	Values         map[string]any
+}
+
+func (m *StaticManifestSpecSource) ResolveManifestSpec(
+	ctx context.Context, obj Object,
+) (*ManifestSpec, error) {
+	return &ManifestSpec{
+		ManifestName: m.ManifestNameFn(ctx, obj),
+		ChartPath:    m.ChartPath,
+		Values:       m.Values,
+	}, nil
 }
 
 type ObjectTransform = func(context.Context, Object, *types.ManifestResources) error
@@ -152,7 +186,7 @@ type PostRenderTransformOption struct {
 	ObjectTransforms []ObjectTransform
 }
 
-func (o PostRenderTransformOption) Apply(options *ReconcilerOptions) {
+func (o PostRenderTransformOption) Apply(options *Options) {
 	options.PostRenderTransforms = append(options.PostRenderTransforms, o.ObjectTransforms...)
 }
 
@@ -164,19 +198,19 @@ type PostRun = func(
 
 type WithPostRun []PostRun
 
-func (o WithPostRun) Apply(options *ReconcilerOptions) {
+func (o WithPostRun) Apply(options *Options) {
 	options.PostRuns = append(options.PostRuns, o...)
 }
 
 type WithPeriodicConsistencyCheck time.Duration
 
-func (o WithPeriodicConsistencyCheck) Apply(options *ReconcilerOptions) {
+func (o WithPeriodicConsistencyCheck) Apply(options *Options) {
 	options.CtrlOnSuccess.RequeueAfter = time.Duration(o)
 }
 
 type WithConsistencyCheckOnCacheReset bool
 
-func (o WithConsistencyCheckOnCacheReset) Apply(options *ReconcilerOptions) {
+func (o WithConsistencyCheckOnCacheReset) Apply(options *Options) {
 	if o {
 		options.CtrlOnSuccess = ctrl.Result{}
 	} else {
@@ -192,12 +226,30 @@ func WithSingletonClientCache(cache SingletonClientCache) WithSingletonClientCac
 	return WithSingletonClientCacheOption{SingletonClientCache: cache}
 }
 
-func (o WithSingletonClientCacheOption) Apply(options *ReconcilerOptions) {
+func (o WithSingletonClientCacheOption) Apply(options *Options) {
 	options.SingletonClientCache = o
 }
 
 type WithDeleteCRDsOnUninstall bool
 
-func (o WithDeleteCRDsOnUninstall) Apply(options *ReconcilerOptions) {
+func (o WithDeleteCRDsOnUninstall) Apply(options *Options) {
 	options.DeleteCRDsOnUninstall = bool(o)
+}
+
+type WithManifestCacheRoot string
+
+func (o WithManifestCacheRoot) Apply(options *Options) {
+	options.ManifestCacheRoot = string(o)
+}
+
+type WithCustomReadyCheckOption struct {
+	ReadyCheck
+}
+
+func WithCustomReadyCheck(check ReadyCheck) WithCustomReadyCheckOption {
+	return WithCustomReadyCheckOption{ReadyCheck: check}
+}
+
+func (o WithCustomReadyCheckOption) Apply(options *Options) {
+	options.CustomReadyCheck = o
 }

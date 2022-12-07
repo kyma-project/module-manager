@@ -1,13 +1,15 @@
 package v2
 
 import (
-	mmclient "github.com/kyma-project/module-manager/pkg/client"
 	"github.com/kyma-project/module-manager/pkg/types"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/cli-runtime/pkg/resource"
 )
+
+type ResourceInfoConverter interface {
+	ResourceInfo(obj *unstructured.Unstructured, retryOnNoMatch bool) (*resource.Info, error)
+}
 
 type ResourceConverter interface {
 	ConvertSyncedToNewStatus(status Status, resources []*resource.Info) Status
@@ -15,12 +17,13 @@ type ResourceConverter interface {
 	ConvertResourcesFromManifest(resources *types.ManifestResources) ([]*resource.Info, error)
 }
 
-func NewResourceConverter(clients *mmclient.SingletonClients) ResourceConverter {
-	return &defaultResourceConverter{clients: clients}
+func NewResourceConverter(converter ResourceInfoConverter, defaultNamespace string) ResourceConverter {
+	return &defaultResourceConverter{converter: converter, defaultNamespace: defaultNamespace}
 }
 
 type defaultResourceConverter struct {
-	clients *mmclient.SingletonClients
+	converter        ResourceInfoConverter
+	defaultNamespace string
 }
 
 func (c *defaultResourceConverter) ConvertSyncedToNewStatus(status Status, resources []*resource.Info) Status {
@@ -28,13 +31,9 @@ func (c *defaultResourceConverter) ConvertSyncedToNewStatus(status Status, resou
 	for _, info := range resources {
 		status.Synced = append(
 			status.Synced, Resource{
-				Name:      info.Name,
-				Namespace: info.Namespace,
-				GroupVersionKind: v1.GroupVersionKind{
-					Group:   info.Mapping.GroupVersionKind.Group,
-					Version: info.Mapping.GroupVersionKind.Version,
-					Kind:    info.Mapping.GroupVersionKind.Kind,
-				},
+				Name:             info.Name,
+				Namespace:        info.Namespace,
+				GroupVersionKind: v1.GroupVersionKind(info.Mapping.GroupVersionKind),
 			},
 		)
 	}
@@ -45,17 +44,7 @@ func (c *defaultResourceConverter) ConvertStatusToResources(status Status) ([]*r
 	current := make([]*resource.Info, 0, len(status.Synced))
 	errs := make([]error, 0, len(status.Synced))
 	for _, synced := range status.Synced {
-		obj := &unstructured.Unstructured{}
-		obj.SetName(synced.Name)
-		obj.SetNamespace(synced.Namespace)
-		obj.SetGroupVersionKind(
-			schema.GroupVersionKind{
-				Group:   synced.Group,
-				Version: synced.Version,
-				Kind:    synced.Kind,
-			},
-		)
-		resourceInfo, err := c.clients.ResourceInfo(obj, true)
+		resourceInfo, err := c.converter.ResourceInfo(synced.ToUnstructured(), true)
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -66,7 +55,6 @@ func (c *defaultResourceConverter) ConvertStatusToResources(status Status) ([]*r
 	if len(errs) > 0 {
 		return current, types.NewMultiError(errs)
 	}
-	c.normaliseNamespaces(current)
 	return current, nil
 }
 
@@ -76,7 +64,7 @@ func (c *defaultResourceConverter) ConvertResourcesFromManifest(
 	target := make([]*resource.Info, 0, len(resources.Items))
 	errs := make([]error, 0, len(resources.Items))
 	for _, obj := range resources.Items {
-		resourceInfo, err := c.clients.ResourceInfo(obj, true)
+		resourceInfo, err := c.converter.ResourceInfo(obj, true)
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -99,9 +87,8 @@ func (c *defaultResourceConverter) normaliseNamespaces(infos []*resource.Info) {
 		}
 		if info.Namespaced() {
 			if info.Namespace == "" || obj.GetNamespace() == "" {
-				defaultNamespace := c.clients.KubeClient().Namespace
-				info.Namespace = defaultNamespace
-				obj.SetNamespace(defaultNamespace)
+				info.Namespace = c.defaultNamespace
+				obj.SetNamespace(c.defaultNamespace)
 			}
 		} else {
 			if info.Namespace != "" || obj.GetNamespace() != "" {

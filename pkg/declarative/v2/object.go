@@ -1,7 +1,11 @@
 package v2
 
 import (
+	"time"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -30,6 +34,8 @@ type Status struct {
 	// and it is used to determine effective differences from one state to the next.
 	//+listType=atomic
 	Synced []Resource `json:"synced"`
+
+	LastOperation `json:"lastOperation,omitempty"`
 }
 
 type State string
@@ -59,4 +65,29 @@ type Resource struct {
 	Name                    string `json:"name"`
 	Namespace               string `json:"namespace"`
 	metav1.GroupVersionKind `json:",inline"`
+}
+
+func (r Resource) ToUnstructured() *unstructured.Unstructured {
+	obj := unstructured.Unstructured{}
+	obj.SetGroupVersionKind(schema.GroupVersionKind(r.GroupVersionKind))
+	obj.SetName(r.Name)
+	obj.SetNamespace(r.Namespace)
+	return &obj
+}
+
+// LastOperation defines the last operation from the control-loop.
+// +k8s:deepcopy-gen=true
+type LastOperation struct {
+	Operation      string      `json:"operation"`
+	LastUpdateTime metav1.Time `json:"lastUpdateTime,omitempty"`
+}
+
+func (s Status) WithErr(err error) Status {
+	s.LastOperation = LastOperation{Operation: err.Error(), LastUpdateTime: metav1.NewTime(time.Now())}
+	return s
+}
+
+func (s Status) WithOperation(operation string) Status {
+	s.LastOperation = LastOperation{Operation: operation, LastUpdateTime: metav1.NewTime(time.Now())}
+	return s
 }

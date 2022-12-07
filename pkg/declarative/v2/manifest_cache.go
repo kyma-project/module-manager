@@ -10,7 +10,9 @@ import (
 	"github.com/kyma-project/module-manager/pkg/util"
 )
 
-const manifest = "manifest"
+const (
+	manifest = "manifest"
+)
 
 type manifestCache struct {
 	root string
@@ -18,8 +20,8 @@ type manifestCache struct {
 	hash string
 }
 
-func newManifestCache(spec *ManifestSpec) *manifestCache {
-	root := filepath.Join(spec.ChartPath, manifest)
+func newManifestCache(baseDir string, spec *ManifestSpec) *manifestCache {
+	root := filepath.Join(baseDir, manifest, spec.ChartPath)
 	file := filepath.Join(root, spec.ManifestName)
 	hashedValues, _ := util.CalculateHash(spec.Values)
 	hash := fmt.Sprintf("%v", hashedValues)

@@ -32,7 +32,7 @@ type concurrentDefaultSSA struct {
 func ConcurrentSSA(clnt client.Client, owner client.FieldOwner) SSA {
 	return &concurrentDefaultSSA{
 		clnt: clnt, owner: owner,
-		versioner: runtime.GroupVersioner(schema.GroupVersions(clnt.Scheme().PrioritizedVersionsAllGroups())),
+		versioner: schema.GroupVersions(clnt.Scheme().PrioritizedVersionsAllGroups()),
 		converter: clnt.Scheme(),
 	}
 }
