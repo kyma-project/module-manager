@@ -128,9 +128,9 @@ func (h *helm) Install(stringifedManifest string, info *types.InstallInfo, trans
 		"resource", client.ObjectKeyFromObject(info.BaseResource).String())
 
 	// verify resources
-	if ready, err := h.verifyResources(info.Ctx, resourceLists,
-		info.CheckReadyStates, types.OperationCreate); !ready || err != nil {
-		return ready, err
+	if err := h.checkTargetResources(info.Ctx, resourceLists.Target,
+		types.OperationCreate, info.CheckReadyStates); err != nil {
+		return false, err
 	}
 
 	// update helm repositories
@@ -169,7 +169,7 @@ func (h *helm) Uninstall(stringifedManifest string, info *types.InstallInfo, tra
 
 	// uninstall resources
 	_, err = h.uninstallResources(resourceLists)
-	if IgnoreHelmClientNotFound(err) != nil {
+	if err != nil {
 		return false, err
 	}
 
@@ -187,10 +187,10 @@ func (h *helm) Uninstall(stringifedManifest string, info *types.InstallInfo, tra
 		"resource", client.ObjectKeyFromObject(info.BaseResource).String())
 
 	// verify resource uninstallation
-	if ready, err := h.verifyResources(
-		info.Ctx, resourceLists,
-		info.CheckReadyStates, types.OperationDelete); !ready || err != nil {
-		return ready, err
+	if err := h.checkTargetResources(
+		info.Ctx, resourceLists.Target, types.OperationDelete,
+		info.CheckReadyStates); err != nil {
+		return false, err
 	}
 
 	// include CRDs means that the Chart will include the CRDs during rendering, if this is set to false,
@@ -219,12 +219,12 @@ func (h *helm) Uninstall(stringifedManifest string, info *types.InstallInfo, tra
 	return true, nil
 }
 
-func IgnoreHelmClientNotFound(err error) error {
+func isHelmClientNotFound(err error) bool {
 	// Refactoring this error check after this PR get merged and released https://github.com/helm/helm/pull/11591
 	if err != nil && strings.Contains(err.Error(), "object not found, skipping delete") {
-		return nil
+		return true
 	}
-	return err
+	return false
 }
 
 // uninstallChartCRDs uses a types.InstallInfo to lookup a chart and then tries to remove all CRDs found within it
@@ -250,15 +250,11 @@ func (h *helm) uninstallChartCRDs(info *types.InstallInfo) error {
 	}
 
 	_, deleteErrs := h.clients.KubeClient().Delete(resList)
-	criticalDeleteErrs := make([]error, 0, len(deleteErrs))
-	for i := range deleteErrs {
-		if deleteErrs[i] != nil && !apierrors.IsNotFound(deleteErrs[i]) {
-			criticalDeleteErrs = append(criticalDeleteErrs, deleteErrs[i])
+	if len(deleteErrs) > 0 {
+		filteredErrs := filterNotFoundError(deleteErrs)
+		if len(filteredErrs) > 0 {
+			return types.NewMultiError(filteredErrs)
 		}
-	}
-
-	if len(criticalDeleteErrs) > 0 {
-		return types.NewMultiError(criticalDeleteErrs)
 	}
 
 	return nil
@@ -299,20 +295,20 @@ func (h *helm) IsConsistent(stringifedManifest string, info *types.InstallInfo,
 	}
 
 	// verify resources
-	ready, err := h.verifyResources(info.Ctx, resourceLists, info.CheckReadyStates, types.OperationCreate)
+	if err := h.checkTargetResources(info.Ctx,
+		resourceLists.Target,
+		types.OperationCreate,
+		info.CheckReadyStates); err != nil {
+		return false, err
+	}
 
 	h.logger.V(util.DebugLogLevel).Info("consistency check finished",
-		"consistent", ready,
 		"create count", len(result.Created),
 		"update count", len(result.Updated),
 		"chart", info.ChartName,
 		"release", info.ReleaseName,
 		"resource", client.ObjectKeyFromObject(info.BaseResource).String(),
 		"time", time.Since(startConsistencyCheck).String())
-
-	if !ready || err != nil {
-		return ready, err
-	}
 
 	// update helm repositories
 	if info.UpdateRepositories {
@@ -322,13 +318,6 @@ func (h *helm) IsConsistent(stringifedManifest string, info *types.InstallInfo,
 	}
 
 	return true, nil
-}
-
-func (h *helm) verifyResources(ctx context.Context, resourceLists types.ResourceLists, verifyReadyStates bool,
-	operationType types.HelmOperation,
-) (bool, error) {
-	return h.checkWaitForResources(ctx, resourceLists.GetWaitForResources(), operationType,
-		verifyReadyStates)
 }
 
 func (h *helm) installResources(resourceLists types.ResourceLists, force bool) (*kube.Result, error) {
@@ -350,23 +339,34 @@ func (h *helm) installResources(resourceLists types.ResourceLists, force bool) (
 
 func (h *helm) uninstallResources(resourceLists types.ResourceLists) (*kube.Result, error) {
 	var response *kube.Result
-	var delErrors []error
+	var deleteErrs []error
 	if resourceLists.Installed != nil {
-		response, delErrors = h.clients.KubeClient().Delete(resourceLists.Installed)
-		if len(delErrors) > 0 {
-			var wrappedError error
-			for _, err := range delErrors {
-				wrappedError = fmt.Errorf("%w", err)
+		response, deleteErrs = h.clients.KubeClient().Delete(resourceLists.Installed)
+		if len(deleteErrs) > 0 {
+			filteredErrs := filterNotFoundError(deleteErrs)
+			if len(filteredErrs) > 0 {
+				return nil, types.NewMultiError(filteredErrs)
 			}
-			return nil, wrappedError
 		}
 	}
 	return response, nil
 }
 
-func (h *helm) checkWaitForResources(ctx context.Context, targetResources kube.ResourceList,
-	operation types.HelmOperation, verifyWithoutTimeout bool,
-) (bool, error) {
+func filterNotFoundError(delErrors []error) []error {
+	wrappedErrors := make([]error, 0)
+	for _, err := range delErrors {
+		if isHelmClientNotFound(err) || apierrors.IsNotFound(err) {
+			continue
+		}
+		wrappedErrors = append(wrappedErrors, err)
+	}
+	return wrappedErrors
+}
+
+func (h *helm) checkTargetResources(ctx context.Context,
+	targetResources kube.ResourceList,
+	operation types.HelmOperation,
+	verifyWithoutTimeout bool) error {
 	// verifyWithoutTimeout flag checks native resources are in their respective ready states
 	// without a timeout defined
 	if verifyWithoutTimeout {
@@ -375,7 +375,7 @@ func (h *helm) checkWaitForResources(ctx context.Context, targetResources kube.R
 		}
 		clientSet, err := h.clients.KubernetesClientSet()
 		if err != nil {
-			return false, err
+			return err
 		}
 		readyChecker := kube.NewReadyChecker(clientSet,
 			func(format string, args ...interface{}) {
@@ -390,20 +390,20 @@ func (h *helm) checkWaitForResources(ctx context.Context, targetResources kube.R
 	// if Wait or WaitForJobs is enabled, resources are verified to be in ready state with a timeout
 	if !h.clients.Install().Wait || h.clients.Install().Timeout == 0 {
 		// return here as ready, since waiting flags were not set
-		return true, nil
+		return nil
 	}
 
 	if operation == types.OperationDelete {
 		// WaitForDelete reports an error if resources are not deleted in the specified timeout
-		return true, h.clients.KubeClient().WaitForDelete(targetResources, h.clients.Install().Timeout)
+		return h.clients.KubeClient().WaitForDelete(targetResources, h.clients.Install().Timeout)
 	}
 
 	if h.clients.Install().WaitForJobs {
 		// WaitWithJobs reports an error if resources are not deleted in the specified timeout
-		return true, h.clients.KubeClient().WaitWithJobs(targetResources, h.clients.Install().Timeout)
+		return h.clients.KubeClient().WaitWithJobs(targetResources, h.clients.Install().Timeout)
 	}
 	// Wait reports an error if resources are not deleted in the specified timeout
-	return true, h.clients.KubeClient().Wait(targetResources, h.clients.Install().Timeout)
+	return h.clients.KubeClient().Wait(targetResources, h.clients.Install().Timeout)
 }
 
 func (h *helm) updateRepos(ctx context.Context) error {
