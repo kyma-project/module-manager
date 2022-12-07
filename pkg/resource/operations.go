@@ -20,6 +20,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -230,46 +232,38 @@ func CheckCRs(ctx context.Context, crs []*unstructured.Unstructured, runtimeClie
 
 func RemoveCRDs(ctx context.Context, crds []*apiextensionsv1.CustomResourceDefinition,
 	runtimeClient client.Client,
-) error {
-	for _, crd := range crds {
-		existingCrd := apiextensionsv1.CustomResourceDefinition{}
-		if err := runtimeClient.Get(ctx, client.ObjectKeyFromObject(crd), &existingCrd); err != nil {
-			if client.IgnoreNotFound(err) != nil {
-				return err
-			}
+) bool {
+	deleted := true
+	for _, resource := range crds {
+		if resourceDeleted(ctx, resource, runtimeClient) {
 			continue
 		}
-
-		if err := runtimeClient.Delete(ctx, &existingCrd); err != nil {
-			return err
-		}
+		deleted = false
 	}
-	return nil
+	return deleted
 }
 
-func RemoveCRs(ctx context.Context, crs []*unstructured.Unstructured,
-	runtimeClient client.Client,
-) (bool, error) {
+func RemoveCRs(ctx context.Context, crs []*unstructured.Unstructured, runtimeClient client.Client) bool {
 	deleted := true
 	for _, resource := range crs {
-		existingCustomResource := unstructured.Unstructured{}
-		existingCustomResource.SetGroupVersionKind(resource.GroupVersionKind())
-		customResourceKey := client.ObjectKey{
-			Name:      resource.GetName(),
-			Namespace: resource.GetNamespace(),
-		}
-		if err := runtimeClient.Get(ctx, customResourceKey, &existingCustomResource); err != nil {
-			if client.IgnoreNotFound(err) != nil {
-				return false, err
-			}
-			// resource deleted
+		if resourceDeleted(ctx, resource, runtimeClient) {
 			continue
 		}
-
 		deleted = false
-		if err := runtimeClient.Delete(ctx, resource); err != nil {
-			return false, err
-		}
 	}
-	return deleted, nil
+	return deleted
+}
+
+func resourceDeleted(ctx context.Context, resource client.Object, runtimeClient client.Client) bool {
+	logger := log.FromContext(ctx)
+	err := runtimeClient.Delete(ctx, resource)
+	// only not found or no resource match can make sure resource deleted
+	if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
+		return true
+	}
+	if err != nil {
+		logger.V(util.DebugLogLevel).Error(err, "RemoveResources")
+		return false
+	}
+	return false
 }
