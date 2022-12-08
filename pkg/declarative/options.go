@@ -62,3 +62,20 @@ func WithCacheDisabled(disable bool) ReconcilerOption {
 		return manifestOptions
 	}
 }
+
+// WithPostRun adds run hooks after installation/uninstallation or consistency checks.
+func WithPostRun(runs ...types.PostRun) ReconcilerOption {
+	return func(allOptions manifestOptions) manifestOptions {
+		allOptions.postRuns = append(allOptions.postRuns, runs...)
+		return allOptions
+	}
+}
+
+func With(option ...ReconcilerOption) ReconcilerOption {
+	return func(allOptions manifestOptions) manifestOptions {
+		for i := range option {
+			allOptions = option[i](allOptions)
+		}
+		return allOptions
+	}
+}

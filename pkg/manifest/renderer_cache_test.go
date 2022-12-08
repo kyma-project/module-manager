@@ -42,8 +42,8 @@ var (
 	}
 )
 
-func getDeployInfo(resourceName, parentCacheKey, chartPath, url string, flags types.ChartFlags) types.InstallInfo {
-	return types.InstallInfo{
+func getInstallInfo(resourceName, parentCacheKey, chartPath, url string, flags types.ChartFlags) *types.InstallInfo {
+	return &types.InstallInfo{
 		ChartInfo: &types.ChartInfo{
 			ChartPath: chartPath,
 			URL:       url,
@@ -51,10 +51,10 @@ func getDeployInfo(resourceName, parentCacheKey, chartPath, url string, flags ty
 			Flags:     flags,
 			ChartName: "someChartName",
 		},
-		ClusterInfo: types.ClusterInfo{
+		ClusterInfo: &types.ClusterInfo{
 			Config: &cfg,
 		},
-		ResourceInfo: types.ResourceInfo{
+		ResourceInfo: &types.ResourceInfo{
 			BaseResource: &unstructured.Unstructured{
 				Object: map[string]interface{}{
 					"metadata": map[string]interface{}{
@@ -74,8 +74,10 @@ func remoteHelm() func(resourceName string, parentKey string, flags types.ChartF
 ) (string, string, uint32) {
 	return func(resourceName string, parentKey string, flags types.ChartFlags, cache types.RendererCache,
 	) (string, string, uint32) {
-		_, err := manifest.NewOperations(logger, getDeployInfo(resourceName, parentKey, "",
-			"https://helm.nginx.com/stable", flags), nil, cache)
+		_, err := manifest.NewOperations(manifest.OperationOptions{
+			Logger: logger, InstallInfo: getInstallInfo(resourceName, parentKey, "",
+				"https://helm.nginx.com/stable", flags), Cache: cache,
+		})
 		Expect(err).ShouldNot(HaveOccurred())
 		flagsHash, err := util.CalculateHash(flags)
 		Expect(err).ShouldNot(HaveOccurred())
@@ -87,8 +89,12 @@ func localHelm() func(resourceName string, parentKey string, flags types.ChartFl
 ) (string, string, uint32) {
 	return func(resourceName string, parentKey string, flags types.ChartFlags, cache types.RendererCache,
 	) (string, string, uint32) {
-		_, err := manifest.NewOperations(logger, getDeployInfo(resourceName, parentKey,
-			"../test_samples/helm", "", flags), nil, cache)
+		_, err := manifest.NewOperations(manifest.OperationOptions{
+			Logger: logger,
+			InstallInfo: getInstallInfo(resourceName, parentKey,
+				"../test_samples/helm", "", flags),
+			Cache: cache,
+		})
 		Expect(err).ShouldNot(HaveOccurred())
 		flagsHash, err := util.CalculateHash(flags)
 		Expect(err).ShouldNot(HaveOccurred())

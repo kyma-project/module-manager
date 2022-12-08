@@ -43,6 +43,7 @@ type manifestOptions struct {
 	disableCache     bool
 	resourceLabels   map[string]string
 	objectTransforms []types.ObjectTransform
+	postRuns         []types.PostRun
 	manifestResolver types.ManifestResolver
 	finalizer        string
 }
@@ -189,14 +190,19 @@ func (r *ManifestReconciler) HandleProcessingState(ctx context.Context, objectIn
 	if err != nil {
 		return err
 	}
-
-	ready, err := manifest.InstallChart(logger, installInfo, r.options.objectTransforms,
-		r.cacheManager.GetRendererCache())
+	ready, err := manifest.InstallChart(manifest.OperationOptions{
+		Logger:             logger,
+		InstallInfo:        installInfo,
+		ResourceTransforms: r.options.objectTransforms,
+		PostRuns:           r.options.postRuns,
+		Cache:              r.cacheManager.GetRendererCache(),
+	})
 	if err != nil {
 		logger.Error(nil, fmt.Sprintf("error while installing resource %s %s",
 			client.ObjectKeyFromObject(objectInstance), err.Error()))
 		return r.setStatusForObjectInstance(ctx, objectInstance, status.WithState(types.StateError))
 	}
+
 	if ready {
 		return r.setStatusForObjectInstance(ctx, objectInstance, status.WithState(types.StateReady))
 	}
@@ -237,8 +243,13 @@ func (r *ManifestReconciler) HandleDeletingState(ctx context.Context, objectInst
 		return err
 	}
 
-	readyToBeDeleted, err := manifest.UninstallChart(logger, installInfo, r.options.objectTransforms,
-		r.cacheManager.GetRendererCache())
+	readyToBeDeleted, err := manifest.UninstallChart(manifest.OperationOptions{
+		Logger:             logger,
+		InstallInfo:        installInfo,
+		ResourceTransforms: r.options.objectTransforms,
+		PostRuns:           r.options.postRuns,
+		Cache:              r.cacheManager.GetRendererCache(),
+	})
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("error while deleting resource %s", client.ObjectKeyFromObject(objectInstance)))
 		status.State = types.StateError
@@ -277,8 +288,13 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, objectInstanc
 	}
 
 	// verify installed resources
-	ready, err := manifest.ConsistencyCheck(logger, installInfo, r.options.objectTransforms,
-		r.cacheManager.GetRendererCache())
+	ready, err := manifest.ConsistencyCheck(manifest.OperationOptions{
+		Logger:             logger,
+		InstallInfo:        installInfo,
+		ResourceTransforms: r.options.objectTransforms,
+		PostRuns:           r.options.postRuns,
+		Cache:              r.cacheManager.GetRendererCache(),
+	})
 
 	// update only if resources not ready OR an error occurred during chart verification
 	if err != nil {
@@ -293,37 +309,37 @@ func (r *ManifestReconciler) HandleReadyState(ctx context.Context, objectInstanc
 
 func (r *ManifestReconciler) prepareInstallInfo(ctx context.Context, objectInstance types.BaseCustomObject,
 	installSpec types.InstallationSpec, releaseName string,
-) (types.InstallInfo, error) {
-	unstructuredObj := &unstructured.Unstructured{}
+) (*types.InstallInfo, error) {
+	obj := &unstructured.Unstructured{}
 	var err error
 	switch typedObject := objectInstance.(type) {
 	case types.CustomObject:
-		unstructuredObj.Object, err = runtime.DefaultUnstructuredConverter.ToUnstructured(typedObject)
+		obj.Object, err = runtime.DefaultUnstructuredConverter.ToUnstructured(typedObject)
 		if err != nil {
-			return types.InstallInfo{}, err
+			return &types.InstallInfo{}, err
 		}
 	case *unstructured.Unstructured:
-		unstructuredObj = typedObject
+		obj = typedObject
 	default:
-		return types.InstallInfo{}, getTypeError(client.ObjectKeyFromObject(objectInstance).String())
+		return &types.InstallInfo{}, getTypeError(client.ObjectKeyFromObject(objectInstance).String())
 	}
 
-	return types.InstallInfo{
+	return &types.InstallInfo{
 		Ctx: ctx,
 		ChartInfo: &types.ChartInfo{
 			ChartPath:   installSpec.ChartPath,
 			ReleaseName: releaseName,
 			Flags:       installSpec.ChartFlags,
 		},
-		ClusterInfo: types.ClusterInfo{
+		ClusterInfo: &types.ClusterInfo{
 			// destination cluster rest config
 			Config: r.mgr.GetConfig(),
 			// destination cluster rest client
 			Client: r.mgr.GetClient(),
 		},
-		ResourceInfo: types.ResourceInfo{
+		ResourceInfo: &types.ResourceInfo{
 			// base operator resource to be passed for custom checks
-			BaseResource: unstructuredObj,
+			BaseResource: obj,
 		},
 		CheckReadyStates: r.options.verify,
 	}, nil
@@ -335,6 +351,7 @@ func (r *ManifestReconciler) applyOptions(opts ...ReconcilerOption) error {
 		verify:           false,
 		resourceLabels:   make(map[string]string, 0),
 		objectTransforms: []types.ObjectTransform{},
+		postRuns:         []types.PostRun{},
 	}
 
 	for _, opt := range opts {

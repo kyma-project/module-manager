@@ -31,7 +31,7 @@ const configReadError = "reading install %s resulted in an error for " + v1alpha
 // each representing an installation artifact.
 func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClusterInfo types.ClusterInfo,
 	flags internalTypes.ReconcileFlagConfig, processorCache types.RendererCache,
-) ([]types.InstallInfo, error) {
+) ([]*types.InstallInfo, error) {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 
 	// extract config
@@ -80,8 +80,8 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 
 	// parse installs
 	baseDeployInfo := types.InstallInfo{
-		ClusterInfo: clusterInfo,
-		ResourceInfo: types.ResourceInfo{
+		ClusterInfo: &clusterInfo,
+		ResourceInfo: &types.ResourceInfo{
 			Crds:            crds,
 			BaseResource:    &unstructured.Unstructured{Object: manifestObjMetadata},
 			CustomResources: []*unstructured.Unstructured{},
@@ -101,7 +101,7 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 		baseDeployInfo.CustomResources = append(baseDeployInfo.CustomResources, &manifestObj.Spec.Resource)
 	}
 
-	return parseInstallations(manifestObj, flags.Codec, configs, baseDeployInfo, flags.InsecureRegistry)
+	return parseInstallations(manifestObj, flags.Codec, configs, &baseDeployInfo, flags.InsecureRegistry)
 }
 
 func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo types.ClusterInfo,
@@ -162,10 +162,10 @@ func parseInstallConfigs(decodedConfig interface{}) ([]interface{}, error) {
 }
 
 func parseInstallations(manifestObj *v1alpha1.Manifest, codec *types.Codec,
-	configs []interface{}, baseDeployInfo types.InstallInfo, insecureRegistry bool,
-) ([]types.InstallInfo, error) {
+	configs []interface{}, baseDeployInfo *types.InstallInfo, insecureRegistry bool,
+) ([]*types.InstallInfo, error) {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
-	deployInfos := make([]types.InstallInfo, 0)
+	deployInfos := make([]*types.InstallInfo, 0)
 
 	for _, install := range manifestObj.Spec.Installs {
 		deployInfo := baseDeployInfo

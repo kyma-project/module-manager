@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -46,7 +47,7 @@ var accessor = meta.NewAccessor()
 // On the returned helm instance, installation, uninstallation and verification checks
 // can be executed on the resource manifest.
 func NewHelmProcessor(clients *manifestTypes.SingletonClients, settings *cli.EnvSettings,
-	logger logr.Logger, render *Rendered, deployInfo types.InstallInfo, forceCRDRemoval bool,
+	logger logr.Logger, render *Rendered, deployInfo *types.InstallInfo, forceCRDRemoval bool,
 ) (types.ManifestClient, error) {
 	helmClient := &helm{
 		clients:         clients,
@@ -70,7 +71,7 @@ func NewHelmProcessor(clients *manifestTypes.SingletonClients, settings *cli.Env
 }
 
 // GetRawManifest returns processed resource manifest using helm client.
-func (h *helm) GetRawManifest(info types.InstallInfo) *types.ParsedFile {
+func (h *helm) GetRawManifest(info *types.InstallInfo) *types.ParsedFile {
 	chartPath, err := h.resolveChartPath(info)
 	if err != nil {
 		return types.NewParsedFile("", err)
@@ -79,10 +80,10 @@ func (h *helm) GetRawManifest(info types.InstallInfo) *types.ParsedFile {
 
 	// if Rendered manifest doesn't exist
 	// check newly Rendered manifest here
-	return types.NewParsedFile(h.renderManifestFromChartPath(info.Ctx, chartPath, info.Flags.SetFlags))
+	return types.NewParsedFile(h.renderReleaseFromChartPath(info.Ctx, chartPath, info.Flags.SetFlags))
 }
 
-func (h *helm) resolveChartPath(info types.InstallInfo) (string, error) {
+func (h *helm) resolveChartPath(info *types.InstallInfo) (string, error) {
 	chartPath := info.ChartPath
 	if chartPath == "" {
 		var err error
@@ -96,10 +97,11 @@ func (h *helm) resolveChartPath(info types.InstallInfo) (string, error) {
 }
 
 // Install transforms and applies Helm based manifest using helm client.
-func (h *helm) Install(stringifedManifest string, deployInfo types.InstallInfo, transforms []types.ObjectTransform,
+func (h *helm) Install(stringifedManifest string, info *types.InstallInfo, transforms []types.ObjectTransform,
+	postRuns []types.PostRun,
 ) (bool, error) {
 	// convert for Helm processing
-	resourceLists, err := h.parseToResourceLists(stringifedManifest, deployInfo, transforms, true)
+	resourceLists, err := h.parseToResourceLists(stringifedManifest, info, transforms, true)
 	if err != nil {
 		return false, err
 	}
@@ -110,22 +112,30 @@ func (h *helm) Install(stringifedManifest string, deployInfo types.InstallInfo, 
 		return false, err
 	}
 
+	for i := range postRuns {
+		if err := postRuns[i](
+			info.Ctx, info.Client, info.ResourceInfo.BaseResource, resourceLists,
+		); err != nil {
+			return false, fmt.Errorf("post-run %v failed: %w", i, err)
+		}
+	}
+
 	h.logger.V(util.DebugLogLevel).Info("installed | updated Helm chart resources",
 		"create count", len(result.Created),
 		"update count", len(result.Updated),
-		"chart", deployInfo.ChartName,
-		"release", deployInfo.ReleaseName,
-		"resource", client.ObjectKeyFromObject(deployInfo.BaseResource).String())
+		"chart", info.ChartName,
+		"release", info.ReleaseName,
+		"resource", client.ObjectKeyFromObject(info.BaseResource).String())
 
 	// verify resources
-	if ready, err := h.verifyResources(deployInfo.Ctx, resourceLists,
-		deployInfo.CheckReadyStates, types.OperationCreate); !ready || err != nil {
-		return ready, err
+	if err := h.checkTargetResources(info.Ctx, resourceLists.Target,
+		types.OperationCreate, info.CheckReadyStates); err != nil {
+		return false, err
 	}
 
 	// update helm repositories
-	if deployInfo.UpdateRepositories {
-		if err = h.updateRepos(deployInfo.Ctx); err != nil {
+	if info.UpdateRepositories {
+		if err = h.updateRepos(info.Ctx); err != nil {
 			return false, err
 		}
 	}
@@ -134,7 +144,8 @@ func (h *helm) Install(stringifedManifest string, deployInfo types.InstallInfo, 
 }
 
 // Uninstall transforms and deletes Helm based manifest using helm client.
-func (h *helm) Uninstall(stringifedManifest string, info types.InstallInfo, transforms []types.ObjectTransform,
+func (h *helm) Uninstall(stringifedManifest string, info *types.InstallInfo, transforms []types.ObjectTransform,
+	postRuns []types.PostRun,
 ) (bool, error) {
 	// convert for Helm processing
 	// do not retry since if the Kind is not existing anymore, there can never be a resource left in the cluster
@@ -157,9 +168,17 @@ func (h *helm) Uninstall(stringifedManifest string, info types.InstallInfo, tran
 	}
 
 	// uninstall resources
-	_, err = h.uninstallResources(resourceLists)
+	err = h.uninstallResources(resourceLists.Installed)
 	if err != nil {
 		return false, err
+	}
+
+	for i := range postRuns {
+		if err := postRuns[i](
+			info.Ctx, info.Client, info.ResourceInfo.BaseResource, resourceLists,
+		); err != nil {
+			return false, fmt.Errorf("post-run %v failed: %w", i, err)
+		}
 	}
 
 	h.logger.V(util.DebugLogLevel).Info("uninstalled Helm chart resources",
@@ -168,10 +187,10 @@ func (h *helm) Uninstall(stringifedManifest string, info types.InstallInfo, tran
 		"resource", client.ObjectKeyFromObject(info.BaseResource).String())
 
 	// verify resource uninstallation
-	if ready, err := h.verifyResources(
-		info.Ctx, resourceLists,
-		info.CheckReadyStates, types.OperationDelete); !ready || err != nil {
-		return ready, err
+	if err := h.checkTargetResources(
+		info.Ctx, resourceLists.Target, types.OperationDelete,
+		info.CheckReadyStates); err != nil {
+		return false, err
 	}
 
 	// include CRDs means that the Chart will include the CRDs during rendering, if this is set to false,
@@ -200,11 +219,19 @@ func (h *helm) Uninstall(stringifedManifest string, info types.InstallInfo, tran
 	return true, nil
 }
 
+func isHelmClientNotFound(err error) bool {
+	// Refactoring this error check after this PR get merged and released https://github.com/helm/helm/pull/11591
+	if err != nil && strings.Contains(err.Error(), "object not found, skipping delete") {
+		return true
+	}
+	return false
+}
+
 // uninstallChartCRDs uses a types.InstallInfo to lookup a chart and then tries to remove all CRDs found within it
 // and its dependencies. It can be used to forcefully remove all CRDs from a chart when CRDs were not included in the
 // render. Unlike our optimized installation, this one is built sequentially as we do not need the performance
 // here.
-func (h *helm) uninstallChartCRDs(info types.InstallInfo) error {
+func (h *helm) uninstallChartCRDs(info *types.InstallInfo) error {
 	chartPath, err := h.resolveChartPath(info)
 	if err != nil {
 		return err
@@ -217,33 +244,32 @@ func (h *helm) uninstallChartCRDs(info types.InstallInfo) error {
 	if err != nil {
 		return err
 	}
-	resList, err := h.getTargetResources(info.Ctx, crds.String(), nil, nil, false)
+	resourceList, err := h.getTargetResources(info.Ctx, crds.String(), nil, nil, false)
+	if resourceList == nil {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
-
-	_, deleteErrs := h.clients.KubeClient().Delete(resList)
-	criticalDeleteErrs := make([]error, 0, len(deleteErrs))
-	for i := range deleteErrs {
-		if deleteErrs[i] != nil && !apierrors.IsNotFound(deleteErrs[i]) {
-			criticalDeleteErrs = append(criticalDeleteErrs, deleteErrs[i])
+	_, deleteErrs := h.clients.KubeClient().Delete(resourceList)
+	if len(deleteErrs) > 0 {
+		filteredErrs := filterNotFoundError(deleteErrs)
+		if len(filteredErrs) > 0 {
+			return types.NewMultiError(filteredErrs)
 		}
-	}
-
-	if len(criticalDeleteErrs) > 0 {
-		return types.NewMultiError(criticalDeleteErrs)
 	}
 
 	return nil
 }
 
 // IsConsistent indicates if helm installation is consistent with the desired manifest resources.
-func (h *helm) IsConsistent(stringifedManifest string, deployInfo types.InstallInfo, transforms []types.ObjectTransform,
+func (h *helm) IsConsistent(stringifedManifest string, info *types.InstallInfo,
+	transforms []types.ObjectTransform, postRuns []types.PostRun,
 ) (bool, error) {
 	startConsistencyCheck := time.Now()
 
 	// convert for Helm processing
-	resourceLists, err := h.parseToResourceLists(stringifedManifest, deployInfo, transforms, true)
+	resourceLists, err := h.parseToResourceLists(stringifedManifest, info, transforms, true)
 	if err != nil {
 		return false, err
 	}
@@ -251,9 +277,9 @@ func (h *helm) IsConsistent(stringifedManifest string, deployInfo types.InstallI
 	if len(resourceLists.Target) != len(resourceLists.Installed) {
 		h.logger.Info("consistency check noticed a difference between installed "+
 			"and target resources and will attempt to repair this",
-			"chart", deployInfo.ChartName,
-			"release", deployInfo.ReleaseName,
-			"resource", client.ObjectKeyFromObject(deployInfo.BaseResource).String())
+			"chart", info.ChartName,
+			"release", info.ReleaseName,
+			"resource", client.ObjectKeyFromObject(info.BaseResource).String())
 	}
 
 	// install resources without force, it will lead to 3 way merge / JSON apply patches
@@ -262,38 +288,38 @@ func (h *helm) IsConsistent(stringifedManifest string, deployInfo types.InstallI
 		return false, err
 	}
 
-	// verify resources
-	ready, err := h.verifyResources(deployInfo.Ctx, resourceLists,
-		deployInfo.CheckReadyStates, types.OperationCreate)
-
-	h.logger.V(util.DebugLogLevel).Info("consistency check finished",
-		"consistent", ready,
-		"create count", len(result.Created),
-		"update count", len(result.Updated),
-		"chart", deployInfo.ChartName,
-		"release", deployInfo.ReleaseName,
-		"resource", client.ObjectKeyFromObject(deployInfo.BaseResource).String(),
-		"time", time.Since(startConsistencyCheck).String())
-
-	if !ready || err != nil {
-		return ready, err
+	for i := range postRuns {
+		if err := postRuns[i](
+			info.Ctx, info.Client, info.ResourceInfo.BaseResource, resourceLists,
+		); err != nil {
+			return false, fmt.Errorf("post-run %v failed: %w", i, err)
+		}
 	}
 
+	// verify resources
+	if err := h.checkTargetResources(info.Ctx,
+		resourceLists.Target,
+		types.OperationCreate,
+		info.CheckReadyStates); err != nil {
+		return false, err
+	}
+
+	h.logger.V(util.DebugLogLevel).Info("consistency check finished",
+		"create count", len(result.Created),
+		"update count", len(result.Updated),
+		"chart", info.ChartName,
+		"release", info.ReleaseName,
+		"resource", client.ObjectKeyFromObject(info.BaseResource).String(),
+		"time", time.Since(startConsistencyCheck).String())
+
 	// update helm repositories
-	if deployInfo.UpdateRepositories {
-		if err = h.updateRepos(deployInfo.Ctx); err != nil {
+	if info.UpdateRepositories {
+		if err = h.updateRepos(info.Ctx); err != nil {
 			return false, err
 		}
 	}
 
 	return true, nil
-}
-
-func (h *helm) verifyResources(ctx context.Context, resourceLists types.ResourceLists, verifyReadyStates bool,
-	operationType types.HelmOperation,
-) (bool, error) {
-	return h.checkWaitForResources(ctx, resourceLists.GetWaitForResources(), operationType,
-		verifyReadyStates)
 }
 
 func (h *helm) installResources(resourceLists types.ResourceLists, force bool) (*kube.Result, error) {
@@ -313,26 +339,35 @@ func (h *helm) installResources(resourceLists types.ResourceLists, force bool) (
 	return h.clients.KubeClient().Update(resourceLists.Installed, resourceLists.Target, force)
 }
 
-func (h *helm) uninstallResources(resourceLists types.ResourceLists) (*kube.Result, error) {
-	var response *kube.Result
-	var delErrors []error
-	if resourceLists.Installed != nil {
-		// add namespace to deleted resources
-		response, delErrors = h.clients.KubeClient().Delete(resourceLists.GetResourcesToBeDeleted())
-		if len(delErrors) > 0 {
-			var wrappedError error
-			for _, err := range delErrors {
-				wrappedError = fmt.Errorf("%w", err)
+func (h *helm) uninstallResources(installedResources kube.ResourceList) error {
+	var deleteErrs []error
+	if installedResources != nil {
+		_, deleteErrs = h.clients.KubeClient().Delete(installedResources)
+		if len(deleteErrs) > 0 {
+			filteredErrs := filterNotFoundError(deleteErrs)
+			if len(filteredErrs) > 0 {
+				return types.NewMultiError(filteredErrs)
 			}
-			return nil, wrappedError
 		}
 	}
-	return response, nil
+	return nil
 }
 
-func (h *helm) checkWaitForResources(ctx context.Context, targetResources kube.ResourceList,
-	operation types.HelmOperation, verifyWithoutTimeout bool,
-) (bool, error) {
+func filterNotFoundError(delErrors []error) []error {
+	wrappedErrors := make([]error, 0)
+	for _, err := range delErrors {
+		if isHelmClientNotFound(err) || apierrors.IsNotFound(err) {
+			continue
+		}
+		wrappedErrors = append(wrappedErrors, err)
+	}
+	return wrappedErrors
+}
+
+func (h *helm) checkTargetResources(ctx context.Context,
+	targetResources kube.ResourceList,
+	operation types.HelmOperation,
+	verifyWithoutTimeout bool) error {
 	// verifyWithoutTimeout flag checks native resources are in their respective ready states
 	// without a timeout defined
 	if verifyWithoutTimeout {
@@ -341,7 +376,7 @@ func (h *helm) checkWaitForResources(ctx context.Context, targetResources kube.R
 		}
 		clientSet, err := h.clients.KubernetesClientSet()
 		if err != nil {
-			return false, err
+			return err
 		}
 		readyChecker := kube.NewReadyChecker(clientSet,
 			func(format string, args ...interface{}) {
@@ -356,27 +391,27 @@ func (h *helm) checkWaitForResources(ctx context.Context, targetResources kube.R
 	// if Wait or WaitForJobs is enabled, resources are verified to be in ready state with a timeout
 	if !h.clients.Install().Wait || h.clients.Install().Timeout == 0 {
 		// return here as ready, since waiting flags were not set
-		return true, nil
+		return nil
 	}
 
 	if operation == types.OperationDelete {
 		// WaitForDelete reports an error if resources are not deleted in the specified timeout
-		return true, h.clients.KubeClient().WaitForDelete(targetResources, h.clients.Install().Timeout)
+		return h.clients.KubeClient().WaitForDelete(targetResources, h.clients.Install().Timeout)
 	}
 
 	if h.clients.Install().WaitForJobs {
 		// WaitWithJobs reports an error if resources are not deleted in the specified timeout
-		return true, h.clients.KubeClient().WaitWithJobs(targetResources, h.clients.Install().Timeout)
+		return h.clients.KubeClient().WaitWithJobs(targetResources, h.clients.Install().Timeout)
 	}
 	// Wait reports an error if resources are not deleted in the specified timeout
-	return true, h.clients.KubeClient().Wait(targetResources, h.clients.Install().Timeout)
+	return h.clients.KubeClient().Wait(targetResources, h.clients.Install().Timeout)
 }
 
 func (h *helm) updateRepos(ctx context.Context) error {
 	return h.repoHandler.Update(ctx)
 }
 
-func (h *helm) resetFlags(deployInfo types.InstallInfo) error {
+func (h *helm) resetFlags(deployInfo *types.InstallInfo) error {
 	// set preliminary flag defaults
 	h.setDefaultFlags(deployInfo.ReleaseName)
 
@@ -392,7 +427,7 @@ func (h *helm) downloadChart(repoName, url, chartName string) (string, error) {
 	return h.clients.Install().ChartPathOptions.LocateChart(chartName, h.settings)
 }
 
-func (h *helm) renderManifestFromChartPath(ctx context.Context, chartPath string, flags types.Flags) (string, error) {
+func (h *helm) renderReleaseFromChartPath(ctx context.Context, chartPath string, flags types.Flags) (string, error) {
 	// if Rendered manifest doesn't exist
 	chartRequested, err := h.repoHandler.LoadChart(chartPath, h.clients.Install())
 	if err != nil {
@@ -552,14 +587,14 @@ func (h *helm) setCustomFlags(flags types.ChartFlags) error {
 	return nil
 }
 
-// parseToResourceLists opinionates manifest.yaml transformation based on deployInfo and custom transforms
+// parseToResourceLists opinionates manifest.yaml transformation based on installInfo and custom transforms
 // after the reosurceList was parsed.
 // It also supports a flag to delegate no match error resilience to the lookup of the clients used to later on
 // interact with the cluster. This is useful in case you want to transform a list of resources, but you know
 // that some resources might be of a Kind that is not supported in the cluster (e.g. because it was already uninstalled)
 // By specifying retryOnNoMatch => false, you are able to handle noMatch errors on your own, not causing unnecessary
 // and costly resets.
-func (h *helm) parseToResourceLists(stringifiedManifest string, deployInfo types.InstallInfo,
+func (h *helm) parseToResourceLists(stringifiedManifest string, deployInfo *types.InstallInfo,
 	transforms []types.ObjectTransform, retryOnNoMatch bool,
 ) (types.ResourceLists, error) {
 	nsResourceList, err := h.GetNsResource()
@@ -572,27 +607,22 @@ func (h *helm) parseToResourceLists(stringifiedManifest string, deployInfo types
 	)
 
 	existingResourceList, filterErr := util.FilterExistingResources(targetResourceList)
-	if filterErr != nil {
-		return types.ResourceLists{
-			Target:    targetResourceList,
-			Installed: existingResourceList,
-			Namespace: nsResourceList,
-		}, fmt.Errorf("could not filter existing resources from manifest: %w", filterErr)
-	}
 
-	if targetError != nil {
-		return types.ResourceLists{
-			Target:    targetResourceList,
-			Installed: existingResourceList,
-			Namespace: nsResourceList,
-		}, fmt.Errorf("could not render target resources from manifest: %w", targetError)
-	}
-
-	return types.ResourceLists{
+	list := types.ResourceLists{
 		Target:    targetResourceList,
 		Installed: existingResourceList,
 		Namespace: nsResourceList,
-	}, nil
+	}
+
+	if filterErr != nil {
+		return list, fmt.Errorf("could not filter existing resources from manifest: %w", filterErr)
+	}
+
+	if targetError != nil {
+		return list, fmt.Errorf("could not render target resources from manifest: %w", targetError)
+	}
+
+	return list, nil
 }
 
 func (h *helm) GetNsResource() (kube.ResourceList, error) {
@@ -654,7 +684,7 @@ func (h *helm) resourceListFromManifest(ctx context.Context, manifest string,
 // InvalidateConfigAndRenderedManifest compares the cached hash with the processed hash for helm flags.
 // If the hashes are not equal it resets the flags on the helm action client.
 // Also, it deletes the persisted manifest resource on the file system at <chartPath>/manifest/manifest.yaml.
-func (h *helm) InvalidateConfigAndRenderedManifest(deployInfo types.InstallInfo, cachedHash uint32) (uint32, error) {
+func (h *helm) InvalidateConfigAndRenderedManifest(deployInfo *types.InstallInfo, cachedHash uint32) (uint32, error) {
 	newHash, err := util.CalculateHash(deployInfo.Flags)
 	if err != nil {
 		return 0, err

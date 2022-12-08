@@ -3,6 +3,7 @@ package manifest
 import (
 	"context"
 
+	"errors"
 	"helm.sh/helm/v3/pkg/kube"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -11,20 +12,23 @@ import (
 	"k8s.io/cli-runtime/pkg/resource"
 )
 
-func checkResourcesDeleted(targetResources kube.ResourceList) (bool, error) {
-	resourcesDeleted := true
-	err := targetResources.Visit(func(info *resource.Info, err error) error {
+var ErrResourceNotReady = errors.New("resource not ready")
+var ErrResourceNotDeleted = errors.New("resource not deleted")
+
+func checkResourcesDeleted(targetResources kube.ResourceList) error {
+	return targetResources.Visit(func(info *resource.Info, err error) error {
 		if err != nil {
 			return err
 		}
 		err = info.Get()
-		if err == nil || !apierrors.IsNotFound(err) {
-			resourcesDeleted = false
+		if err == nil {
+			return ErrResourceNotDeleted
+		}
+		if !apierrors.IsNotFound(err) {
 			return err
 		}
 		return nil
 	})
-	return resourcesDeleted, err
 }
 
 func setNamespaceIfNotPresent(targetNamespace string, resourceInfo *resource.Info,
@@ -60,20 +64,18 @@ func overrideNamespace(resourceList kube.ResourceList, targetNamespace string) e
 	})
 }
 
-func checkReady(ctx context.Context, resourceList kube.ResourceList,
-	readyChecker kube.ReadyChecker,
-) (bool, error) {
-	resourcesReady := true
-	err := resourceList.Visit(func(info *resource.Info, err error) error {
+func checkReady(ctx context.Context, resourceList kube.ResourceList, readyChecker kube.ReadyChecker) error {
+	return resourceList.Visit(func(info *resource.Info, err error) error {
 		if err != nil {
 			return err
 		}
-
-		if ready, err := readyChecker.IsReady(ctx, info); !ready || err != nil {
-			resourcesReady = ready
+		ready, err := readyChecker.IsReady(ctx, info)
+		if !ready {
+			return ErrResourceNotReady
+		}
+		if err != nil {
 			return err
 		}
 		return nil
 	})
-	return resourcesReady, err
 }
