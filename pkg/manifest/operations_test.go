@@ -2,17 +2,17 @@ package manifest_test
 
 import (
 	"errors"
-	"testing"
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
 	"github.com/kyma-project/module-manager/pkg/manifest"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"github.com/kyma-project/module-manager/pkg/types"
 	"github.com/kyma-project/module-manager/pkg/util"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"testing"
 
+	cp "github.com/otiai10/copy"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	cp "github.com/otiai10/copy"
 	"os"
 )
 
@@ -66,9 +66,8 @@ func Test_UninstallSuccess(t *testing.T) {
 	}
 }
 
-
 var _ = Describe("given InstallInfo with a Kustomize location", func() {
-	installInfo := getDeployInfo("testResourceName", "cacheKey",
+	installInfo := getInstallInfo("testResourceName", "cacheKey",
 		copyAndWriteToTemp("../test_samples/kustomize"), "", types.ChartFlags{})
 	DescribeTable("Test Cache",
 		func(givenCondition func() error, expectedBehavior func() bool) {
@@ -76,18 +75,19 @@ var _ = Describe("given InstallInfo with a Kustomize location", func() {
 			Eventually(expectedBehavior, Timeout, Interval).Should(BeTrue())
 		},
 		Entry("When InstallInfo.DisableCache=true, expect cached manifest.yaml not exists",
-			GetManifest(&installInfo, true), ExpectManifestYamlExists(&installInfo, false)),
+			GetManifest(installInfo, true), ExpectManifestYamlExists(installInfo, false)),
 		Entry("When InstallInfo.DisableCache=false, expect cached manifest.yaml exists",
-			GetManifest(&installInfo, false), ExpectManifestYamlExists(&installInfo, true)),
+			GetManifest(installInfo, false), ExpectManifestYamlExists(installInfo, true)),
 	)
 
 })
 
-func GetManifest(deployInfo *types.InstallInfo, disableCache bool) func() error {
+func GetManifest(installInfo *types.InstallInfo, disableCache bool) func() error {
 	return func() error {
-		deployInfo.DisableCache = disableCache
-		operations, err := manifest.NewOperations(logger, *deployInfo, nil, nil)
-		_ = operations.GetManifestForChartPath(*deployInfo)
+		installInfo.DisableCache = disableCache
+		operations, err := manifest.NewOperations(manifest.OperationOptions{Logger: logger,
+			InstallInfo: installInfo})
+		_ = operations.GetManifestForChartPath(installInfo)
 		return err
 	}
 }
