@@ -3,39 +3,27 @@ package v1_test
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
-	"testing"
-	"time"
-
 	declarative "github.com/kyma-project/module-manager/pkg/declarative/v2"
 	testv1 "github.com/kyma-project/module-manager/pkg/declarative/v2/test/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"golang.org/x/time/rate"
 	v1 "k8s.io/api/core/v1"
-	apiExtensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/util/workqueue"
+	"path/filepath"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/yaml"
-)
-
-const (
-	// this uniquely identifies a test run in the cluster with an id.
-	testRunLabel = "declarative.kyma-project.io/test-run"
-
-	standardTimeout  = 20 * time.Second
-	standardInterval = 100 * time.Millisecond
+	"testing"
+	"time"
 )
 
 //nolint:gochecknoglobals
@@ -69,42 +57,6 @@ func TestAPIs(t *testing.T) {
 	RunSpecs(t, "Simple Declarative Test Suite")
 }
 
-var _ = BeforeSuite(
-	func() {
-		log.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
-		Expect(testv1.AddToScheme(scheme.Scheme)).To(Succeed())
-
-		testAPICRD := &apiExtensionsv1.CustomResourceDefinition{}
-		testAPICRDRaw, err := os.ReadFile(
-			filepath.Join(crds, "test.declarative.kyma-project.io_testapis.yaml"),
-		)
-		Expect(err).ToNot(HaveOccurred())
-		Expect(yaml.Unmarshal(testAPICRDRaw, testAPICRD)).To(Succeed())
-
-		env = &envtest.Environment{
-			CRDs:   []*apiExtensionsv1.CustomResourceDefinition{testAPICRD},
-			Scheme: scheme.Scheme,
-		}
-		cfg, err = env.Start()
-		Expect(err).NotTo(HaveOccurred())
-		Expect(cfg).NotTo(BeNil())
-
-		testClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
-		Expect(testClient.List(context.Background(), &testv1.TestAPIList{})).To(
-			Succeed(), "Test API should be available",
-		)
-		Expect(err).NotTo(HaveOccurred())
-
-		Expect(testClient.Create(context.Background(), customResourceNamespace)).To(Succeed())
-	},
-)
-
-var _ = AfterSuite(
-	func() {
-		Expect(env.Stop()).To(Succeed())
-	},
-)
-
 var _ = Describe(
 	"Test Declarative Reconciliation", func() {
 		var runID string
@@ -127,47 +79,8 @@ var _ = Describe(
 				obj.SetNamespace(customResourceNamespace.Name)
 				obj.SetName(runID)
 				Expect(testClient.Create(ctx, obj)).To(Succeed())
-				key := client.ObjectKeyFromObject(obj)
-
-				Eventually(StatusOnCluster).
-					WithContext(ctx).
-					WithArguments(key).
-					WithPolling(standardInterval).
-					WithTimeout(standardTimeout).
-					Should(
-						And(
-							BeInState(declarative.StateReady),
-							HaveConditionWithStatus(declarative.ConditionTypeCRDs, metav1.ConditionTrue),
-							HaveConditionWithStatus(declarative.ConditionTypeResources, metav1.ConditionTrue),
-							HaveConditionWithStatus(declarative.ConditionTypeInstallation, metav1.ConditionTrue),
-						),
-					)
-
-				Expect(testClient.Get(ctx, key, obj)).Should(Succeed())
-
-				synced := obj.GetStatus().Synced
-				Expect(synced).ShouldNot(BeEmpty())
-
-				for i := range synced {
-					unstruct := synced[i].ToUnstructured()
-					Expect(testClient.Get(ctx, client.ObjectKeyFromObject(unstruct), unstruct)).
-						To(Succeed())
-				}
-
-				Expect(testClient.Delete(ctx, obj)).To(Succeed())
-
-				Eventually(testClient.Get).
-					WithContext(ctx).
-					WithArguments(key, &testv1.TestAPI{}).
-					WithPolling(standardInterval).
-					WithTimeout(standardTimeout).
-					Should(Satisfy(apierrors.IsNotFound))
-
-				for i := range synced {
-					unstruct := synced[i].ToUnstructured()
-					Expect(testClient.Get(ctx, client.ObjectKeyFromObject(unstruct), unstruct)).
-						To(Satisfy(apierrors.IsNotFound))
-				}
+				expectResourceInstalled(ctx, obj)
+				expectResourceUninstalled(ctx, obj)
 			},
 			Entry(
 				"Create simple chart from CR without modifications and become ready",
@@ -247,7 +160,10 @@ func StartDeclarativeReconcilerForRun(
 	Expect(err).ToNot(HaveOccurred())
 
 	Expect(
-		ctrl.NewControllerManagedBy(mgr).WithEventFilter(testWatchPredicate).For(&testv1.TestAPI{}).Complete(reconciler),
+		ctrl.NewControllerManagedBy(mgr).WithEventFilter(testWatchPredicate).
+			WithOptions(controller.Options{RateLimiter: workqueue.NewMaxOfRateLimiter(
+				&workqueue.BucketRateLimiter{Limiter: rate.NewLimiter(rate.Limit(30), 200)})}).
+			For(&testv1.TestAPI{}).Complete(reconciler),
 	).To(Succeed())
 	go func() {
 		Expect(mgr.Start(ctx)).To(Succeed(), "failed to run manager")
