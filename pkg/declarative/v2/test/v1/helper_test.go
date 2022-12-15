@@ -102,36 +102,36 @@ func EventuallyDeclarativeShouldBeUninstalled(ctx context.Context, obj *testv1.T
 }
 
 func HaveAllSyncedResourcesExistingInCluster(ctx context.Context) types.GomegaMatcher {
-	return &SyncedResourcesExistingMatcher{Context: ctx}
+	return &SyncedResourcesExistingMatcher{ctx: &ctx}
 }
 
 type SyncedResourcesExistingMatcher struct {
-	context.Context
+	ctx *context.Context
 }
 
-func (matcher *SyncedResourcesExistingMatcher) Match(actual interface{}) (success bool, err error) {
+func (matcher *SyncedResourcesExistingMatcher) Match(actual interface{}) (bool, error) {
 	status, ok := actual.(declarative.Status)
 	if !ok {
 		return false, fmt.Errorf("Expected a Status. Got:\n%s", format.Object(actual, 1))
 	}
 
-	ctx := matcher.Context
+	ctx := matcher.ctx
 	synced := status.Synced
 
 	for i := range synced {
 		unstruct := synced[i].ToUnstructured()
-		if err := testClient.Get(ctx, client.ObjectKeyFromObject(unstruct), unstruct); err != nil {
+		if err := testClient.Get(*ctx, client.ObjectKeyFromObject(unstruct), unstruct); err != nil {
 			return false, err
 		}
 	}
 	return true, nil
 }
 
-func (matcher *SyncedResourcesExistingMatcher) FailureMessage(actual interface{}) (message string) {
+func (matcher *SyncedResourcesExistingMatcher) FailureMessage(actual interface{}) string {
 	return format.Message(actual, "to have status with all synced resources actually existing in cluster")
 }
 
-func (matcher *SyncedResourcesExistingMatcher) NegatedFailureMessage(actual interface{}) (message string) {
+func (matcher *SyncedResourcesExistingMatcher) NegatedFailureMessage(actual interface{}) string {
 	return format.Message(actual, fmt.Sprintf("not %s", matcher.FailureMessage(actual)))
 }
 
@@ -143,7 +143,7 @@ type HaveAtLeastSyncedResourceMatcher struct {
 	count int
 }
 
-func (matcher *HaveAtLeastSyncedResourceMatcher) Match(actual interface{}) (success bool, err error) {
+func (matcher *HaveAtLeastSyncedResourceMatcher) Match(actual interface{}) (bool, error) {
 	status, ok := actual.(declarative.Status)
 	if !ok {
 		return false, fmt.Errorf("Expected a Status. Got:\n%s", format.Object(actual, 1))
@@ -151,10 +151,10 @@ func (matcher *HaveAtLeastSyncedResourceMatcher) Match(actual interface{}) (succ
 	return len(status.Synced) >= matcher.count, nil
 }
 
-func (matcher *HaveAtLeastSyncedResourceMatcher) FailureMessage(actual interface{}) (message string) {
+func (matcher *HaveAtLeastSyncedResourceMatcher) FailureMessage(actual interface{}) string {
 	return format.Message(actual, fmt.Sprintf("to have at least %v synced resources in status", matcher.count))
 }
 
-func (matcher *HaveAtLeastSyncedResourceMatcher) NegatedFailureMessage(actual interface{}) (message string) {
+func (matcher *HaveAtLeastSyncedResourceMatcher) NegatedFailureMessage(actual interface{}) string {
 	return format.Message(actual, fmt.Sprintf("not %s", matcher.FailureMessage(actual)))
 }

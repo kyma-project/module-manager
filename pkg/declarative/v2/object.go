@@ -66,14 +66,14 @@ func (s Status) WithState(state State) Status {
 type Resources []Resource
 
 func (r Resources) ContainsAll(desired Resources) bool {
-	for _, d := range desired {
+	for _, resource := range desired {
 		found := false
 		for i := range r {
-			if r[i].Name == d.Name &&
-				r[i].Namespace == d.Namespace &&
-				r[i].Group == d.Group &&
-				r[i].Kind == d.Kind &&
-				r[i].Version == d.Version {
+			if r[i].Name == resource.Name &&
+				r[i].Namespace == resource.Namespace &&
+				r[i].Group == resource.Group &&
+				r[i].Kind == resource.Kind &&
+				r[i].Version == resource.Version {
 				found = true
 				break
 			}

@@ -19,9 +19,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-var ErrConditionsNotYetRegistered = errors.New("conditions have not yet been registered in status")
-var ErrPrerequisitesNotFulfilled = errors.New("prerequisites for installation are not fulfilled")
-var ErrPrerequisitesNotRemoved = errors.New("prerequisites for installation are not removed yet")
+var (
+	ErrConditionsNotYetRegistered = errors.New("conditions have not yet been registered in status")
+	ErrPrerequisitesNotFulfilled  = errors.New("prerequisites for installation are not fulfilled")
+	ErrPrerequisitesNotRemoved    = errors.New("prerequisites for installation are not removed yet")
+)
 
 type Prerequisites []*resource.Info
 

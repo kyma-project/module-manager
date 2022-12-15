@@ -2,19 +2,21 @@ package v1_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"time"
+
 	testv1 "github.com/kyma-project/module-manager/pkg/declarative/v2/test/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	apiExtensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/client-go/kubernetes/scheme"
-	"os"
-	"path/filepath"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/yaml"
-	"time"
 )
 
 const (
