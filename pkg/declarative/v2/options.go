@@ -59,7 +59,7 @@ type Options struct {
 	PostRenderTransforms []ObjectTransform
 	PostRuns             []PostRun
 
-	DeleteCRDsOnUninstall bool
+	DeletePrerequisitesOnUninstall bool
 
 	CtrlOnSuccess ctrl.Result
 }
@@ -159,20 +159,28 @@ func (o ManifestSpecSourceOption) Apply(options *Options) {
 	options.ManifestSpecSource = o
 }
 
-// StaticManifestSpecSource is a simple static resolver that always uses the same chart and values.
-type StaticManifestSpecSource struct {
-	ManifestNameFn func(ctx context.Context, obj Object) string
-	ChartPath      string
-	Values         map[string]any
+func DefaultManifestSpecSource(chartPath string, values map[string]any) *CustomManifestSpecSource {
+	return &CustomManifestSpecSource{
+		ManifestNameFn: func(_ context.Context, obj Object) string { return obj.ComponentName() },
+		ChartPathFn:    func(_ context.Context, _ Object) string { return chartPath },
+		ValuesFn:       func(_ context.Context, _ Object) map[string]any { return values },
+	}
 }
 
-func (m *StaticManifestSpecSource) ResolveManifestSpec(
+// CustomManifestSpecSource is a simple static resolver that always uses the same chart and values.
+type CustomManifestSpecSource struct {
+	ManifestNameFn func(ctx context.Context, obj Object) string
+	ChartPathFn    func(ctx context.Context, obj Object) string
+	ValuesFn       func(ctx context.Context, obj Object) map[string]any
+}
+
+func (s *CustomManifestSpecSource) ResolveManifestSpec(
 	ctx context.Context, obj Object,
 ) (*ManifestSpec, error) {
 	return &ManifestSpec{
-		ManifestName: m.ManifestNameFn(ctx, obj),
-		ChartPath:    m.ChartPath,
-		Values:       m.Values,
+		ManifestName: s.ManifestNameFn(ctx, obj),
+		ChartPath:    s.ChartPathFn(ctx, obj),
+		Values:       s.ValuesFn(ctx, obj),
 	}, nil
 }
 
@@ -233,7 +241,7 @@ func (o WithSingletonClientCacheOption) Apply(options *Options) {
 type WithDeleteCRDsOnUninstall bool
 
 func (o WithDeleteCRDsOnUninstall) Apply(options *Options) {
-	options.DeleteCRDsOnUninstall = bool(o)
+	options.DeletePrerequisitesOnUninstall = bool(o)
 }
 
 type WithManifestCacheRoot string

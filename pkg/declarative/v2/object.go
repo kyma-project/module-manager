@@ -16,25 +16,27 @@ type Object interface {
 	SetStatus(Status)
 }
 
-// Status defines the observed state of CustomObject.
-// +k8s:deepcopy-gen=true
-type Status struct {
+type BaseStatus struct {
 	// State signifies current state of CustomObject.
 	// Value can be one of ("Ready", "Processing", "Error", "Deleting").
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Enum=Processing;Deleting;Ready;Error
 	State State `json:"state"`
-
 	// Conditions contain a set of conditionals to determine the State of Status.
 	// If all Conditions are met, State is expected to be in StateReady.
 	Conditions []metav1.Condition `json:"conditions"`
+}
+
+// Status defines the observed state of CustomObject.
+// +k8s:deepcopy-gen=true
+type Status struct {
+	BaseStatus `json:",inline"`
 
 	// Synced determine a list of Resources that are currently actively synced.
 	// All resources that are synced are considered for orphan removal on configuration changes,
 	// and it is used to determine effective differences from one state to the next.
 	//+listType=atomic
-	Synced []Resource `json:"synced"`
-
+	Synced        Resources `json:"synced"`
 	LastOperation `json:"lastOperation,omitempty"`
 }
 
@@ -59,6 +61,28 @@ const (
 func (s Status) WithState(state State) Status {
 	s.State = state
 	return s
+}
+
+type Resources []Resource
+
+func (r Resources) ContainsAll(desired Resources) bool {
+	for _, d := range desired {
+		found := false
+		for i := range r {
+			if r[i].Name == d.Name &&
+				r[i].Namespace == d.Namespace &&
+				r[i].Group == d.Group &&
+				r[i].Kind == d.Kind &&
+				r[i].Version == d.Version {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 type Resource struct {

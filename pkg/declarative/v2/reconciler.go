@@ -3,13 +3,11 @@ package v2
 import (
 	"context"
 	"errors"
-	"time"
 
 	manifestClient "github.com/kyma-project/module-manager/pkg/client"
 	manifestLabels "github.com/kyma-project/module-manager/pkg/labels"
 	"github.com/kyma-project/module-manager/pkg/types"
 	"github.com/kyma-project/module-manager/pkg/util"
-	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/kube"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -23,13 +21,13 @@ import (
 )
 
 func NewFromManager(mgr manager.Manager, prototype Object, options ...Option) reconcile.Reconciler {
-	r := &ManifestReconciler{}
+	r := &Reconciler{}
 	r.prototype = prototype
 	r.Options = DefaultOptions().Apply(WithManager(mgr)).Apply(options...)
 	return r
 }
 
-type ManifestReconciler struct {
+type Reconciler struct {
 	prototype Object
 	*Options
 }
@@ -51,7 +49,7 @@ const (
 )
 
 //nolint:funlen,nestif,gocognit,gocyclo,cyclop,maintidx //TODO discuss if worth breaking up or if more readable as is.
-func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
 	obj := r.prototype.DeepCopyObject().(Object)
@@ -77,13 +75,6 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	var (
-		crdCondition = metav1.Condition{
-			Type:               string(ConditionTypeCRDs),
-			Reason:             string(ConditionReasonCRDsAreAvailable),
-			Status:             metav1.ConditionFalse,
-			Message:            "CustomResourceDefinitions are installed and ready for use",
-			ObservedGeneration: obj.GetGeneration(),
-		}
 		resourceCondition = metav1.Condition{
 			Type:               string(ConditionTypeResources),
 			Reason:             string(ConditionReasonResourcesAreAvailable),
@@ -102,9 +93,8 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	// Processing
 	if status.State == "" {
-		presetConditions := 3
+		presetConditions := 2
 		status.Conditions = make([]metav1.Condition, 0, presetConditions)
-		meta.SetStatusCondition(&status.Conditions, crdCondition)
 		meta.SetStatusCondition(&status.Conditions, resourceCondition)
 		meta.SetStatusCondition(&status.Conditions, installationCondition)
 		status.Synced = make([]Resource, 0)
@@ -127,55 +117,13 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 	resourceConverter := NewResourceConverter(clients, clients.KubeClient().Namespace)
 
-	var readyCheck ReadyCheck
-	if r.CustomReadyCheck != nil {
-		readyCheck = r.CustomReadyCheck
-	} else {
-		readyCheck = NewHelmReadyCheck(clients)
-	}
+	renderer := NewHelmRendererWithCache(spec, clients, r.Options)
 
-	chrt, err := loader.Load(spec.ChartPath)
-	if err != nil {
-		r.Event(obj, "Warning", "ChartLoading", err.Error())
-		obj.SetStatus(status.WithState(StateError).WithErr(err))
+	if err := renderer.Initialize(obj); err != nil {
 		return r.ssaStatus(ctx, obj)
 	}
 
-	crds, err := getCRDs(clients, chrt.CRDObjects())
-	if err != nil {
-		r.Event(obj, "Warning", "CRDParsing", err.Error())
-		crdCondition.Status = metav1.ConditionFalse
-		meta.SetStatusCondition(&status.Conditions, crdCondition)
-		obj.SetStatus(status.WithState(StateError).WithErr(err))
-		return r.ssaStatus(ctx, obj)
-	}
-
-	if obj.GetDeletionTimestamp().IsZero() && !meta.IsStatusConditionTrue(status.Conditions, crdCondition.Type) {
-		if err := installCRDs(clients, crds); err != nil {
-			r.Event(obj, "Warning", "CRDInstallation", err.Error())
-			meta.SetStatusCondition(&status.Conditions, crdCondition)
-			obj.SetStatus(status.WithState(StateError).WithErr(err))
-			return r.ssaStatus(ctx, obj)
-		}
-
-		crdsReady, err := readyCheck.Run(ctx, crds)
-		if err != nil {
-			r.Event(obj, "Warning", "CRDReadyCheck", err.Error())
-			obj.SetStatus(status.WithState(StateError).WithErr(err))
-			return r.ssaStatus(ctx, obj)
-		}
-
-		if !crdsReady {
-			r.Event(obj, "Normal", "CRDReadyCheck", "crds are not yet ready...")
-			return ctrl.Result{Requeue: true}, nil
-		}
-
-		restMapper, _ := clients.ToRESTMapper()
-		meta.MaybeResetRESTMapper(restMapper)
-		r.Event(obj, "Normal", crdCondition.Reason, crdCondition.Message)
-		crdCondition.Status = metav1.ConditionTrue
-		meta.SetStatusCondition(&status.Conditions, crdCondition)
-		obj.SetStatus(status.WithOperation(crdCondition.Message))
+	if err := renderer.EnsurePrerequisites(ctx, obj); err != nil {
 		return r.ssaStatus(ctx, obj)
 	}
 
@@ -184,52 +132,16 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if obj.GetDeletionTimestamp().IsZero() {
 		var targetResources *types.ManifestResources
 
-		cacheFilePath := newManifestCache(r.ManifestCacheRoot, spec)
-		if err := cacheFilePath.Clean(); err != nil {
-			logger.Info("cleaning manifest cache failed")
-			r.Event(obj, "Warning", "ManifestCacheCleanup", err.Error())
-			obj.SetStatus(status.WithState(StateError).WithErr(err))
+		manifest, err := renderer.Render(ctx, obj)
+		if err != nil {
 			return r.ssaStatus(ctx, obj)
 		}
-		cacheFile := cacheFilePath.ReadYAML()
 
-		if cacheFile.GetRawError() != nil {
-			renderStart := time.Now()
-			logger.Info(
-				"no cached manifest, rendering again",
-				"hash", cacheFilePath.hash,
-				"path", cacheFilePath.String(),
-			)
-			release, err := clients.Install().Run(chrt, spec.Values)
-			if err != nil {
-				logger.Info("rendering failed", "time", time.Since(renderStart))
-				r.Event(obj, "Warning", "HelmRenderRun", err.Error())
-				obj.SetStatus(status.WithState(StateError).WithErr(err))
-				return r.ssaStatus(ctx, obj)
-			}
-			logger.Info("rendering finished", "time", time.Since(renderStart))
-			targetResources, err = util.ParseManifestStringToObjects(release.Manifest)
-			if err != nil {
-				r.Event(obj, "Warning", "ManifestParsing", err.Error())
-				obj.SetStatus(status.WithState(StateError).WithErr(err))
-				return r.ssaStatus(ctx, obj)
-			}
-			if err := util.WriteToFile(cacheFilePath.String(), []byte(release.Manifest)); err != nil {
-				r.Event(obj, "Warning", "ManifestWriting", err.Error())
-				obj.SetStatus(status.WithState(StateError).WithErr(err))
-				return r.ssaStatus(ctx, obj)
-			}
-		} else {
-			logger.V(util.DebugLogLevel).Info(
-				"reuse manifest from cache",
-				"hash", cacheFilePath.hash,
-			)
-			targetResources, err = util.ParseManifestStringToObjects(cacheFile.GetContent())
-			if err != nil {
-				r.Event(obj, "Warning", "ManifestParsing", err.Error())
-				obj.SetStatus(status.WithState(StateError).WithErr(err))
-				return r.ssaStatus(ctx, obj)
-			}
+		targetResources, err = util.ParseManifestStringToObjects(string(manifest))
+		if err != nil {
+			r.Event(obj, "Warning", "ManifestParsing", err.Error())
+			obj.SetStatus(status.WithState(StateError).WithErr(err))
+			return r.ssaStatus(ctx, obj)
 		}
 
 		for _, transform := range r.PostRenderTransforms {
@@ -279,15 +191,8 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if !obj.GetDeletionTimestamp().IsZero() {
-		if r.DeleteCRDsOnUninstall {
-			if deleted, err := ConcurrentCleanup(clients).Run(ctx, crds); err != nil {
-				r.Event(obj, "Warning", "CRDUninstallation", err.Error())
-				obj.SetStatus(status.WithState(StateError).WithErr(err))
-				return r.ssaStatus(ctx, obj)
-			} else if !deleted {
-				waitingMsg := "waiting for crds to be uninstalled"
-				r.Event(obj, "Normal", "CRDUninstallation", waitingMsg)
-				obj.SetStatus(status.WithOperation(waitingMsg))
+		if r.DeletePrerequisitesOnUninstall {
+			if err := renderer.RemovePrerequisites(ctx, obj); err != nil {
 				return r.ssaStatus(ctx, obj)
 			}
 		}
@@ -313,7 +218,13 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return r.ssaStatus(ctx, obj)
 	}
 
+	oldStatus := status
 	status = resourceConverter.ConvertSyncedToNewStatus(status, target)
+
+	if !oldStatus.Synced.ContainsAll(status.Synced) {
+		obj.SetStatus(status.WithState(StateProcessing).WithOperation("new resources detected"))
+		return r.ssaStatus(ctx, obj)
+	}
 
 	for i := range r.PostRuns {
 		if err := r.PostRuns[i](ctx, r.Client, obj); err != nil {
@@ -323,7 +234,12 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 
-	resourcesReady, err := readyCheck.Run(ctx, target)
+	resourceReadyCheck := r.CustomReadyCheck
+	if resourceReadyCheck == nil {
+		resourceReadyCheck = NewHelmReadyCheck(clients)
+	}
+
+	resourcesReady, err := resourceReadyCheck.Run(ctx, target)
 	if err != nil {
 		r.Event(obj, "Warning", "ReadyCheck", err.Error())
 		obj.SetStatus(status.WithState(StateError).WithErr(err))
@@ -348,7 +264,7 @@ func (r *ManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	return r.CtrlOnSuccess, nil
 }
 
-func (r *ManifestReconciler) initializeClients(
+func (r *Reconciler) initializeClients(
 	ctx context.Context, obj Object, spec *ManifestSpec,
 ) (*manifestClient.SingletonClients, error) {
 	var err error
@@ -429,12 +345,12 @@ func cacheKeyFromObject(ctx context.Context, resource client.Object) client.Obje
 	return client.ObjectKey{Name: label, Namespace: resource.GetNamespace()}
 }
 
-func (r *ManifestReconciler) ssaStatus(ctx context.Context, obj client.Object) (ctrl.Result, error) {
+func (r *Reconciler) ssaStatus(ctx context.Context, obj client.Object) (ctrl.Result, error) {
 	obj.SetResourceVersion("")
 	return ctrl.Result{Requeue: true}, r.Status().Patch(ctx, obj, client.Apply, client.ForceOwnership, r.FieldOwner)
 }
 
-func (r *ManifestReconciler) ssa(ctx context.Context, obj client.Object) (ctrl.Result, error) {
+func (r *Reconciler) ssa(ctx context.Context, obj client.Object) (ctrl.Result, error) {
 	obj.SetResourceVersion("")
 	return ctrl.Result{Requeue: true}, r.Patch(ctx, obj, client.Apply, client.ForceOwnership, r.FieldOwner)
 }

@@ -3,6 +3,7 @@ package v1_test
 import (
 	"context"
 	"fmt"
+
 	declarative "github.com/kyma-project/module-manager/pkg/declarative/v2"
 	testv1 "github.com/kyma-project/module-manager/pkg/declarative/v2/test/v1"
 	. "github.com/onsi/gomega"
@@ -75,52 +76,85 @@ func (matcher *HaveConditionMatcher) NegatedFailureMessage(actual interface{}) s
 	)
 }
 
-func expectResourceInstalled(ctx context.Context, obj *testv1.TestAPI) {
-	key := client.ObjectKeyFromObject(obj)
-	Eventually(StatusOnCluster).
+func EventuallyDeclarativeStatusShould(ctx context.Context, key client.ObjectKey, matchers ...types.GomegaMatcher) {
+	EventuallyWithOffset(1, StatusOnCluster).
 		WithContext(ctx).
 		WithArguments(key).
 		WithPolling(standardInterval).
 		WithTimeout(standardTimeout).
-		Should(
-			And(
-				BeInState(declarative.StateReady),
-				HaveConditionWithStatus(declarative.ConditionTypeCRDs, metav1.ConditionTrue),
-				HaveConditionWithStatus(declarative.ConditionTypeResources, metav1.ConditionTrue),
-				HaveConditionWithStatus(declarative.ConditionTypeInstallation, metav1.ConditionTrue),
-			),
-		)
-	Expect(checkSyncedExists(obj, ctx, key)).To(Succeed())
+		Should(And(matchers...))
 }
 
-func expectResourceUninstalled(ctx context.Context, obj *testv1.TestAPI) {
-	Expect(testClient.Delete(ctx, obj)).To(Succeed())
-	synced := obj.GetStatus().Synced
-	Expect(synced).ShouldNot(BeEmpty())
-	Eventually(testClient.Get).
+func EventuallyDeclarativeShouldBeUninstalled(ctx context.Context, obj *testv1.TestAPI) {
+	EventuallyWithOffset(1, testClient.Get).
 		WithContext(ctx).
 		WithArguments(client.ObjectKeyFromObject(obj), &testv1.TestAPI{}).
 		WithPolling(standardInterval).
 		WithTimeout(standardTimeout).
 		Should(Satisfy(apierrors.IsNotFound))
 
+	synced := obj.GetStatus().Synced
 	for i := range synced {
 		unstruct := synced[i].ToUnstructured()
-		Expect(testClient.Get(ctx, client.ObjectKeyFromObject(unstruct), unstruct)).
+		ExpectWithOffset(1, testClient.Get(ctx, client.ObjectKeyFromObject(unstruct), unstruct)).
 			To(Satisfy(apierrors.IsNotFound))
 	}
 }
 
-func checkSyncedExists(obj *testv1.TestAPI, ctx context.Context, key client.ObjectKey) error {
-	if err := testClient.Get(ctx, key, obj); err != nil {
-		return err
+func HaveAllSyncedResourcesExistingInCluster(ctx context.Context) types.GomegaMatcher {
+	return &SyncedResourcesExistingMatcher{Context: ctx}
+}
+
+type SyncedResourcesExistingMatcher struct {
+	context.Context
+}
+
+func (matcher *SyncedResourcesExistingMatcher) Match(actual interface{}) (success bool, err error) {
+	status, ok := actual.(declarative.Status)
+	if !ok {
+		return false, fmt.Errorf("Expected a Status. Got:\n%s", format.Object(actual, 1))
 	}
-	synced := obj.GetStatus().Synced
+
+	ctx := matcher.Context
+	synced := status.Synced
+
 	for i := range synced {
 		unstruct := synced[i].ToUnstructured()
 		if err := testClient.Get(ctx, client.ObjectKeyFromObject(unstruct), unstruct); err != nil {
-			return err
+			return false, err
 		}
 	}
-	return nil
+	return true, nil
+}
+
+func (matcher *SyncedResourcesExistingMatcher) FailureMessage(actual interface{}) (message string) {
+	return format.Message(actual, "to have status with all synced resources actually existing in cluster")
+}
+
+func (matcher *SyncedResourcesExistingMatcher) NegatedFailureMessage(actual interface{}) (message string) {
+	return format.Message(actual, fmt.Sprintf("not %s", matcher.FailureMessage(actual)))
+}
+
+func HaveAtLeastSyncedResources(count int) types.GomegaMatcher {
+	return &HaveAtLeastSyncedResourceMatcher{count: count}
+}
+
+type HaveAtLeastSyncedResourceMatcher struct {
+	count int
+}
+
+func (matcher *HaveAtLeastSyncedResourceMatcher) Match(actual interface{}) (success bool, err error) {
+	status, ok := actual.(declarative.Status)
+	if !ok {
+		return false, fmt.Errorf("Expected a Status. Got:\n%s", format.Object(actual, 1))
+	}
+	return len(status.Synced) >= matcher.count, nil
+}
+
+func (matcher *HaveAtLeastSyncedResourceMatcher) FailureMessage(actual interface{}) (message string) {
+	return format.Message(actual, fmt.Sprintf("to have at least %v synced resources in status", matcher.count))
+}
+
+func (matcher *HaveAtLeastSyncedResourceMatcher) NegatedFailureMessage(actual interface{}) (message string) {
+	return format.Message(actual, fmt.Sprintf("not %s", matcher.FailureMessage(actual)))
 }

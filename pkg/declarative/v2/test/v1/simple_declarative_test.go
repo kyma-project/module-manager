@@ -3,8 +3,13 @@ package v1_test
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"testing"
+	"time"
+
 	declarative "github.com/kyma-project/module-manager/pkg/declarative/v2"
 	testv1 "github.com/kyma-project/module-manager/pkg/declarative/v2/test/v1"
+	"github.com/kyma-project/module-manager/pkg/types"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"golang.org/x/time/rate"
@@ -15,15 +20,12 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/util/workqueue"
-	"path/filepath"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"testing"
-	"time"
 )
 
 //nolint:gochecknoglobals
@@ -66,12 +68,19 @@ var _ = Describe(
 		BeforeEach(func() { ctx, cancel = context.WithCancel(context.TODO()) })
 		AfterEach(func() { cancel() })
 
+		type testCaseFn func(ctx context.Context, key client.ObjectKey, source *declarative.CustomManifestSpecSource)
+
 		DescribeTable(
 			fmt.Sprintf("Starting Controller and Testing Declarative Reconciler (Run %s)", runID),
 			func(
-				chart string, values map[string]any, spec testv1.TestAPISpec, options []declarative.Option,
+				spec testv1.TestAPISpec, options []declarative.Option,
+				chart string, values map[string]any,
+				testCase testCaseFn,
 			) {
-				StartDeclarativeReconcilerForRun(ctx, runID, chart, values, options...)
+				specSource := declarative.DefaultManifestSpecSource(chart, values)
+				StartDeclarativeReconcilerForRun(
+					ctx, runID, append(options, declarative.WithManifestSpecSource(specSource))...,
+				)
 
 				obj := &testv1.TestAPI{Spec: spec}
 				obj.SetLabels(labels.Set{testRunLabel: runID})
@@ -79,18 +88,79 @@ var _ = Describe(
 				obj.SetNamespace(customResourceNamespace.Name)
 				obj.SetName(runID)
 				Expect(testClient.Create(ctx, obj)).To(Succeed())
-				expectResourceInstalled(ctx, obj)
-				expectResourceUninstalled(ctx, obj)
+
+				key := client.ObjectKeyFromObject(obj)
+
+				EventuallyDeclarativeStatusShould(
+					ctx, key,
+					BeInState(declarative.StateReady),
+					HaveConditionWithStatus(declarative.ConditionTypeCRDs, metav1.ConditionTrue),
+					HaveConditionWithStatus(declarative.ConditionTypeResources, metav1.ConditionTrue),
+					HaveConditionWithStatus(declarative.ConditionTypeInstallation, metav1.ConditionTrue),
+				)
+
+				Expect(testClient.Get(ctx, key, obj)).To(Succeed())
+				Expect(obj.GetStatus()).To(HaveAllSyncedResourcesExistingInCluster(ctx))
+
+				if testCase != nil {
+					testCase(ctx, key, specSource)
+				}
+
+				Expect(testClient.Delete(ctx, obj)).To(Succeed())
+
+				EventuallyDeclarativeShouldBeUninstalled(ctx, obj)
 			},
 			Entry(
 				"Create simple chart from CR without modifications and become ready",
-				filepath.Join(".", "module-chart"),
-				map[string]any{},
 				// Should Name the Manifest like this
 				testv1.TestAPISpec{ManifestName: "simple-test"},
 				// Should Start with these Options
-				[]declarative.Option{
-					declarative.WithPeriodicConsistencyCheck(5 * time.Second),
+				[]declarative.Option{declarative.WithPeriodicConsistencyCheck(2 * time.Second)},
+				filepath.Join(".", "module-chart"),
+				map[string]any{},
+				nil,
+			),
+			Entry(
+				"Recreation of resources after external delete",
+				// Should Name the Manifest like this
+				testv1.TestAPISpec{ManifestName: "simple-test"},
+				// Should Start with these Options
+				[]declarative.Option{declarative.WithPeriodicConsistencyCheck(2 * time.Second)},
+				filepath.Join(".", "module-chart"),
+				map[string]any{},
+				func(ctx context.Context, key client.ObjectKey, source *declarative.CustomManifestSpecSource) {
+					obj := &testv1.TestAPI{}
+					Expect(testClient.Get(ctx, key, obj)).To(Succeed())
+					Eventually(removeResourcesInCluster, standardTimeout, standardInterval).
+						WithContext(ctx).
+						WithArguments(obj).
+						Should(Succeed())
+					Eventually(expectResourceRecreated, standardTimeout, standardInterval).
+						WithContext(ctx).
+						WithArguments(obj).
+						Should(Succeed())
+				},
+			),
+			Entry(
+				"Change values.yaml input and expect new Resource to be synced",
+				// Should Name the Manifest like this
+				testv1.TestAPISpec{ManifestName: "simple-test"},
+				// Should Start with these Options
+				[]declarative.Option{declarative.WithPeriodicConsistencyCheck(2 * time.Second)},
+				filepath.Join(".", "module-chart"),
+				map[string]any{"autoscaling": map[string]any{"enabled": false}},
+				func(ctx context.Context, key client.ObjectKey, source *declarative.CustomManifestSpecSource) {
+					obj := &testv1.TestAPI{}
+					Expect(testClient.Get(ctx, key, obj)).To(Succeed())
+					oldAmount := len(obj.GetStatus().Synced)
+					source.ValuesFn = func(_ context.Context, _ declarative.Object) map[string]any {
+						return map[string]any{"autoscaling": map[string]any{"enabled": true}}
+					}
+					EventuallyDeclarativeStatusShould(
+						ctx, key,
+						HaveAtLeastSyncedResources(oldAmount+1),
+						BeInState(declarative.State(types.StateReady)),
+					)
 				},
 			),
 		)
@@ -101,8 +171,6 @@ var _ = Describe(
 func StartDeclarativeReconcilerForRun(
 	ctx context.Context,
 	runID string,
-	chart string,
-	values map[string]any,
 	options ...declarative.Option,
 ) {
 	var (
@@ -127,18 +195,6 @@ func StartDeclarativeReconcilerForRun(
 		mgr, &testv1.TestAPI{},
 		append(
 			options,
-			declarative.WithManifestSpecSource(
-				&declarative.StaticManifestSpecSource{
-					ManifestNameFn: func(ctx context.Context, obj declarative.Object) string {
-						// This will randomize the Manifest Name so that each run is truly uniquely rendered
-						// and we do not accidentally reuse cache, even if after the cleanup the test directories
-						// should all be reset
-						return fmt.Sprintf("%s-%s", obj.(*testv1.TestAPI).Spec.ManifestName, runID)
-					},
-					ChartPath: chart,
-					Values:    values,
-				},
-			),
 			declarative.WithNamespace(namespace, true),
 			declarative.WithFinalizer(finalizer),
 			// we overwride the manifest cache directory with the test run directory so its automatically cleaned up
@@ -161,8 +217,11 @@ func StartDeclarativeReconcilerForRun(
 
 	Expect(
 		ctrl.NewControllerManagedBy(mgr).WithEventFilter(testWatchPredicate).
-			WithOptions(controller.Options{RateLimiter: workqueue.NewMaxOfRateLimiter(
-				&workqueue.BucketRateLimiter{Limiter: rate.NewLimiter(rate.Limit(30), 200)})}).
+			WithOptions(
+				controller.Options{RateLimiter: workqueue.NewMaxOfRateLimiter(
+					&workqueue.BucketRateLimiter{Limiter: rate.NewLimiter(rate.Limit(30), 200)},
+				)},
+			).
 			For(&testv1.TestAPI{}).Complete(reconciler),
 	).To(Succeed())
 	go func() {
@@ -174,4 +233,30 @@ func StatusOnCluster(g Gomega, ctx context.Context, key client.ObjectKey) declar
 	obj := &testv1.TestAPI{}
 	g.Expect(testClient.Get(ctx, key, obj)).To(Succeed())
 	return obj.GetStatus()
+}
+
+func removeResourcesInCluster(ctx context.Context, obj *testv1.TestAPI) error {
+	synced := obj.GetStatus().Synced
+	for i := range synced {
+		unstruct := synced[i].ToUnstructured()
+		ExpectWithOffset(1, testClient.Delete(ctx, unstruct)).To(Succeed())
+	}
+	return nil
+}
+
+func expectResourceRecreated(ctx context.Context, obj *testv1.TestAPI) error {
+	if err := testClient.Get(ctx, client.ObjectKeyFromObject(obj), obj); err != nil {
+		return err
+	}
+
+	synced := obj.GetStatus().Synced
+
+	for i := range synced {
+		unstruct := synced[i].ToUnstructured()
+		if err := testClient.Get(ctx, client.ObjectKeyFromObject(unstruct), unstruct); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
