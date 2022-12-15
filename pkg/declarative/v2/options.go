@@ -34,7 +34,8 @@ func DefaultOptions() *Options {
 		),
 		WithConsistencyCheckOnCacheReset(true),
 		WithSingletonClientCache(NewMemorySingletonClientCache()),
-		WithManifestCacheRoot(os.TempDir()),
+		WithManifestCache(os.TempDir()),
+		WithRenderMode(RenderModeHelm),
 	)
 }
 
@@ -45,8 +46,8 @@ type Options struct {
 
 	ManifestSpecSource
 	SingletonClientCache
-	ManifestCacheRoot string
-	CustomReadyCheck  ReadyCheck
+	ManifestCache
+	CustomReadyCheck ReadyCheck
 
 	Namespace       string
 	CreateNamespace bool
@@ -62,6 +63,8 @@ type Options struct {
 	DeletePrerequisitesOnUninstall bool
 
 	CtrlOnSuccess ctrl.Result
+
+	RenderMode
 }
 
 type Option interface {
@@ -143,7 +146,7 @@ type ManifestSpecSource interface {
 
 type ManifestSpec struct {
 	ManifestName string
-	ChartPath    string
+	Path         string
 	Values       map[string]interface{}
 }
 
@@ -162,7 +165,7 @@ func (o ManifestSpecSourceOption) Apply(options *Options) {
 func DefaultManifestSpecSource(chartPath string, values map[string]any) *CustomManifestSpecSource {
 	return &CustomManifestSpecSource{
 		ManifestNameFn: func(_ context.Context, obj Object) string { return obj.ComponentName() },
-		ChartPathFn:    func(_ context.Context, _ Object) string { return chartPath },
+		PathFn:         func(_ context.Context, _ Object) string { return chartPath },
 		ValuesFn:       func(_ context.Context, _ Object) map[string]any { return values },
 	}
 }
@@ -170,7 +173,7 @@ func DefaultManifestSpecSource(chartPath string, values map[string]any) *CustomM
 // CustomManifestSpecSource is a simple static resolver that always uses the same chart and values.
 type CustomManifestSpecSource struct {
 	ManifestNameFn func(ctx context.Context, obj Object) string
-	ChartPathFn    func(ctx context.Context, obj Object) string
+	PathFn         func(ctx context.Context, obj Object) string
 	ValuesFn       func(ctx context.Context, obj Object) map[string]any
 }
 
@@ -179,7 +182,7 @@ func (s *CustomManifestSpecSource) ResolveManifestSpec(
 ) (*ManifestSpec, error) {
 	return &ManifestSpec{
 		ManifestName: s.ManifestNameFn(ctx, obj),
-		ChartPath:    s.ChartPathFn(ctx, obj),
+		Path:         s.PathFn(ctx, obj),
 		Values:       s.ValuesFn(ctx, obj),
 	}, nil
 }
@@ -244,10 +247,14 @@ func (o WithDeleteCRDsOnUninstall) Apply(options *Options) {
 	options.DeletePrerequisitesOnUninstall = bool(o)
 }
 
-type WithManifestCacheRoot string
+type ManifestCache string
 
-func (o WithManifestCacheRoot) Apply(options *Options) {
-	options.ManifestCacheRoot = string(o)
+const NoManifestCache ManifestCache = "no-cache"
+
+type WithManifestCache ManifestCache
+
+func (o WithManifestCache) Apply(options *Options) {
+	options.ManifestCache = ManifestCache(o)
 }
 
 type WithCustomReadyCheckOption struct {
@@ -260,4 +267,18 @@ func WithCustomReadyCheck(check ReadyCheck) WithCustomReadyCheckOption {
 
 func (o WithCustomReadyCheckOption) Apply(options *Options) {
 	options.CustomReadyCheck = o
+}
+
+type RenderMode string
+
+const (
+	RenderModeHelm      RenderMode = "helm"
+	RenderModeKustomize RenderMode = "kustomize"
+	RenderModeRaw       RenderMode = "raw"
+)
+
+type WithRenderMode RenderMode
+
+func (o WithRenderMode) Apply(options *Options) {
+	options.RenderMode = RenderMode(o)
 }

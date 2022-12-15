@@ -35,7 +35,6 @@ type Reconciler struct {
 type ConditionType string
 
 const (
-	ConditionTypeCRDs         ConditionType = "CRDs"
 	ConditionTypeResources    ConditionType = "Resources"
 	ConditionTypeInstallation ConditionType = "Installation"
 )
@@ -43,7 +42,6 @@ const (
 type ConditionReason string
 
 const (
-	ConditionReasonCRDsAreAvailable      ConditionReason = "CRDsAvailable"
 	ConditionReasonResourcesAreAvailable ConditionReason = "ResourcesAvailable"
 	ConditionReasonReady                 ConditionReason = "Ready"
 )
@@ -115,9 +113,20 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		obj.SetStatus(status.WithState(StateError).WithErr(err))
 		return r.ssaStatus(ctx, obj)
 	}
-	resourceConverter := NewResourceConverter(clients, clients.KubeClient().Namespace)
+	resourceConverter := NewResourceConverter(clients, r.Namespace)
 
-	renderer := NewHelmRendererWithCache(spec, clients, r.Options)
+	var renderer Renderer
+
+	switch r.Options.RenderMode {
+	case RenderModeHelm:
+		renderer = NewHelmRenderer(spec, clients, r.Options)
+	case RenderModeKustomize:
+		renderer = NewKustomizeRenderer(spec, r.Options)
+	case RenderModeRaw:
+		renderer = NewRawRenderer(spec, r.Options)
+	}
+
+	renderer = WrapWithRendererCache(renderer, spec, r.Options)
 
 	if err := renderer.Initialize(obj); err != nil {
 		return r.ssaStatus(ctx, obj)

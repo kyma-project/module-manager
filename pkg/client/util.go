@@ -1,8 +1,6 @@
 package client
 
 import (
-	"fmt"
-
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -20,8 +18,7 @@ func getResourceMapping(obj runtime.Object, mapper meta.RESTMapper, retryOnNoMat
 		// return second call after reset
 		mapping, err = mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 		if err != nil {
-			return nil, fmt.Errorf("rest mapping for %s could not be resolved after reset: %w",
-				obj.GetObjectKind().GroupVersionKind().String(), err)
+			return nil, err
 		}
 	}
 

@@ -21,7 +21,7 @@ type manifestCache struct {
 }
 
 func newManifestCache(baseDir string, spec *ManifestSpec) *manifestCache {
-	root := filepath.Join(baseDir, manifest, spec.ChartPath)
+	root := filepath.Join(baseDir, manifest, spec.Path)
 	file := filepath.Join(root, spec.ManifestName)
 	hashedValues, _ := util.CalculateHash(spec.Values)
 	hash := fmt.Sprintf("%v", hashedValues)

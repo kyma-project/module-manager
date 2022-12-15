@@ -96,7 +96,8 @@ func NewOperations(options OperationOptions) (*Operations, error) {
 // getRenderSrc checks if the manifest processor client is cached and returns if available.
 // If not available, it creates a new one based on installInfo.
 // Additionally, it verifies cached configuration for the manifest processor and invalidates it if required.
-func getRenderSrc(cache types.RendererCache, deployInfo *types.InstallInfo,
+func getRenderSrc(
+	cache types.RendererCache, deployInfo *types.InstallInfo,
 	logger logr.Logger,
 ) (types.ManifestClient, error) {
 	var renderSrc types.ManifestClient
@@ -125,8 +126,10 @@ func getRenderSrc(cache types.RendererCache, deployInfo *types.InstallInfo,
 	/* Configuration handling */
 	// if there is no update on config - return from here
 	nsNameBaseResource := client.ObjectKeyFromObject(deployInfo.BaseResource)
-	configHash, err := renderSrc.InvalidateConfigAndRenderedManifest(deployInfo,
-		cache.GetConfig(nsNameBaseResource))
+	configHash, err := renderSrc.InvalidateConfigAndRenderedManifest(
+		deployInfo,
+		cache.GetConfig(nsNameBaseResource),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -156,16 +159,20 @@ func discoverCacheKey(resource client.Object, logger logr.Logger) (client.Object
 	objectKey := client.ObjectKeyFromObject(resource)
 	var labelErr *types.LabelNotFoundError
 	if errors.As(err, &labelErr) {
-		logger.V(util.DebugLogLevel).Info(labels.CacheKey+" missing on resource, it will be cached "+
-			"based on resource name and namespace.",
-			"resource", objectKey)
+		logger.V(util.DebugLogLevel).Info(
+			labels.CacheKey+" missing on resource, it will be cached "+
+				"based on resource name and namespace.",
+			"resource", objectKey,
+		)
 		return objectKey, nil
 	}
 
-	logger.V(util.DebugLogLevel).Info("resource will be cached based on "+labels.CacheKey,
+	logger.V(util.DebugLogLevel).Info(
+		"resource will be cached based on "+labels.CacheKey,
 		"resource", objectKey,
 		"label", labels.CacheKey,
-		"labelValue", label)
+		"labelValue", label,
+	)
 
 	return client.ObjectKey{Name: label, Namespace: resource.GetNamespace()}, nil
 }
@@ -187,8 +194,10 @@ func getManifestProcessor(deployInfo *types.InstallInfo, logger logr.Logger) (ty
 	switch chartKind {
 	case resource.HelmKind, resource.UnknownKind:
 		// create HelmClient instance
-		return NewHelmProcessor(singletonClients, cli.New(), logger,
-			render, deployInfo, true)
+		return NewHelmProcessor(
+			singletonClients, cli.New(), logger,
+			render, deployInfo, true,
+		)
 	case resource.KustomizeKind:
 		// create dynamic client for rest config
 		if err != nil {
@@ -201,8 +210,10 @@ func getManifestProcessor(deployInfo *types.InstallInfo, logger logr.Logger) (ty
 
 func (o *Operations) consistencyCheck() (bool, error) {
 	// verify CRDs
-	if err := resource.CheckCRDs(o.installInfo.Ctx, o.installInfo.Crds, o.client,
-		false); err != nil {
+	if err := resource.CheckCRDs(
+		o.installInfo.Ctx, o.installInfo.Crds, o.client,
+		false,
+	); err != nil {
 		if apierrors.IsNotFound(err) {
 			return false, nil
 		}
@@ -210,8 +221,10 @@ func (o *Operations) consistencyCheck() (bool, error) {
 	}
 
 	// verify CR
-	if err := resource.CheckCRs(o.installInfo.Ctx, o.installInfo.CustomResources, o.client,
-		false); err != nil {
+	if err := resource.CheckCRs(
+		o.installInfo.Ctx, o.installInfo.CustomResources, o.client,
+		false,
+	); err != nil {
 		if apierrors.IsNotFound(err) {
 			return false, nil
 		}
@@ -225,8 +238,10 @@ func (o *Operations) consistencyCheck() (bool, error) {
 	}
 
 	// consistency check
-	consistent, err := o.renderSrc.IsConsistent(parsedFile.GetContent(),
-		o.installInfo, o.resourceTransforms, o.postRuns)
+	consistent, err := o.renderSrc.IsConsistent(
+		parsedFile.GetContent(),
+		o.installInfo, o.resourceTransforms, o.postRuns,
+	)
 	if err != nil || !consistent {
 		return false, err
 	}
@@ -241,7 +256,8 @@ func (o *Operations) consistencyCheck() (bool, error) {
 func (o *Operations) install() (bool, error) {
 	// install crds first - if present do not update!
 	if err := resource.CheckCRDs(
-		o.installInfo.Ctx, o.installInfo.Crds, o.client, true); err != nil {
+		o.installInfo.Ctx, o.installInfo.Crds, o.client, true,
+	); err != nil {
 		return false, err
 	}
 
@@ -263,8 +279,10 @@ func (o *Operations) install() (bool, error) {
 	}
 
 	// install crs - if present do not update!
-	if err := resource.CheckCRs(o.installInfo.Ctx, o.installInfo.CustomResources, o.client,
-		true); err != nil {
+	if err := resource.CheckCRs(
+		o.installInfo.Ctx, o.installInfo.CustomResources, o.client,
+		true,
+	); err != nil {
 		return false, err
 	}
 
@@ -295,8 +313,10 @@ func (o *Operations) uninstall() (bool, error) {
 	}
 
 	// uninstall resources
-	consistent, err := o.renderSrc.Uninstall(parsedFile.GetContent(),
-		o.installInfo, o.resourceTransforms, o.postRuns)
+	consistent, err := o.renderSrc.Uninstall(
+		parsedFile.GetContent(),
+		o.installInfo, o.resourceTransforms, o.postRuns,
+	)
 	if !UninstallSuccess(err) {
 		return false, err
 	}
@@ -323,7 +343,7 @@ func UninstallSuccess(err error) bool {
 
 func (o *Operations) getManifestForChartPath(installInfo *types.InstallInfo) *types.ParsedFile {
 	// 1. check provided manifest file
-	// It is expected for installInfo.ChartPath to contain ONE .yaml or .yml file,
+	// It is expected for installInfo.Path to contain ONE .yaml or .yml file,
 	// which is assumed to contain a list of resources to be processed.
 	// If the location doesn't exist or has permission issues, it will be ignored.
 	parsedFile := o.renderSrc.GetManifestResources(installInfo.ChartPath)
@@ -353,11 +373,11 @@ func (o *Operations) getManifestForChartPath(installInfo *types.InstallInfo) *ty
 	o.logger.V(util.DebugLogLevel).Info("rendered manifest from chart-path")
 
 	// 4. persist static charts
-	// if installInfo.ChartPath is not passed, it means that the chart is not static
+	// if installInfo.Path is not passed, it means that the chart is not static
 	if installInfo.ChartPath == "" {
 		return parsedFile
 	}
-	// Write Rendered manifest static chart to installInfo.ChartPath.
+	// Write Rendered manifest static chart to installInfo.Path.
 	// If the location doesn't exist or has permission issues, it will be ignored.
 	err := util.WriteToFile(util.GetFsManifestChartPath(installInfo.ChartPath), []byte(parsedFile.GetContent()))
 	return types.NewParsedFile(parsedFile.GetContent(), err).FilterOsErrors()

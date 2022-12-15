@@ -2,6 +2,7 @@ package v2
 
 import (
 	"github.com/kyma-project/module-manager/pkg/types"
+	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/cli-runtime/pkg/resource"
@@ -29,11 +30,17 @@ type defaultResourceConverter struct {
 func (c *defaultResourceConverter) ConvertSyncedToNewStatus(status Status, resources []*resource.Info) Status {
 	status.Synced = make([]Resource, 0, len(resources))
 	for _, info := range resources {
+		var gvk v1.GroupVersionKind
+		if info.Mapping != nil {
+			gvk = v1.GroupVersionKind(info.ResourceMapping().GroupVersionKind)
+		} else {
+			gvk = v1.GroupVersionKind(info.Object.GetObjectKind().GroupVersionKind())
+		}
 		status.Synced = append(
 			status.Synced, Resource{
 				Name:             info.Name,
 				Namespace:        info.Namespace,
-				GroupVersionKind: v1.GroupVersionKind(info.Mapping.GroupVersionKind),
+				GroupVersionKind: gvk,
 			},
 		)
 	}
@@ -65,6 +72,23 @@ func (c *defaultResourceConverter) ConvertResourcesFromManifest(
 	errs := make([]error, 0, len(resources.Items))
 	for _, obj := range resources.Items {
 		resourceInfo, err := c.converter.ResourceInfo(obj, true)
+
+		// if there is no match we will initialize the resource anyway, just without
+		// the mapping. This will cause the applier and mappings to fall back to unstructured
+		// if this apply fails, it will continue to fail until either the mapping is resolved
+		// correctly or the kind is present
+		if meta.IsNoMatchError(err) {
+			target = append(
+				target, &resource.Info{
+					Namespace:       obj.GetNamespace(),
+					Name:            obj.GetName(),
+					Object:          obj,
+					ResourceVersion: obj.GetResourceVersion(),
+				},
+			)
+			continue
+		}
+
 		if err != nil {
 			errs = append(errs, err)
 			continue

@@ -94,7 +94,6 @@ var _ = Describe(
 				EventuallyDeclarativeStatusShould(
 					ctx, key,
 					BeInState(declarative.StateReady),
-					HaveConditionWithStatus(declarative.ConditionTypeCRDs, metav1.ConditionTrue),
 					HaveConditionWithStatus(declarative.ConditionTypeResources, metav1.ConditionTrue),
 					HaveConditionWithStatus(declarative.ConditionTypeInstallation, metav1.ConditionTrue),
 				)
@@ -113,17 +112,63 @@ var _ = Describe(
 			Entry(
 				"Create simple chart from CR without modifications and become ready",
 				// Should Name the Manifest like this
-				testv1.TestAPISpec{ManifestName: "simple-test"},
+				testv1.TestAPISpec{ManifestName: "simple-helm"},
 				// Should Start with these Options
 				[]declarative.Option{declarative.WithPeriodicConsistencyCheck(2 * time.Second)},
 				filepath.Join(".", "module-chart"),
+				map[string]any{},
+				func(ctx context.Context, key client.ObjectKey, source *declarative.CustomManifestSpecSource) {
+					EventuallyDeclarativeStatusShould(
+						ctx, key,
+						HaveConditionWithStatus(declarative.ConditionTypeHelmCRDs, metav1.ConditionTrue),
+					)
+				},
+			),
+			Entry(
+				"Create simple chart from CR from TGZ with CRDs and become ready",
+				// Should Name the Manifest like this
+				testv1.TestAPISpec{ManifestName: "tgz-with-crds"},
+				// Should Start with these Options
+				[]declarative.Option{declarative.WithPeriodicConsistencyCheck(2 * time.Second)},
+				filepath.Join(".", "helm_chart_with_crds.tgz"),
+				map[string]any{},
+				func(ctx context.Context, key client.ObjectKey, source *declarative.CustomManifestSpecSource) {
+					EventuallyDeclarativeStatusShould(
+						ctx, key,
+						HaveConditionWithStatus(declarative.ConditionTypeHelmCRDs, metav1.ConditionTrue),
+					)
+				},
+			),
+			Entry(
+				"Create simple kustomization",
+				// Should Name the Manifest like this
+				testv1.TestAPISpec{ManifestName: "simple-kustomization"},
+				// Should Start with these Options
+				[]declarative.Option{
+					declarative.WithPeriodicConsistencyCheck(2 * time.Second),
+					declarative.WithRenderMode(declarative.RenderModeKustomize),
+				},
+				filepath.Join(".", "kustomization"),
+				map[string]any{"AddManagedbyLabel": true},
+				nil,
+			),
+			Entry(
+				"Create simple Raw manifest",
+				// Should Name the Manifest like this
+				testv1.TestAPISpec{ManifestName: "simple-raw"},
+				// Should Start with these Options
+				[]declarative.Option{
+					declarative.WithPeriodicConsistencyCheck(2 * time.Second),
+					declarative.WithRenderMode(declarative.RenderModeRaw),
+				},
+				filepath.Join(".", "raw-manifest.yaml"),
 				map[string]any{},
 				nil,
 			),
 			Entry(
 				"Recreation of resources after external delete",
 				// Should Name the Manifest like this
-				testv1.TestAPISpec{ManifestName: "simple-test"},
+				testv1.TestAPISpec{ManifestName: "recreation-of-resources"},
 				// Should Start with these Options
 				[]declarative.Option{declarative.WithPeriodicConsistencyCheck(2 * time.Second)},
 				filepath.Join(".", "module-chart"),
@@ -144,7 +189,7 @@ var _ = Describe(
 			Entry(
 				"Change values.yaml input and expect new Resource to be synced",
 				// Should Name the Manifest like this
-				testv1.TestAPISpec{ManifestName: "simple-test"},
+				testv1.TestAPISpec{ManifestName: "helm-values-change"},
 				// Should Start with these Options
 				[]declarative.Option{declarative.WithPeriodicConsistencyCheck(2 * time.Second)},
 				filepath.Join(".", "module-chart"),
@@ -199,7 +244,7 @@ func StartDeclarativeReconcilerForRun(
 			declarative.WithFinalizer(finalizer),
 			// we overwride the manifest cache directory with the test run directory so its automatically cleaned up
 			// we ensure uniqueness implicitly, as runID is used to randomize the ManifestName in ManifestSpecSource
-			declarative.WithManifestCacheRoot(filepath.Join(testDir, "declarative-test-cache")),
+			declarative.WithManifestCache(filepath.Join(testDir, "declarative-test-cache")),
 			// we have to use a custom ready check that only checks for existence of an object since the default
 			// readiness check will not work without dedicated control loops in envtest. E.g. by default
 			// deployments are not started or set to ready. However we can check if the resource was created by

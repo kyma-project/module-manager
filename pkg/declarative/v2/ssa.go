@@ -77,13 +77,15 @@ func (c *concurrentDefaultSSA) serverSideApply(
 	resource.Object = c.convertUnstructuredToTyped(resource.Object, resource.Mapping)
 
 	logger.V(util.TraceLogLevel).Info(
-		fmt.Sprintf("apply %s (%s)", resource.ObjectName(), resource.Mapping.GroupVersionKind))
+		fmt.Sprintf("apply %s (%s)", resource.ObjectName(), mappingAsString(resource)),
+	)
 
 	results <- c.serverSideApplyResourceInfo(ctx, resource)
 
 	logger.V(util.TraceLogLevel).Info(
-		fmt.Sprintf("apply %s (%s) finished", resource.ObjectName(), resource.Mapping.GroupVersionKind),
-		"time", time.Since(start))
+		fmt.Sprintf("apply %s (%s) finished", resource.ObjectName(), mappingAsString(resource)),
+		"time", time.Since(start),
+	)
 }
 
 func (c *concurrentDefaultSSA) serverSideApplyResourceInfo(
@@ -92,14 +94,18 @@ func (c *concurrentDefaultSSA) serverSideApplyResourceInfo(
 ) error {
 	obj, isTyped := info.Object.(client.Object)
 	if !isTyped {
-		return fmt.Errorf("client object conversion for %s failed,"+
-			"object is not a valid client-go object", info.ObjectName())
+		return fmt.Errorf(
+			"client object conversion for %s failed,"+
+				"object is not a valid client-go object", info.ObjectName(),
+		)
 	}
 
 	err := c.clnt.Patch(ctx, obj, client.Apply, client.ForceOwnership, c.owner)
 	if err != nil {
-		return fmt.Errorf("patch for %s (%s) failed: %w", info.ObjectName(),
-			info.Mapping.GroupVersionKind, err)
+		return fmt.Errorf(
+			"patch for %s (%s) failed: %w", info.ObjectName(),
+			mappingAsString(info), err,
+		)
 	}
 
 	return nil
@@ -118,4 +124,11 @@ func (c *concurrentDefaultSSA) convertUnstructuredToTyped(
 		return obj
 	}
 	return obj
+}
+
+func mappingAsString(info *resource.Info) string {
+	if info.Mapping == nil {
+		return info.Object.GetObjectKind().GroupVersionKind().String()
+	}
+	return fmt.Sprintf("%s(%s)", "no mapping", info.Mapping.GroupVersionKind.String())
 }
