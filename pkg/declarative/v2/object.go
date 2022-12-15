@@ -16,7 +16,9 @@ type Object interface {
 	SetStatus(Status)
 }
 
-type BaseStatus struct {
+// Status defines the observed state of CustomObject.
+// +k8s:deepcopy-gen=true
+type Status struct {
 	// State signifies current state of CustomObject.
 	// Value can be one of ("Ready", "Processing", "Error", "Deleting").
 	// +kubebuilder:validation:Required
@@ -25,17 +27,10 @@ type BaseStatus struct {
 	// Conditions contain a set of conditionals to determine the State of Status.
 	// If all Conditions are met, State is expected to be in StateReady.
 	Conditions []metav1.Condition `json:"conditions"`
-}
-
-// Status defines the observed state of CustomObject.
-// +k8s:deepcopy-gen=true
-type Status struct {
-	BaseStatus `json:",inline"`
 
 	// Synced determine a list of Resources that are currently actively synced.
 	// All resources that are synced are considered for orphan removal on configuration changes,
 	// and it is used to determine effective differences from one state to the next.
-	//+listType=atomic
 	Synced        Resources `json:"synced"`
 	LastOperation `json:"lastOperation,omitempty"`
 }
@@ -63,6 +58,7 @@ func (s Status) WithState(state State) Status {
 	return s
 }
 
+// +listType=atomic
 type Resources []Resource
 
 func (r Resources) ContainsAll(desired Resources) bool {
