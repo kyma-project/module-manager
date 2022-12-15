@@ -58,6 +58,7 @@ func (s Status) WithState(state State) Status {
 	return s
 }
 
+// Resources is a list of Resource(s).
 // +listType=atomic
 type Resources []Resource
 
