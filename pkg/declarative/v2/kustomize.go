@@ -11,14 +11,20 @@ import (
 )
 
 func NewKustomizeRenderer(
-	spec *ManifestSpec,
+	spec *Spec,
 	options *Options,
 ) Renderer {
-	krustyOpts := krusty.MakeDefaultOptions()
-	jsonValues, err := json.Marshal(spec.Values)
-	if err == nil {
-		if err := json.Unmarshal(jsonValues, krustyOpts); err != nil {
-			krustyOpts = krusty.MakeDefaultOptions()
+	var krustyOpts *krusty.Options
+
+	if optionsFromValues, areKrustyOpts := spec.Values.(*krusty.Options); areKrustyOpts {
+		krustyOpts = optionsFromValues
+	} else {
+		krustyOpts = krusty.MakeDefaultOptions()
+		jsonValues, err := json.Marshal(spec.Values)
+		if err == nil {
+			if err := json.Unmarshal(jsonValues, krustyOpts); err != nil {
+				krustyOpts = krusty.MakeDefaultOptions()
+			}
 		}
 	}
 

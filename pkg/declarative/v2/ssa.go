@@ -128,7 +128,7 @@ func (c *concurrentDefaultSSA) convertUnstructuredToTyped(
 
 func mappingAsString(info *resource.Info) string {
 	if info.Mapping == nil {
-		return info.Object.GetObjectKind().GroupVersionKind().String()
+		return fmt.Sprintf("%s(%s)", info.Object.GetObjectKind().GroupVersionKind().String(), "no mapping")
 	}
-	return fmt.Sprintf("%s(%s)", "no mapping", info.Mapping.GroupVersionKind.String())
+	return info.Mapping.GroupVersionKind.String()
 }

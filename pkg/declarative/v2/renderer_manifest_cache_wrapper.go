@@ -12,7 +12,7 @@ import (
 
 func WrapWithRendererCache(
 	renderer Renderer,
-	spec *ManifestSpec,
+	spec *Spec,
 	options *Options,
 ) Renderer {
 	if options.ManifestCache == NoManifestCache {

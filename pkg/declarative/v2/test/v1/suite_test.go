@@ -29,6 +29,11 @@ const (
 
 var _ = BeforeSuite(
 	func() {
+		// this directory is a reference to the root directory of the project.
+		root := filepath.Join("..", "..", "..", "..", "..")
+		// in kubebuilder this is where CRDs are generated to with controller-gen (see make generate).
+		crds := filepath.Join(root, "config", "crd", "bases")
+
 		log.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 		Expect(testv1.AddToScheme(scheme.Scheme)).To(Succeed())
 

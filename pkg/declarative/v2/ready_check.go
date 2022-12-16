@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	mmclient "github.com/kyma-project/module-manager/pkg/client"
 	"github.com/kyma-project/module-manager/pkg/types"
 	"github.com/kyma-project/module-manager/pkg/util"
 	"helm.sh/helm/v3/pkg/kube"
@@ -25,8 +24,8 @@ type HelmReadyCheck struct {
 	clientSet kubernetes.Interface
 }
 
-func NewHelmReadyCheck(clients *mmclient.SingletonClients) ReadyCheck {
-	clientSet, _ := clients.KubernetesClientSet()
+func NewHelmReadyCheck(factory kube.Factory) ReadyCheck {
+	clientSet, _ := factory.KubernetesClientSet()
 	return &HelmReadyCheck{clientSet: clientSet}
 }
 

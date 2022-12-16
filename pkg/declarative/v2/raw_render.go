@@ -9,7 +9,7 @@ import (
 )
 
 func NewRawRenderer(
-	spec *ManifestSpec,
+	spec *Spec,
 	options *Options,
 ) Renderer {
 	return &RawRenderer{

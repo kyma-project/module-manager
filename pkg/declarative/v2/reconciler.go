@@ -100,9 +100,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return r.ssaStatus(ctx, obj)
 	}
 
-	spec, err := r.ResolveManifestSpec(ctx, obj)
+	spec, err := r.Spec(ctx, obj)
 	if err != nil {
-		r.Event(obj, "Warning", "ResolveManifestSpec", err.Error())
+		r.Event(obj, "Warning", "Spec", err.Error())
 		obj.SetStatus(status.WithState(StateError).WithErr(err))
 		return r.ssaStatus(ctx, obj)
 	}
@@ -117,7 +117,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	var renderer Renderer
 
-	switch r.Options.RenderMode {
+	switch spec.Mode {
 	case RenderModeHelm:
 		renderer = NewHelmRenderer(spec, clients, r.Options)
 	case RenderModeKustomize:
@@ -274,7 +274,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 }
 
 func (r *Reconciler) initializeClients(
-	ctx context.Context, obj Object, spec *ManifestSpec,
+	ctx context.Context, obj Object, spec *Spec,
 ) (*manifestClient.SingletonClients, error) {
 	var err error
 	var clients *manifestClient.SingletonClients

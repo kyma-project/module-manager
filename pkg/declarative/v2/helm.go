@@ -20,14 +20,18 @@ const (
 )
 
 func NewHelmRenderer(
-	spec *ManifestSpec,
+	spec *Spec,
 	clients *client.SingletonClients,
 	options *Options,
 ) Renderer {
+	valuesAsMap, ok := spec.Values.(map[string]any)
+	if !ok {
+		valuesAsMap = map[string]any{}
+	}
 	return &Helm{
 		recorder:   options.EventRecorder,
 		chartPath:  spec.Path,
-		values:     spec.Values,
+		values:     valuesAsMap,
 		clients:    clients,
 		crdChecker: NewHelmReadyCheck(clients),
 	}

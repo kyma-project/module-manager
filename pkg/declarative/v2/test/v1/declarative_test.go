@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	declarative "github.com/kyma-project/module-manager/pkg/declarative/v2"
+	. "github.com/kyma-project/module-manager/pkg/declarative/v2"
 	testv1 "github.com/kyma-project/module-manager/pkg/declarative/v2/test/v1"
 	"github.com/kyma-project/module-manager/pkg/types"
 	. "github.com/onsi/ginkgo/v2"
@@ -33,11 +33,8 @@ var (
 	// this is a unique base testing directory that will be used within a given run
 	// it is expected to be removed externally (e.g. by testing.T) to cleanup leftovers
 	// (e.g. cached manifests).
-	testDir string
-	// this directory is a reference to the root directory of the project.
-	root = filepath.Join("..", "..", "..", "..", "..")
-	// in kubebuilder this is where CRDs are generated to with controller-gen (see make generate).
-	crds = filepath.Join(root, "config", "crd", "bases")
+	testDir        string
+	testSamplesDir = filepath.Join("..", "..", "..", "..", "test_samples")
 
 	env        *envtest.Environment
 	cfg        *rest.Config
@@ -56,7 +53,7 @@ func TestAPIs(t *testing.T) {
 	testDir = t.TempDir()
 	t.Parallel()
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Simple Declarative Test Suite")
+	RunSpecs(t, "Declarative V2 Test Suite")
 }
 
 var _ = Describe(
@@ -68,112 +65,96 @@ var _ = Describe(
 		BeforeEach(func() { ctx, cancel = context.WithCancel(context.TODO()) })
 		AfterEach(func() { cancel() })
 
-		type testCaseFn func(ctx context.Context, key client.ObjectKey, source *declarative.CustomManifestSpecSource)
+		type testCaseFn func(ctx context.Context, key client.ObjectKey, source *CustomSpecFns)
+
+		tableTest := func(
+			spec testv1.TestAPISpec,
+			source *CustomSpecFns,
+			testCase testCaseFn,
+		) {
+			StartDeclarativeReconcilerForRun(ctx, runID, WithSpecResolver(source))
+
+			obj := &testv1.TestAPI{Spec: spec}
+			obj.SetLabels(labels.Set{testRunLabel: runID})
+			// this namespace is different form the test-run and path as we may need to test namespace creation
+			obj.SetNamespace(customResourceNamespace.Name)
+			obj.SetName(runID)
+			Expect(testClient.Create(ctx, obj)).To(Succeed())
+			key := client.ObjectKeyFromObject(obj)
+
+			EventuallyDeclarativeStatusShould(
+				ctx, key,
+				BeInState(StateReady),
+				HaveConditionWithStatus(ConditionTypeResources, metav1.ConditionTrue),
+				HaveConditionWithStatus(ConditionTypeInstallation, metav1.ConditionTrue),
+			)
+
+			Expect(testClient.Get(ctx, key, obj)).To(Succeed())
+			Expect(obj.GetStatus()).To(HaveAllSyncedResourcesExistingInCluster(ctx))
+
+			if testCase != nil {
+				testCase(ctx, key, source)
+			}
+
+			Expect(testClient.Delete(ctx, obj)).To(Succeed())
+
+			EventuallyDeclarativeShouldBeUninstalled(ctx, obj)
+		}
 
 		DescribeTable(
 			fmt.Sprintf("Starting Controller and Testing Declarative Reconciler (Run %s)", runID),
-			func(
-				spec testv1.TestAPISpec, options []declarative.Option,
-				chart string, values map[string]any,
-				testCase testCaseFn,
-			) {
-				specSource := declarative.DefaultManifestSpecSource(chart, values)
-				StartDeclarativeReconcilerForRun(
-					ctx, runID, append(options, declarative.WithManifestSpecSource(specSource))...,
-				)
-
-				obj := &testv1.TestAPI{Spec: spec}
-				obj.SetLabels(labels.Set{testRunLabel: runID})
-				// this namespace is different form the test-run and chart as we may need to test namespace creation
-				obj.SetNamespace(customResourceNamespace.Name)
-				obj.SetName(runID)
-				Expect(testClient.Create(ctx, obj)).To(Succeed())
-
-				key := client.ObjectKeyFromObject(obj)
-
-				EventuallyDeclarativeStatusShould(
-					ctx, key,
-					BeInState(declarative.StateReady),
-					HaveConditionWithStatus(declarative.ConditionTypeResources, metav1.ConditionTrue),
-					HaveConditionWithStatus(declarative.ConditionTypeInstallation, metav1.ConditionTrue),
-				)
-
-				Expect(testClient.Get(ctx, key, obj)).To(Succeed())
-				Expect(obj.GetStatus()).To(HaveAllSyncedResourcesExistingInCluster(ctx))
-
-				if testCase != nil {
-					testCase(ctx, key, specSource)
-				}
-
-				Expect(testClient.Delete(ctx, obj)).To(Succeed())
-
-				EventuallyDeclarativeShouldBeUninstalled(ctx, obj)
-			},
+			tableTest,
 			Entry(
 				"Create simple chart from CR without modifications and become ready",
-				// Should Name the Manifest like this
 				testv1.TestAPISpec{ManifestName: "simple-helm"},
-				// Should Start with these Options
-				[]declarative.Option{declarative.WithPeriodicConsistencyCheck(2 * time.Second)},
-				filepath.Join(".", "module-chart"),
-				map[string]any{},
-				func(ctx context.Context, key client.ObjectKey, source *declarative.CustomManifestSpecSource) {
+				DefaultSpec(
+					filepath.Join(testSamplesDir, "module-chart"), map[string]any{}, RenderModeHelm,
+				),
+				func(ctx context.Context, key client.ObjectKey, source *CustomSpecFns) {
 					EventuallyDeclarativeStatusShould(
 						ctx, key,
-						HaveConditionWithStatus(declarative.ConditionTypeHelmCRDs, metav1.ConditionTrue),
+						HaveConditionWithStatus(ConditionTypeHelmCRDs, metav1.ConditionTrue),
 					)
 				},
 			),
 			Entry(
 				"Create simple chart from CR from TGZ with CRDs and become ready",
-				// Should Name the Manifest like this
 				testv1.TestAPISpec{ManifestName: "tgz-with-crds"},
-				// Should Start with these Options
-				[]declarative.Option{declarative.WithPeriodicConsistencyCheck(2 * time.Second)},
-				filepath.Join(".", "helm_chart_with_crds.tgz"),
-				map[string]any{},
-				func(ctx context.Context, key client.ObjectKey, source *declarative.CustomManifestSpecSource) {
+				DefaultSpec(
+					filepath.Join(testSamplesDir, "oci", "helm_chart_with_crds.tgz"), map[string]any{},
+					RenderModeHelm,
+				),
+				func(ctx context.Context, key client.ObjectKey, source *CustomSpecFns) {
 					EventuallyDeclarativeStatusShould(
 						ctx, key,
-						HaveConditionWithStatus(declarative.ConditionTypeHelmCRDs, metav1.ConditionTrue),
+						HaveConditionWithStatus(ConditionTypeHelmCRDs, metav1.ConditionTrue),
 					)
 				},
 			),
 			Entry(
 				"Create simple kustomization",
-				// Should Name the Manifest like this
 				testv1.TestAPISpec{ManifestName: "simple-kustomization"},
-				// Should Start with these Options
-				[]declarative.Option{
-					declarative.WithPeriodicConsistencyCheck(2 * time.Second),
-					declarative.WithRenderMode(declarative.RenderModeKustomize),
-				},
-				filepath.Join(".", "kustomization"),
-				map[string]any{"AddManagedbyLabel": true},
+				DefaultSpec(
+					filepath.Join(testSamplesDir, "kustomize"), map[string]any{"AddManagedbyLabel": true},
+					RenderModeKustomize,
+				),
 				nil,
 			),
 			Entry(
 				"Create simple Raw manifest",
-				// Should Name the Manifest like this
 				testv1.TestAPISpec{ManifestName: "simple-raw"},
-				// Should Start with these Options
-				[]declarative.Option{
-					declarative.WithPeriodicConsistencyCheck(2 * time.Second),
-					declarative.WithRenderMode(declarative.RenderModeRaw),
-				},
-				filepath.Join(".", "raw-manifest.yaml"),
-				map[string]any{},
+				DefaultSpec(
+					filepath.Join(testSamplesDir, "raw-manifest.yaml"), map[string]any{}, RenderModeRaw,
+				),
 				nil,
 			),
 			Entry(
 				"Recreation of resources after external delete",
-				// Should Name the Manifest like this
 				testv1.TestAPISpec{ManifestName: "recreation-of-resources"},
-				// Should Start with these Options
-				[]declarative.Option{declarative.WithPeriodicConsistencyCheck(2 * time.Second)},
-				filepath.Join(".", "module-chart"),
-				map[string]any{},
-				func(ctx context.Context, key client.ObjectKey, source *declarative.CustomManifestSpecSource) {
+				DefaultSpec(
+					filepath.Join(testSamplesDir, "module-chart"), map[string]any{}, RenderModeHelm,
+				),
+				func(ctx context.Context, key client.ObjectKey, source *CustomSpecFns) {
 					obj := &testv1.TestAPI{}
 					Expect(testClient.Get(ctx, key, obj)).To(Succeed())
 					Eventually(removeResourcesInCluster, standardTimeout, standardInterval).
@@ -188,23 +169,33 @@ var _ = Describe(
 			),
 			Entry(
 				"Change values.yaml input and expect new Resource to be synced",
-				// Should Name the Manifest like this
 				testv1.TestAPISpec{ManifestName: "helm-values-change"},
-				// Should Start with these Options
-				[]declarative.Option{declarative.WithPeriodicConsistencyCheck(2 * time.Second)},
-				filepath.Join(".", "module-chart"),
-				map[string]any{"autoscaling": map[string]any{"enabled": false}},
-				func(ctx context.Context, key client.ObjectKey, source *declarative.CustomManifestSpecSource) {
+				DefaultSpec(
+					filepath.Join(testSamplesDir, "module-chart"),
+					map[string]any{},
+					RenderModeHelm,
+				),
+				func(ctx context.Context, key client.ObjectKey, source *CustomSpecFns) {
 					obj := &testv1.TestAPI{}
 					Expect(testClient.Get(ctx, key, obj)).To(Succeed())
 					oldAmount := len(obj.GetStatus().Synced)
-					source.ValuesFn = func(_ context.Context, _ declarative.Object) map[string]any {
+
+					source.ValuesFn = func(_ context.Context, _ Object) any {
 						return map[string]any{"autoscaling": map[string]any{"enabled": true}}
 					}
 					EventuallyDeclarativeStatusShould(
 						ctx, key,
 						HaveAtLeastSyncedResources(oldAmount+1),
-						BeInState(declarative.State(types.StateReady)),
+						BeInState(State(types.StateReady)),
+					)
+
+					source.ValuesFn = func(_ context.Context, _ Object) any {
+						return map[string]any{"autoscaling": map[string]any{"enabled": false}}
+					}
+					EventuallyDeclarativeStatusShould(
+						ctx, key,
+						HaveAtLeastSyncedResources(oldAmount),
+						BeInState(State(types.StateReady)),
 					)
 				},
 			),
@@ -216,11 +207,11 @@ var _ = Describe(
 func StartDeclarativeReconcilerForRun(
 	ctx context.Context,
 	runID string,
-	options ...declarative.Option,
+	options ...Option,
 ) {
 	var (
 		namespace  = fmt.Sprintf("%s-%s", "test", runID)
-		finalizer  = fmt.Sprintf("%s-%s", declarative.FinalizerDefault, runID)
+		finalizer  = fmt.Sprintf("%s-%s", FinalizerDefault, runID)
 		mgr        ctrl.Manager
 		reconciler reconcile.Reconciler
 		err        error
@@ -236,21 +227,22 @@ func StartDeclarativeReconcilerForRun(
 	)
 	Expect(err).ToNot(HaveOccurred())
 
-	reconciler = declarative.NewFromManager(
+	reconciler = NewFromManager(
 		mgr, &testv1.TestAPI{},
 		append(
 			options,
-			declarative.WithNamespace(namespace, true),
-			declarative.WithFinalizer(finalizer),
+			WithNamespace(namespace, true),
+			WithFinalizer(finalizer),
 			// we overwride the manifest cache directory with the test run directory so its automatically cleaned up
-			// we ensure uniqueness implicitly, as runID is used to randomize the ManifestName in ManifestSpecSource
-			declarative.WithManifestCache(filepath.Join(testDir, "declarative-test-cache")),
+			// we ensure uniqueness implicitly, as runID is used to randomize the ManifestName in SpecResolver
+			WithManifestCache(filepath.Join(testDir, "declarative-test-cache")),
 			// we have to use a custom ready check that only checks for existence of an object since the default
 			// readiness check will not work without dedicated control loops in envtest. E.g. by default
 			// deployments are not started or set to ready. However we can check if the resource was created by
 			// the reconciler.
-			declarative.WithCustomReadyCheck(declarative.NewExistsReadyCheck(testClient)),
-			declarative.WithCustomResourceLabels(labels.Set{testRunLabel: runID}),
+			WithCustomReadyCheck(NewExistsReadyCheck(testClient)),
+			WithCustomResourceLabels(labels.Set{testRunLabel: runID}),
+			WithPeriodicConsistencyCheck(2*time.Second),
 		)...,
 	)
 
@@ -274,7 +266,7 @@ func StartDeclarativeReconcilerForRun(
 	}()
 }
 
-func StatusOnCluster(g Gomega, ctx context.Context, key client.ObjectKey) declarative.Status { //nolint:revive
+func StatusOnCluster(g Gomega, ctx context.Context, key client.ObjectKey) Status { //nolint:revive
 	obj := &testv1.TestAPI{}
 	g.Expect(testClient.Get(ctx, key, obj)).To(Succeed())
 	return obj.GetStatus()

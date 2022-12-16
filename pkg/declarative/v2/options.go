@@ -32,10 +32,9 @@ func DefaultOptions() *Options {
 			kymaComponentTransform,
 			disclaimerTransform,
 		),
-		WithConsistencyCheckOnCacheReset(true),
+		WithPermanentConsistencyCheck(false),
 		WithSingletonClientCache(NewMemorySingletonClientCache()),
 		WithManifestCache(os.TempDir()),
-		WithRenderMode(RenderModeHelm),
 	)
 }
 
@@ -44,7 +43,7 @@ type Options struct {
 	Config *rest.Config
 	client.Client
 
-	ManifestSpecSource
+	SpecResolver
 	SingletonClientCache
 	ManifestCache
 	CustomReadyCheck ReadyCheck
@@ -63,8 +62,6 @@ type Options struct {
 	DeletePrerequisitesOnUninstall bool
 
 	CtrlOnSuccess ctrl.Result
-
-	RenderMode
 }
 
 type Option interface {
@@ -140,51 +137,16 @@ func (o WithCustomResourceLabels) Apply(options *Options) {
 	options.PostRenderTransforms = append(options.PostRenderTransforms, labelTransform)
 }
 
-type ManifestSpecSource interface {
-	ResolveManifestSpec(ctx context.Context, object Object) (*ManifestSpec, error)
+func WithSpecResolver(resolver SpecResolver) SpecResolverOption {
+	return SpecResolverOption{resolver}
 }
 
-type ManifestSpec struct {
-	ManifestName string
-	Path         string
-	Values       map[string]interface{}
+type SpecResolverOption struct {
+	SpecResolver
 }
 
-func WithManifestSpecSource(source ManifestSpecSource) ManifestSpecSourceOption {
-	return ManifestSpecSourceOption{source}
-}
-
-type ManifestSpecSourceOption struct {
-	ManifestSpecSource
-}
-
-func (o ManifestSpecSourceOption) Apply(options *Options) {
-	options.ManifestSpecSource = o
-}
-
-func DefaultManifestSpecSource(chartPath string, values map[string]any) *CustomManifestSpecSource {
-	return &CustomManifestSpecSource{
-		ManifestNameFn: func(_ context.Context, obj Object) string { return obj.ComponentName() },
-		PathFn:         func(_ context.Context, _ Object) string { return chartPath },
-		ValuesFn:       func(_ context.Context, _ Object) map[string]any { return values },
-	}
-}
-
-// CustomManifestSpecSource is a simple static resolver that always uses the same chart and values.
-type CustomManifestSpecSource struct {
-	ManifestNameFn func(ctx context.Context, obj Object) string
-	PathFn         func(ctx context.Context, obj Object) string
-	ValuesFn       func(ctx context.Context, obj Object) map[string]any
-}
-
-func (s *CustomManifestSpecSource) ResolveManifestSpec(
-	ctx context.Context, obj Object,
-) (*ManifestSpec, error) {
-	return &ManifestSpec{
-		ManifestName: s.ManifestNameFn(ctx, obj),
-		Path:         s.PathFn(ctx, obj),
-		Values:       s.ValuesFn(ctx, obj),
-	}, nil
+func (o SpecResolverOption) Apply(options *Options) {
+	options.SpecResolver = o
 }
 
 type ObjectTransform = func(context.Context, Object, *types.ManifestResources) error
@@ -219,13 +181,13 @@ func (o WithPeriodicConsistencyCheck) Apply(options *Options) {
 	options.CtrlOnSuccess.RequeueAfter = time.Duration(o)
 }
 
-type WithConsistencyCheckOnCacheReset bool
+type WithPermanentConsistencyCheck bool
 
-func (o WithConsistencyCheckOnCacheReset) Apply(options *Options) {
+func (o WithPermanentConsistencyCheck) Apply(options *Options) {
 	if o {
-		options.CtrlOnSuccess = ctrl.Result{}
-	} else {
 		options.CtrlOnSuccess = ctrl.Result{Requeue: true}
+	} else {
+		options.CtrlOnSuccess = ctrl.Result{}
 	}
 }
 
@@ -267,18 +229,4 @@ func WithCustomReadyCheck(check ReadyCheck) WithCustomReadyCheckOption {
 
 func (o WithCustomReadyCheckOption) Apply(options *Options) {
 	options.CustomReadyCheck = o
-}
-
-type RenderMode string
-
-const (
-	RenderModeHelm      RenderMode = "helm"
-	RenderModeKustomize RenderMode = "kustomize"
-	RenderModeRaw       RenderMode = "raw"
-)
-
-type WithRenderMode RenderMode
-
-func (o WithRenderMode) Apply(options *Options) {
-	options.RenderMode = RenderMode(o)
 }

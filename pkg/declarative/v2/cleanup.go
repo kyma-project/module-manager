@@ -24,7 +24,7 @@ func ConcurrentCleanup(clnt client.Client) Cleanup {
 }
 
 func (c *concurrentCleanup) Run(ctx context.Context, infos []*resource.Info) (bool, error) {
-	// Runtime Complexity of this Branch is N as only ServerSideApplier Patch is required
+	// The Runtime Complexity of this Branch is N as only ServerSideApplier Patch is required
 	results := make(chan error, len(infos))
 	for i := range infos {
 		i := i

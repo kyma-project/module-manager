@@ -20,7 +20,7 @@ type manifestCache struct {
 	hash string
 }
 
-func newManifestCache(baseDir string, spec *ManifestSpec) *manifestCache {
+func newManifestCache(baseDir string, spec *Spec) *manifestCache {
 	root := filepath.Join(baseDir, manifest, spec.Path)
 	file := filepath.Join(root, spec.ManifestName)
 	hashedValues, _ := util.CalculateHash(spec.Values)
