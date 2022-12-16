@@ -53,7 +53,7 @@ func (in *Status) DeepCopyInto(out *Status) {
 	}
 	if in.Synced != nil {
 		in, out := &in.Synced, &out.Synced
-		*out = make(Resources, len(*in))
+		*out = make([]Resource, len(*in))
 		copy(*out, *in)
 	}
 	in.LastOperation.DeepCopyInto(&out.LastOperation)

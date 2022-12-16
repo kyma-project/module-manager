@@ -31,7 +31,8 @@ type Status struct {
 	// Synced determine a list of Resources that are currently actively synced.
 	// All resources that are synced are considered for orphan removal on configuration changes,
 	// and it is used to determine effective differences from one state to the next.
-	Synced        Resources `json:"synced"`
+	// +listType=atomic
+	Synced        []Resource `json:"synced"`
 	LastOperation `json:"lastOperation,omitempty"`
 }
 
@@ -59,7 +60,6 @@ func (s Status) WithState(state State) Status {
 }
 
 // Resources is a list of Resource(s).
-// +listType=atomic
 type Resources []Resource
 
 func (r Resources) ContainsAll(desired Resources) bool {

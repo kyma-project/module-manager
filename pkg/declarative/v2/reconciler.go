@@ -230,7 +230,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	oldStatus := status
 	status = resourceConverter.ConvertSyncedToNewStatus(status, target)
 
-	if !oldStatus.Synced.ContainsAll(status.Synced) {
+	if !Resources(oldStatus.Synced).ContainsAll(status.Synced) {
 		obj.SetStatus(status.WithState(StateProcessing).WithOperation("new resources detected"))
 		return r.ssaStatus(ctx, obj)
 	}
