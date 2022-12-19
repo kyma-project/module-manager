@@ -57,7 +57,9 @@ type Options struct {
 	FieldOwner      client.FieldOwner
 
 	PostRenderTransforms []ObjectTransform
-	PostRuns             []PostRun
+
+	PostRuns   []PostRun
+	PreDeletes []PreDelete
 
 	DeletePrerequisitesOnUninstall bool
 
@@ -163,16 +165,27 @@ func (o PostRenderTransformOption) Apply(options *Options) {
 	options.PostRenderTransforms = append(options.PostRenderTransforms, o.ObjectTransforms...)
 }
 
-type PostRun = func(
+type Hook func(
 	ctx context.Context,
 	client client.Client,
 	obj Object,
 ) error
 
+type (
+	PostRun   Hook
+	PreDelete Hook
+)
+
 type WithPostRun []PostRun
 
 func (o WithPostRun) Apply(options *Options) {
 	options.PostRuns = append(options.PostRuns, o...)
+}
+
+type WithPreDelete []PreDelete
+
+func (o WithPreDelete) Apply(options *Options) {
+	options.PreDeletes = append(options.PreDeletes, o...)
 }
 
 type WithPeriodicConsistencyCheck time.Duration

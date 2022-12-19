@@ -120,13 +120,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	switch spec.Mode {
 	case RenderModeHelm:
 		renderer = NewHelmRenderer(spec, clients, r.Options)
+		renderer = WrapWithRendererCache(renderer, spec, r.Options)
 	case RenderModeKustomize:
 		renderer = NewKustomizeRenderer(spec, r.Options)
+		renderer = WrapWithRendererCache(renderer, spec, r.Options)
 	case RenderModeRaw:
 		renderer = NewRawRenderer(spec, r.Options)
 	}
-
-	renderer = WrapWithRendererCache(renderer, spec, r.Options)
 
 	if err := renderer.Initialize(obj); err != nil {
 		return r.ssaStatus(ctx, obj)
@@ -152,6 +152,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			obj.SetStatus(status.WithState(StateError).WithErr(err))
 			return r.ssaStatus(ctx, obj)
 		}
+
+		targetResources.Items = append(targetResources.Items, spec.TargetResources...)
 
 		for _, transform := range r.PostRenderTransforms {
 			if err := transform(ctx, obj, targetResources); err != nil {
@@ -187,6 +189,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		meta.SetStatusCondition(&status.Conditions, resourceCondition)
 		obj.SetStatus(status.WithOperation(resourceCondition.Message))
 		return r.ssaStatus(ctx, obj)
+	}
+
+	if !obj.GetDeletionTimestamp().IsZero() {
+		for _, preDelete := range r.PreDeletes {
+			if err := preDelete(ctx, clients.Client, obj); err != nil {
+				return r.ssaStatus(ctx, obj)
+			}
+		}
 	}
 
 	toDelete := current.Difference(target)

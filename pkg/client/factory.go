@@ -212,7 +212,7 @@ func (s *SingletonClients) ResourceInfo(obj *unstructured.Unstructured, retryOnN
 	info := &resource.Info{}
 
 	var clnt resource.RESTClient
-	if s.Scheme().IsGroupRegistered(mapping.Resource.Group) {
+	if s.Scheme().IsGroupRegistered(mapping.GroupVersionKind.Group) {
 		clnt, err = s.ClientForMapping(mapping)
 		if err != nil {
 			return nil, err

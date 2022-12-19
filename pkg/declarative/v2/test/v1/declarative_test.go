@@ -14,6 +14,7 @@ import (
 	. "github.com/onsi/gomega"
 	"golang.org/x/time/rate"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/rand"
@@ -23,6 +24,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -65,14 +67,13 @@ var _ = Describe(
 		BeforeEach(func() { ctx, cancel = context.WithCancel(context.TODO()) })
 		AfterEach(func() { cancel() })
 
-		type testCaseFn func(ctx context.Context, key client.ObjectKey, source *CustomSpecFns)
-
 		tableTest := func(
 			spec testv1.TestAPISpec,
 			source *CustomSpecFns,
-			testCase testCaseFn,
+			opts []Option,
+			testCase func(ctx context.Context, key client.ObjectKey, source *CustomSpecFns),
 		) {
-			StartDeclarativeReconcilerForRun(ctx, runID, WithSpecResolver(source))
+			StartDeclarativeReconcilerForRun(ctx, runID, append(opts, WithSpecResolver(source))...)
 
 			obj := &testv1.TestAPI{Spec: spec}
 			obj.SetLabels(labels.Set{testRunLabel: runID})
@@ -110,6 +111,7 @@ var _ = Describe(
 				DefaultSpec(
 					filepath.Join(testSamplesDir, "module-chart"), map[string]any{}, RenderModeHelm,
 				),
+				[]Option{},
 				func(ctx context.Context, key client.ObjectKey, source *CustomSpecFns) {
 					EventuallyDeclarativeStatusShould(
 						ctx, key,
@@ -124,6 +126,7 @@ var _ = Describe(
 					filepath.Join(testSamplesDir, "oci", "helm_chart_with_crds.tgz"), map[string]any{},
 					RenderModeHelm,
 				),
+				[]Option{},
 				func(ctx context.Context, key client.ObjectKey, source *CustomSpecFns) {
 					EventuallyDeclarativeStatusShould(
 						ctx, key,
@@ -138,6 +141,7 @@ var _ = Describe(
 					filepath.Join(testSamplesDir, "kustomize"), map[string]any{"AddManagedbyLabel": true},
 					RenderModeKustomize,
 				),
+				[]Option{},
 				nil,
 			),
 			Entry(
@@ -146,6 +150,7 @@ var _ = Describe(
 				DefaultSpec(
 					filepath.Join(testSamplesDir, "raw-manifest.yaml"), map[string]any{}, RenderModeRaw,
 				),
+				[]Option{},
 				nil,
 			),
 			Entry(
@@ -154,6 +159,7 @@ var _ = Describe(
 				DefaultSpec(
 					filepath.Join(testSamplesDir, "module-chart"), map[string]any{}, RenderModeHelm,
 				),
+				[]Option{},
 				func(ctx context.Context, key client.ObjectKey, source *CustomSpecFns) {
 					obj := &testv1.TestAPI{}
 					Expect(testClient.Get(ctx, key, obj)).To(Succeed())
@@ -175,6 +181,7 @@ var _ = Describe(
 					map[string]any{},
 					RenderModeHelm,
 				),
+				[]Option{},
 				func(ctx context.Context, key client.ObjectKey, source *CustomSpecFns) {
 					obj := &testv1.TestAPI{}
 					Expect(testClient.Get(ctx, key, obj)).To(Succeed())
@@ -188,7 +195,6 @@ var _ = Describe(
 						HaveAtLeastSyncedResources(oldAmount+1),
 						BeInState(State(types.StateReady)),
 					)
-
 					source.ValuesFn = func(_ context.Context, _ Object) any {
 						return map[string]any{"autoscaling": map[string]any{"enabled": false}}
 					}
@@ -197,6 +203,56 @@ var _ = Describe(
 						HaveAtLeastSyncedResources(oldAmount),
 						BeInState(State(types.StateReady)),
 					)
+				},
+			),
+			Entry(
+				"Custom Hooks",
+				testv1.TestAPISpec{ManifestName: "custom-pre-post-hooks"},
+				DefaultSpec(
+					filepath.Join(testSamplesDir, "module-chart"),
+					map[string]any{},
+					RenderModeHelm,
+				),
+				[]Option{
+					WithPostRun{func(ctx context.Context, clnt client.Client, obj Object) error {
+						hookID := fmt.Sprintf("%s-%s", obj.GetName(), "test-hooks")
+						configMap := &v1.ConfigMap{}
+						configMap.SetName(hookID)
+						configMap.SetNamespace(customResourceNamespace.GetName())
+						if err := clnt.Create(ctx, configMap); err != nil && !errors.IsAlreadyExists(err) {
+							return err
+						}
+						if added := controllerutil.AddFinalizer(obj, hookID); added {
+							if err := clnt.Update(ctx, obj); err != nil {
+								return err
+							}
+							obj.SetManagedFields(nil)
+						}
+						return nil
+					}},
+					WithPreDelete{func(ctx context.Context, clnt client.Client, obj Object) error {
+						hookID := fmt.Sprintf("%s-%s", obj.GetName(), "test-hooks")
+						configMap := &v1.ConfigMap{}
+						configMap.SetName(hookID)
+						configMap.SetNamespace(customResourceNamespace.GetName())
+						if err := clnt.Delete(ctx, configMap); err != nil && !errors.IsNotFound(err) {
+							return err
+						}
+						if removed := controllerutil.RemoveFinalizer(obj, hookID); removed {
+							if err := clnt.Update(ctx, obj); err != nil {
+								return err
+							}
+							obj.SetManagedFields(nil)
+						}
+						return nil
+					}},
+				},
+				func(ctx context.Context, key client.ObjectKey, source *CustomSpecFns) {
+					hookKey := client.ObjectKey{
+						Name:      fmt.Sprintf("%s-%s", key.Name, "test-hooks"),
+						Namespace: key.Namespace,
+					}
+					Expect(testClient.Get(ctx, hookKey, &v1.ConfigMap{})).Should(Succeed())
 				},
 			),
 		)
