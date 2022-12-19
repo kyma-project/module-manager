@@ -42,7 +42,7 @@ func (c *concurrentDefaultSSA) Run(ctx context.Context, resources []*resource.In
 	logger := log.FromContext(ctx, "owner", c.owner)
 	logger.V(util.TraceLogLevel).Info("ServerSideApply", "resources", len(resources))
 
-	// Runtime Complexity of this Branch is N as only ServerSideApplier Patch is required
+	// The Runtime Complexity of this Branch is N as only ServerSideApplier Patch is required
 	results := make(chan error, len(resources))
 	for i := range resources {
 		i := i

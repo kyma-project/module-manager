@@ -42,9 +42,10 @@ type Options struct {
 	record.EventRecorder
 	Config *rest.Config
 	client.Client
+	TargetClient client.Client
 
 	SpecResolver
-	SingletonClientCache
+	ClientCache
 	ManifestCache
 	CustomReadyCheck ReadyCheck
 
@@ -165,11 +166,11 @@ func (o PostRenderTransformOption) Apply(options *Options) {
 	options.PostRenderTransforms = append(options.PostRenderTransforms, o.ObjectTransforms...)
 }
 
-type Hook func(
-	ctx context.Context,
-	client client.Client,
-	obj Object,
-) error
+// Hook defines a Hook into the declarative reconciliation
+// skr is the runtime cluster
+// kcp is the control-plane cluster
+// obj is guaranteed to be the reconciled object and also to always preside in kcp.
+type Hook func(ctx context.Context, skr Client, kcp client.Client, obj Object) error
 
 type (
 	PostRun   Hook
@@ -205,15 +206,15 @@ func (o WithPermanentConsistencyCheck) Apply(options *Options) {
 }
 
 type WithSingletonClientCacheOption struct {
-	SingletonClientCache
+	ClientCache
 }
 
-func WithSingletonClientCache(cache SingletonClientCache) WithSingletonClientCacheOption {
-	return WithSingletonClientCacheOption{SingletonClientCache: cache}
+func WithSingletonClientCache(cache ClientCache) WithSingletonClientCacheOption {
+	return WithSingletonClientCacheOption{ClientCache: cache}
 }
 
 func (o WithSingletonClientCacheOption) Apply(options *Options) {
-	options.SingletonClientCache = o
+	options.ClientCache = o
 }
 
 type WithDeleteCRDsOnUninstall bool
@@ -242,4 +243,16 @@ func WithCustomReadyCheck(check ReadyCheck) WithCustomReadyCheckOption {
 
 func (o WithCustomReadyCheckOption) Apply(options *Options) {
 	options.CustomReadyCheck = o
+}
+
+func WithRemoteTargetCluster(clnt client.Client) WithRemoteTargetClusterOption {
+	return WithRemoteTargetClusterOption{Client: clnt}
+}
+
+type WithRemoteTargetClusterOption struct {
+	client.Client
+}
+
+func (o WithRemoteTargetClusterOption) Apply(options *Options) {
+	options.TargetClient = o.Client
 }

@@ -108,9 +108,7 @@ var _ = Describe(
 			Entry(
 				"Create simple chart from CR without modifications and become ready",
 				testv1.TestAPISpec{ManifestName: "simple-helm"},
-				DefaultSpec(
-					filepath.Join(testSamplesDir, "module-chart"), map[string]any{}, RenderModeHelm,
-				),
+				DefaultSpec(filepath.Join(testSamplesDir, "module-chart"), map[string]any{}, RenderModeHelm),
 				[]Option{},
 				func(ctx context.Context, key client.ObjectKey, source *CustomSpecFns) {
 					EventuallyDeclarativeStatusShould(
@@ -118,6 +116,13 @@ var _ = Describe(
 						HaveConditionWithStatus(ConditionTypeHelmCRDs, metav1.ConditionTrue),
 					)
 				},
+			),
+			Entry(
+				"Create simple chart with a different Control Plane and Runtime Client",
+				testv1.TestAPISpec{ManifestName: "custom-client"},
+				DefaultSpec(filepath.Join(testSamplesDir, "module-chart"), map[string]any{}, RenderModeHelm),
+				[]Option{WithRemoteTargetCluster(testClient)},
+				nil,
 			),
 			Entry(
 				"Create simple chart from CR from TGZ with CRDs and become ready",
@@ -214,32 +219,32 @@ var _ = Describe(
 					RenderModeHelm,
 				),
 				[]Option{
-					WithPostRun{func(ctx context.Context, clnt client.Client, obj Object) error {
+					WithPostRun{func(ctx context.Context, skr Client, kcp client.Client, obj Object) error {
 						hookID := fmt.Sprintf("%s-%s", obj.GetName(), "test-hooks")
 						configMap := &v1.ConfigMap{}
 						configMap.SetName(hookID)
 						configMap.SetNamespace(customResourceNamespace.GetName())
-						if err := clnt.Create(ctx, configMap); err != nil && !errors.IsAlreadyExists(err) {
+						if err := skr.Create(ctx, configMap); err != nil && !errors.IsAlreadyExists(err) {
 							return err
 						}
 						if added := controllerutil.AddFinalizer(obj, hookID); added {
-							if err := clnt.Update(ctx, obj); err != nil {
+							if err := kcp.Update(ctx, obj); err != nil {
 								return err
 							}
 							obj.SetManagedFields(nil)
 						}
 						return nil
 					}},
-					WithPreDelete{func(ctx context.Context, clnt client.Client, obj Object) error {
+					WithPreDelete{func(ctx context.Context, skr Client, kcp client.Client, obj Object) error {
 						hookID := fmt.Sprintf("%s-%s", obj.GetName(), "test-hooks")
 						configMap := &v1.ConfigMap{}
 						configMap.SetName(hookID)
 						configMap.SetNamespace(customResourceNamespace.GetName())
-						if err := clnt.Delete(ctx, configMap); err != nil && !errors.IsNotFound(err) {
+						if err := skr.Delete(ctx, configMap); err != nil && !errors.IsNotFound(err) {
 							return err
 						}
 						if removed := controllerutil.RemoveFinalizer(obj, hookID); removed {
-							if err := clnt.Update(ctx, obj); err != nil {
+							if err := kcp.Update(ctx, obj); err != nil {
 								return err
 							}
 							obj.SetManagedFields(nil)

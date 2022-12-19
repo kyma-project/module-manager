@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"sync"
 
-	manifestClient "github.com/kyma-project/module-manager/pkg/client"
 	"github.com/kyma-project/module-manager/pkg/types"
 	"github.com/kyma-project/module-manager/pkg/util"
 	"helm.sh/helm/v3/pkg/chart"
@@ -12,7 +11,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
-func getCRDs(clients *manifestClient.SingletonClients, crdFiles []chart.CRD) (kube.ResourceList, error) {
+func getCRDs(clnt Client, crdFiles []chart.CRD) (kube.ResourceList, error) {
 	var crdManifest bytes.Buffer
 	for i := range crdFiles {
 		crdManifest.Write(append(bytes.TrimPrefix(crdFiles[i].File.Data, []byte("---\n")), '\n'))
@@ -24,7 +23,7 @@ func getCRDs(clients *manifestClient.SingletonClients, crdFiles []chart.CRD) (ku
 	var crds kube.ResourceList
 	errs := make([]error, 0, len(crdsObjects.Items))
 	for _, crd := range crdsObjects.Items {
-		crdInfo, err := clients.ResourceInfo(crd, true)
+		crdInfo, err := clnt.ResourceInfo(crd, true)
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -37,12 +36,12 @@ func getCRDs(clients *manifestClient.SingletonClients, crdFiles []chart.CRD) (ku
 	return crds, nil
 }
 
-func installCRDs(clients *manifestClient.SingletonClients, crds kube.ResourceList) error {
+func installCRDs(clnt Client, crds kube.ResourceList) error {
 	crdInstallWaitGroup := sync.WaitGroup{}
 	errChan := make(chan error, len(crds))
 	createCRD := func(i int) {
 		defer crdInstallWaitGroup.Done()
-		_, err := clients.KubeClient().Create(kube.ResourceList{crds[i]})
+		_, err := clnt.KubeClient().Create(kube.ResourceList{crds[i]})
 		errChan <- err
 	}
 

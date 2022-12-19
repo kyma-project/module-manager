@@ -107,19 +107,19 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return r.ssaStatus(ctx, obj)
 	}
 
-	clients, err := r.initializeClients(ctx, obj, spec)
+	skr, err := r.initializeClient(ctx, obj, spec)
 	if err != nil {
 		r.Event(obj, "Warning", "ClientInitialization", err.Error())
 		obj.SetStatus(status.WithState(StateError).WithErr(err))
 		return r.ssaStatus(ctx, obj)
 	}
-	resourceConverter := NewResourceConverter(clients, r.Namespace)
+	resourceConverter := NewResourceConverter(skr, r.Namespace)
 
 	var renderer Renderer
 
 	switch spec.Mode {
 	case RenderModeHelm:
-		renderer = NewHelmRenderer(spec, clients, r.Options)
+		renderer = NewHelmRenderer(spec, skr, r.Options)
 		renderer = WrapWithRendererCache(renderer, spec, r.Options)
 	case RenderModeKustomize:
 		renderer = NewKustomizeRenderer(spec, r.Options)
@@ -193,14 +193,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	if !obj.GetDeletionTimestamp().IsZero() {
 		for _, preDelete := range r.PreDeletes {
-			if err := preDelete(ctx, clients.Client, obj); err != nil {
+			if err := preDelete(ctx, skr, r.Client, obj); err != nil {
 				return r.ssaStatus(ctx, obj)
 			}
 		}
 	}
 
 	toDelete := current.Difference(target)
-	if deleted, err := ConcurrentCleanup(clients).Run(ctx, toDelete); err != nil {
+	if deleted, err := ConcurrentCleanup(skr).Run(ctx, toDelete); err != nil {
 		r.Event(obj, "Warning", "Deletion", err.Error())
 		obj.SetStatus(status.WithState(StateError).WithErr(err))
 		return r.ssaStatus(ctx, obj)
@@ -226,7 +226,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return r.ssaStatus(ctx, obj)
 	}
 
-	if err = ConcurrentSSA(clients, r.FieldOwner).Run(ctx, target); err != nil {
+	if err = ConcurrentSSA(skr, r.FieldOwner).Run(ctx, target); err != nil {
 		r.Event(obj, "Warning", "ServerSideApply", err.Error())
 	}
 
@@ -246,7 +246,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	for i := range r.PostRuns {
-		if err := r.PostRuns[i](ctx, r.Client, obj); err != nil {
+		if err := r.PostRuns[i](ctx, skr, r.Client, obj); err != nil {
 			r.Event(obj, "Warning", "PostRun", err.Error())
 			obj.SetStatus(status.WithState(StateError).WithErr(err))
 			return r.ssaStatus(ctx, obj)
@@ -255,7 +255,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	resourceReadyCheck := r.CustomReadyCheck
 	if resourceReadyCheck == nil {
-		resourceReadyCheck = NewHelmReadyCheck(clients)
+		resourceReadyCheck = NewHelmReadyCheck(skr)
 	}
 
 	resourcesReady, err := resourceReadyCheck.Run(ctx, target)
@@ -283,45 +283,48 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	return r.CtrlOnSuccess, nil
 }
 
-func (r *Reconciler) initializeClients(
+func (r *Reconciler) initializeClient(
 	ctx context.Context, obj Object, spec *Spec,
-) (*manifestClient.SingletonClients, error) {
+) (Client, error) {
 	var err error
-	var clients *manifestClient.SingletonClients
+	var clnt Client
 
 	clientsCacheKey := cacheKeyFromObject(ctx, obj)
 
-	if clients = r.GetClients(clientsCacheKey); clients == nil {
-		clients, err = manifestClient.NewSingletonClients(
-			&types.ClusterInfo{
-				Config: r.Config,
-			}, log.FromContext(ctx),
-		)
+	if clnt = r.GetClients(clientsCacheKey); clnt == nil {
+		cluster := &types.ClusterInfo{
+			Config: r.Config,
+			Client: r.Client,
+		}
+		if r.TargetClient != nil {
+			cluster.Client = r.TargetClient
+		}
+		clnt, err = manifestClient.NewSingletonClients(cluster, log.FromContext(ctx))
 		if err != nil {
 			return nil, err
 		}
-		clients.Install().Atomic = false
-		clients.Install().Replace = true
-		clients.Install().DryRun = true
-		clients.Install().IncludeCRDs = false
-		clients.Install().CreateNamespace = r.CreateNamespace
-		clients.Install().UseReleaseName = false
-		clients.Install().IsUpgrade = true
-		clients.Install().DisableHooks = true
-		clients.Install().DisableOpenAPIValidation = true
-		if clients.Install().Version == "" && clients.Install().Devel {
-			clients.Install().Version = ">0.0.0-0"
+		clnt.Install().Atomic = false
+		clnt.Install().Replace = true
+		clnt.Install().DryRun = true
+		clnt.Install().IncludeCRDs = false
+		clnt.Install().CreateNamespace = r.CreateNamespace
+		clnt.Install().UseReleaseName = false
+		clnt.Install().IsUpgrade = true
+		clnt.Install().DisableHooks = true
+		clnt.Install().DisableOpenAPIValidation = true
+		if clnt.Install().Version == "" && clnt.Install().Devel {
+			clnt.Install().Version = ">0.0.0-0"
 		}
-		clients.Install().ReleaseName = spec.ManifestName
-		r.SetClients(clientsCacheKey, clients)
+		clnt.Install().ReleaseName = spec.ManifestName
+		r.SetClients(clientsCacheKey, clnt)
 	}
 
-	clients.Install().Namespace = r.Namespace
-	clients.KubeClient().Namespace = r.Namespace
+	clnt.Install().Namespace = r.Namespace
+	clnt.KubeClient().Namespace = r.Namespace
 
 	if r.Namespace != metav1.NamespaceNone && r.Namespace != metav1.NamespaceDefault &&
-		clients.Install().CreateNamespace {
-		err := clients.Patch(
+		clnt.Install().CreateNamespace {
+		err := clnt.Patch(
 			ctx, &v1.Namespace{
 				TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Namespace"},
 				ObjectMeta: metav1.ObjectMeta{Name: r.Namespace},
@@ -332,7 +335,7 @@ func (r *Reconciler) initializeClients(
 		}
 	}
 
-	return clients, nil
+	return clnt, nil
 }
 
 func cacheKeyFromObject(ctx context.Context, resource client.Object) client.ObjectKey {

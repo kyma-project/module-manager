@@ -71,7 +71,8 @@ func (p *ProxyClient) Delete(ctx context.Context, obj client.Object, opts ...cli
 }
 
 // DeleteAllOf implements client.Client.
-func (p *ProxyClient) DeleteAllOf(ctx context.Context, obj client.Object, opts ...client.DeleteAllOfOption,
+func (p *ProxyClient) DeleteAllOf(
+	ctx context.Context, obj client.Object, opts ...client.DeleteAllOfOption,
 ) error {
 	if _, err := getResourceMapping(obj, p.mapper, true); err != nil {
 		return err
@@ -80,7 +81,8 @@ func (p *ProxyClient) DeleteAllOf(ctx context.Context, obj client.Object, opts .
 }
 
 // Patch implements client.Client.
-func (p *ProxyClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption,
+func (p *ProxyClient) Patch(
+	ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption,
 ) error {
 	if _, err := getResourceMapping(obj, p.mapper, true); err != nil {
 		return err

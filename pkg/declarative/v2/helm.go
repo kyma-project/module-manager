@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/kyma-project/module-manager/pkg/client"
 	"github.com/kyma-project/module-manager/pkg/types"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/chart/loader"
@@ -21,7 +20,7 @@ const (
 
 func NewHelmRenderer(
 	spec *Spec,
-	clients *client.SingletonClients,
+	clnt Client,
 	options *Options,
 ) Renderer {
 	valuesAsMap, ok := spec.Values.(map[string]any)
@@ -32,14 +31,14 @@ func NewHelmRenderer(
 		recorder:   options.EventRecorder,
 		chartPath:  spec.Path,
 		values:     valuesAsMap,
-		clients:    clients,
-		crdChecker: NewHelmReadyCheck(clients),
+		clnt:       clnt,
+		crdChecker: NewHelmReadyCheck(clnt),
 	}
 }
 
 type Helm struct {
 	recorder record.EventRecorder
-	clients  *client.SingletonClients
+	clnt     Client
 
 	chartPath string
 	values    map[string]any
@@ -80,7 +79,7 @@ func (h *Helm) Initialize(obj Object) error {
 	}
 	h.chart = loadedChart
 
-	crds, err := getCRDs(h.clients, h.chart.CRDObjects())
+	crds, err := getCRDs(h.clnt, h.chart.CRDObjects())
 	if err != nil {
 		h.recorder.Event(obj, "Warning", "CRDParsing", err.Error())
 		meta.SetStatusCondition(&status.Conditions, h.prerequisiteCondition(obj))
@@ -101,7 +100,7 @@ func (h *Helm) EnsurePrerequisites(ctx context.Context, obj Object) error {
 		return nil
 	}
 
-	if err := installCRDs(h.clients, h.crds); err != nil {
+	if err := installCRDs(h.clnt, h.crds); err != nil {
 		h.recorder.Event(obj, "Warning", "CRDInstallation", err.Error())
 		meta.SetStatusCondition(&status.Conditions, h.prerequisiteCondition(obj))
 		obj.SetStatus(status.WithState(State(types.StateError)).WithErr(err))
@@ -123,7 +122,7 @@ func (h *Helm) EnsurePrerequisites(ctx context.Context, obj Object) error {
 		return fmt.Errorf("crds are not yet ready: %w", ErrPrerequisitesNotFulfilled)
 	}
 
-	restMapper, _ := h.clients.ToRESTMapper()
+	restMapper, _ := h.clnt.ToRESTMapper()
 	meta.MaybeResetRESTMapper(restMapper)
 	cond := h.prerequisiteCondition(obj)
 	cond.Status = metav1.ConditionTrue
@@ -136,7 +135,7 @@ func (h *Helm) EnsurePrerequisites(ctx context.Context, obj Object) error {
 
 func (h *Helm) RemovePrerequisites(ctx context.Context, obj Object) error {
 	status := obj.GetStatus()
-	if deleted, err := ConcurrentCleanup(h.clients).Run(ctx, h.crds); err != nil {
+	if deleted, err := ConcurrentCleanup(h.clnt).Run(ctx, h.crds); err != nil {
 		h.recorder.Event(obj, "Warning", "CRDsUninstallation", err.Error())
 		obj.SetStatus(status.WithState(State(types.StateError)).WithErr(err))
 		return err
@@ -151,7 +150,7 @@ func (h *Helm) RemovePrerequisites(ctx context.Context, obj Object) error {
 
 func (h *Helm) Render(ctx context.Context, obj Object) ([]byte, error) {
 	status := obj.GetStatus()
-	release, err := h.clients.Install().RunWithContext(ctx, h.chart, h.values)
+	release, err := h.clnt.Install().RunWithContext(ctx, h.chart, h.values)
 	if err != nil {
 		h.recorder.Event(obj, "Warning", "HelmRenderRun", err.Error())
 		obj.SetStatus(status.WithState(State(types.StateError)).WithErr(err))

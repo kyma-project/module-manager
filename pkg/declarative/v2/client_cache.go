@@ -3,34 +3,33 @@ package v2
 import (
 	"sync"
 
-	manifestClient "github.com/kyma-project/module-manager/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type SingletonClientCache interface {
-	GetClients(key any) *manifestClient.SingletonClients
-	SetClients(key client.ObjectKey, clients *manifestClient.SingletonClients)
+type ClientCache interface {
+	GetClients(key any) Client
+	SetClients(key client.ObjectKey, client Client)
 }
 
-type MemorySingletonClientCache struct {
+type MemoryClientCache struct {
 	cache sync.Map // Cluster specific
 }
 
-// NewMemorySingletonClientCache returns a new instance of MemorySingletonClientCache.
-func NewMemorySingletonClientCache() *MemorySingletonClientCache {
-	return &MemorySingletonClientCache{
+// NewMemorySingletonClientCache returns a new instance of MemoryClientCache.
+func NewMemorySingletonClientCache() *MemoryClientCache {
+	return &MemoryClientCache{
 		cache: sync.Map{},
 	}
 }
 
-func (r *MemorySingletonClientCache) GetClients(key any) *manifestClient.SingletonClients {
+func (r *MemoryClientCache) GetClients(key any) Client {
 	value, ok := r.cache.Load(key)
 	if !ok {
 		return nil
 	}
-	return value.(*manifestClient.SingletonClients)
+	return value.(Client)
 }
 
-func (r *MemorySingletonClientCache) SetClients(key client.ObjectKey, clients *manifestClient.SingletonClients) {
-	r.cache.Store(key, clients)
+func (r *MemoryClientCache) SetClients(key client.ObjectKey, client Client) {
+	r.cache.Store(key, client)
 }
