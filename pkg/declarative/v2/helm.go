@@ -135,7 +135,7 @@ func (h *Helm) EnsurePrerequisites(ctx context.Context, obj Object) error {
 
 func (h *Helm) RemovePrerequisites(ctx context.Context, obj Object) error {
 	status := obj.GetStatus()
-	if deleted, err := ConcurrentCleanup(h.clnt).Run(ctx, h.crds); err != nil {
+	if deleted, err := NewConcurrentCleanup(h.clnt).Run(ctx, h.crds); err != nil {
 		h.recorder.Event(obj, "Warning", "CRDsUninstallation", err.Error())
 		obj.SetStatus(status.WithState(State(types.StateError)).WithErr(err))
 		return err

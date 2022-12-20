@@ -77,13 +77,13 @@ func (c *concurrentDefaultSSA) serverSideApply(
 	resource.Object = c.convertUnstructuredToTyped(resource.Object, resource.Mapping)
 
 	logger.V(util.TraceLogLevel).Info(
-		fmt.Sprintf("apply %s (%s)", resource.ObjectName(), mappingAsString(resource)),
+		fmt.Sprintf("apply %s", resource.ObjectName()),
 	)
 
 	results <- c.serverSideApplyResourceInfo(ctx, resource)
 
 	logger.V(util.TraceLogLevel).Info(
-		fmt.Sprintf("apply %s (%s) finished", resource.ObjectName(), mappingAsString(resource)),
+		fmt.Sprintf("apply %s finished", resource.ObjectName()),
 		"time", time.Since(start),
 	)
 }
@@ -103,8 +103,7 @@ func (c *concurrentDefaultSSA) serverSideApplyResourceInfo(
 	err := c.clnt.Patch(ctx, obj, client.Apply, client.ForceOwnership, c.owner)
 	if err != nil {
 		return fmt.Errorf(
-			"patch for %s (%s) failed: %w", info.ObjectName(),
-			mappingAsString(info), err,
+			"patch for %s failed: %w", info.ObjectName(), err,
 		)
 	}
 
@@ -124,11 +123,4 @@ func (c *concurrentDefaultSSA) convertUnstructuredToTyped(
 		return obj
 	}
 	return obj
-}
-
-func mappingAsString(info *resource.Info) string {
-	if info.Mapping == nil {
-		return fmt.Sprintf("%s(%s)", info.Object.GetObjectKind().GroupVersionKind().String(), "no mapping")
-	}
-	return info.Mapping.GroupVersionKind.String()
 }

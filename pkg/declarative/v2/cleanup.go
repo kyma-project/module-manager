@@ -14,16 +14,16 @@ type Cleanup interface {
 	Run(context.Context, []*resource.Info) (bool, error)
 }
 
-type concurrentCleanup struct {
+type ConcurrentCleanup struct {
 	clnt   client.Client
 	policy client.PropagationPolicy
 }
 
-func ConcurrentCleanup(clnt client.Client) Cleanup {
-	return &concurrentCleanup{clnt: clnt, policy: client.PropagationPolicy(metav1.DeletePropagationBackground)}
+func NewConcurrentCleanup(clnt client.Client) Cleanup {
+	return &ConcurrentCleanup{clnt: clnt, policy: client.PropagationPolicy(metav1.DeletePropagationBackground)}
 }
 
-func (c *concurrentCleanup) Run(ctx context.Context, infos []*resource.Info) (bool, error) {
+func (c *ConcurrentCleanup) Run(ctx context.Context, infos []*resource.Info) (bool, error) {
 	// The Runtime Complexity of this Branch is N as only ServerSideApplier Patch is required
 	results := make(chan error, len(infos))
 	for i := range infos {
@@ -54,6 +54,6 @@ func (c *concurrentCleanup) Run(ctx context.Context, infos []*resource.Info) (bo
 	return allDeleted, nil
 }
 
-func (c *concurrentCleanup) cleanupResource(ctx context.Context, info *resource.Info, results chan error) {
+func (c *ConcurrentCleanup) cleanupResource(ctx context.Context, info *resource.Info, results chan error) {
 	results <- c.clnt.Delete(ctx, info.Object.(client.Object), c.policy)
 }

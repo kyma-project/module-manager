@@ -200,7 +200,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	toDelete := current.Difference(target)
-	if deleted, err := ConcurrentCleanup(skr).Run(ctx, toDelete); err != nil {
+	if deleted, err := NewConcurrentCleanup(skr).Run(ctx, toDelete); err != nil {
 		r.Event(obj, "Warning", "Deletion", err.Error())
 		obj.SetStatus(status.WithState(StateError).WithErr(err))
 		return r.ssaStatus(ctx, obj)
