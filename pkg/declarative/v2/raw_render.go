@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 
-	"github.com/kyma-project/module-manager/pkg/types"
 	"k8s.io/client-go/tools/record"
 )
 
@@ -13,14 +12,14 @@ func NewRawRenderer(
 	options *Options,
 ) Renderer {
 	return &RawRenderer{
-		recorder: options.EventRecorder,
-		path:     spec.Path,
+		EventRecorder: options.EventRecorder,
+		Path:          spec.Path,
 	}
 }
 
 type RawRenderer struct {
-	recorder record.EventRecorder
-	path     string
+	record.EventRecorder
+	Path string
 }
 
 func (r *RawRenderer) Initialize(_ Object) error {
@@ -33,10 +32,11 @@ func (r *RawRenderer) EnsurePrerequisites(_ context.Context, _ Object) error {
 
 func (r *RawRenderer) Render(_ context.Context, obj Object) ([]byte, error) {
 	status := obj.GetStatus()
-	manifest, err := os.ReadFile(r.path)
+	manifest, err := os.ReadFile(r.Path)
 	if err != nil {
-		r.recorder.Event(obj, "Warning", "ReadRawManifest", err.Error())
-		obj.SetStatus(status.WithState(State(types.StateError)).WithErr(err))
+		r.Event(obj, "Warning", "ReadRawManifest", err.Error())
+		obj.SetStatus(status.WithState(StateError).WithErr(err))
+		return nil, err
 	}
 	return manifest, nil
 }

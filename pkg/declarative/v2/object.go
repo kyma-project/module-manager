@@ -9,6 +9,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+//go:generate mockgen -source object.go -destination mock/object.go Object
 type Object interface {
 	client.Object
 	ComponentName() string
