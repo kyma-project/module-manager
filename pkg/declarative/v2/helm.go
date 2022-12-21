@@ -3,6 +3,7 @@ package v2
 import (
 	"context"
 	"fmt"
+	"reflect"
 
 	"github.com/kyma-project/module-manager/pkg/types"
 	"helm.sh/helm/v3/pkg/chart"
@@ -23,14 +24,10 @@ func NewHelmRenderer(
 	clnt Client,
 	options *Options,
 ) Renderer {
-	valuesAsMap, ok := spec.Values.(map[string]any)
-	if !ok {
-		valuesAsMap = map[string]any{}
-	}
 	return &Helm{
 		recorder:   options.EventRecorder,
 		chartPath:  spec.Path,
-		values:     valuesAsMap,
+		values:     spec.Values,
 		clnt:       clnt,
 		crdChecker: NewHelmReadyCheck(clnt),
 	}
@@ -41,7 +38,7 @@ type Helm struct {
 	clnt     Client
 
 	chartPath string
-	values    map[string]any
+	values    any
 
 	chart *chart.Chart
 	crds  kube.ResourceList
@@ -150,7 +147,20 @@ func (h *Helm) RemovePrerequisites(ctx context.Context, obj Object) error {
 
 func (h *Helm) Render(ctx context.Context, obj Object) ([]byte, error) {
 	status := obj.GetStatus()
-	release, err := h.clnt.Install().RunWithContext(ctx, h.chart, h.values)
+
+	valuesAsMap, ok := h.values.(map[string]any)
+	if !ok {
+		h.recorder.Eventf(
+			obj, "Warning", "HelmValuesParsing",
+			"values are of type %s instead of %s and cannot be used. "+
+				"if you are trying to pass custom objects, convert it to a generic map before passing.",
+			reflect.TypeOf(h.values).String(),
+			reflect.TypeOf(valuesAsMap).String(),
+		)
+		valuesAsMap = map[string]any{}
+	}
+
+	release, err := h.clnt.Install().RunWithContext(ctx, h.chart, valuesAsMap)
 	if err != nil {
 		h.recorder.Event(obj, "Warning", "HelmRenderRun", err.Error())
 		obj.SetStatus(status.WithState(State(types.StateError)).WithErr(err))

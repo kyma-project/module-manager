@@ -3,17 +3,19 @@ package v2
 import (
 	"context"
 
-	"github.com/kyma-project/module-manager/pkg/types"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 const (
 	DisclaimerAnnotation      = "reconciler.kyma-project.io/managed-by-reconciler-disclaimer"
 	disclaimerAnnotationValue = "DO NOT EDIT - This resource is managed by Kyma.\n" +
 		"Any modifications are discarded and the resource is reverted to the original state."
+	ManagedByLabel      = "reconciler.kyma-project.io/managed-by"
+	managedByLabelValue = "declarative-v2"
 )
 
-func disclaimerTransform(_ context.Context, _ Object, resources *types.ManifestResources) error {
-	for _, resource := range resources.Items {
+func disclaimerTransform(_ context.Context, _ Object, resources []*unstructured.Unstructured) error {
+	for _, resource := range resources {
 		annotations := resource.GetAnnotations()
 		if annotations == nil {
 			annotations = make(map[string]string)
@@ -24,8 +26,8 @@ func disclaimerTransform(_ context.Context, _ Object, resources *types.ManifestR
 	return nil
 }
 
-func kymaComponentTransform(_ context.Context, obj Object, resources *types.ManifestResources) error {
-	for _, resource := range resources.Items {
+func kymaComponentTransform(_ context.Context, obj Object, resources []*unstructured.Unstructured) error {
+	for _, resource := range resources {
 		labels := resource.GetLabels()
 		if labels == nil {
 			labels = make(map[string]string)
@@ -37,15 +39,14 @@ func kymaComponentTransform(_ context.Context, obj Object, resources *types.Mani
 	return nil
 }
 
-func managedByDeclarativeV2(_ context.Context, _ Object, resources *types.ManifestResources) error {
-	managedBy := "declarative-v2"
-	for _, resource := range resources.Items {
+func managedByDeclarativeV2(_ context.Context, _ Object, resources []*unstructured.Unstructured) error {
+	for _, resource := range resources {
 		labels := resource.GetLabels()
 		if labels == nil {
 			labels = make(map[string]string)
 		}
 		// legacy managed by value
-		labels["reconciler.kyma-project.io/managed-by"] = managedBy
+		labels[ManagedByLabel] = managedByLabelValue
 		resource.SetLabels(labels)
 	}
 	return nil

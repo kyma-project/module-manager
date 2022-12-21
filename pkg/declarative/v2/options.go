@@ -5,9 +5,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/kyma-project/module-manager/pkg/types"
 	"github.com/kyma-project/module-manager/pkg/util"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
@@ -38,7 +38,7 @@ func DefaultOptions() *Options {
 		WithPermanentConsistencyCheck(false),
 		WithSingletonClientCache(NewMemorySingletonClientCache()),
 		WithManifestCache(os.TempDir()),
-		WithSkipReconcileOn(SkipOnLabelPresentAndTrue),
+		WithSkipReconcileOn(SkipReconcileOnDefaultLabelPresentAndTrue),
 	)
 }
 
@@ -130,8 +130,8 @@ func (o WithManagerOption) Apply(options *Options) {
 type WithCustomResourceLabels labels.Set
 
 func (o WithCustomResourceLabels) Apply(options *Options) {
-	labelTransform := func(ctx context.Context, object Object, resources *types.ManifestResources) error {
-		for _, targetResource := range resources.Items {
+	labelTransform := func(ctx context.Context, object Object, resources []*unstructured.Unstructured) error {
+		for _, targetResource := range resources {
 			lbls := targetResource.GetLabels()
 			if lbls == nil {
 				lbls = labels.Set{}
@@ -158,7 +158,7 @@ func (o SpecResolverOption) Apply(options *Options) {
 	options.SpecResolver = o
 }
 
-type ObjectTransform = func(context.Context, Object, *types.ManifestResources) error
+type ObjectTransform = func(context.Context, Object, []*unstructured.Unstructured) error
 
 func WithPostRenderTransform(transforms ...ObjectTransform) PostRenderTransformOption {
 	return PostRenderTransformOption{transforms}
@@ -269,10 +269,8 @@ func WithSkipReconcileOn(skipReconcile SkipReconcile) WithSkipReconcileOnOption 
 
 type SkipReconcile func(context.Context, Object) (skip bool)
 
-// SkipOnLabelPresentAndTrue determines SkipReconcile by checking if DefaultSkipReconcileLabel is true
-//
-//nolint:gochecknoglobals
-var SkipOnLabelPresentAndTrue = func(ctx context.Context, object Object) bool {
+// SkipReconcileOnDefaultLabelPresentAndTrue determines SkipReconcile by checking if DefaultSkipReconcileLabel is true.
+func SkipReconcileOnDefaultLabelPresentAndTrue(ctx context.Context, object Object) bool {
 	log.FromContext(ctx, "skip-label", DefaultSkipReconcileLabel).
 		V(util.DebugLogLevel).Info("resource gets skipped because of label")
 	return object.GetLabels() != nil && object.GetLabels()[DefaultSkipReconcileLabel] == "true"

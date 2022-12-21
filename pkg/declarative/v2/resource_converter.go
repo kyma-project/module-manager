@@ -15,7 +15,7 @@ type ResourceInfoConverter interface {
 type ResourceConverter interface {
 	ConvertSyncedToNewStatus(status Status, resources []*resource.Info) Status
 	ConvertStatusToResources(status Status) ([]*resource.Info, error)
-	ConvertResourcesFromManifest(resources *types.ManifestResources) ([]*resource.Info, error)
+	ConvertResourcesFromManifest(resources []*unstructured.Unstructured) ([]*resource.Info, error)
 }
 
 func NewResourceConverter(converter ResourceInfoConverter, defaultNamespace string) ResourceConverter {
@@ -66,11 +66,11 @@ func (c *defaultResourceConverter) ConvertStatusToResources(status Status) ([]*r
 }
 
 func (c *defaultResourceConverter) ConvertResourcesFromManifest(
-	resources *types.ManifestResources,
+	resources []*unstructured.Unstructured,
 ) ([]*resource.Info, error) {
-	target := make([]*resource.Info, 0, len(resources.Items))
-	errs := make([]error, 0, len(resources.Items))
-	for _, obj := range resources.Items {
+	target := make([]*resource.Info, 0, len(resources))
+	errs := make([]error, 0, len(resources))
+	for _, obj := range resources {
 		resourceInfo, err := c.converter.ResourceInfo(obj, true)
 
 		// if there is no match we will initialize the resource anyway, just without

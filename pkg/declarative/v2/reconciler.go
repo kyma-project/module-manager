@@ -160,14 +160,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		targetResources.Items = append(targetResources.Items, spec.TargetResources...)
 
 		for _, transform := range r.PostRenderTransforms {
-			if err := transform(ctx, obj, targetResources); err != nil {
+			if err := transform(ctx, obj, targetResources.Items); err != nil {
 				r.Event(obj, "Warning", "PostRenderTransform", err.Error())
 				obj.SetStatus(status.WithState(StateError).WithErr(err))
 				return r.ssaStatus(ctx, obj)
 			}
 		}
 
-		target, err = resourceConverter.ConvertResourcesFromManifest(targetResources)
+		target, err = resourceConverter.ConvertResourcesFromManifest(targetResources.Items)
 		if err != nil {
 			r.Event(obj, "Warning", "TargetResourceParsing", err.Error())
 			resourceCondition.Status = metav1.ConditionFalse
