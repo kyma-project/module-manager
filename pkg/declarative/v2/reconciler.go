@@ -195,6 +195,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if !obj.GetDeletionTimestamp().IsZero() {
 		for _, preDelete := range r.PreDeletes {
 			if err := preDelete(ctx, skr, r.Client, obj); err != nil {
+				r.Event(obj, "Warning", "PreDelete", err.Error())
 				return r.ssaStatus(ctx, obj)
 			}
 		}
@@ -229,9 +230,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	if err = ConcurrentSSA(skr, r.FieldOwner).Run(ctx, target); err != nil {
 		r.Event(obj, "Warning", "ServerSideApply", err.Error())
-	}
-
-	if err != nil {
 		installationCondition.Status = metav1.ConditionFalse
 		meta.SetStatusCondition(&status.Conditions, installationCondition)
 		obj.SetStatus(status.WithState(StateError).WithErr(err))
