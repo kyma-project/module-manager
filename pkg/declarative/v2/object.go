@@ -1,6 +1,7 @@
 package v2
 
 import (
+	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -60,27 +61,21 @@ func (s Status) WithState(state State) Status {
 	return s
 }
 
-// Resources is a list of Resource(s).
-type Resources []Resource
-
-func (r Resources) ContainsAll(desired Resources) bool {
-	for _, resource := range desired {
-		found := false
-		for i := range r {
-			if r[i].Name == resource.Name &&
-				r[i].Namespace == resource.Namespace &&
-				r[i].Group == resource.Group &&
-				r[i].Kind == resource.Kind &&
-				r[i].Version == resource.Version {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
+func ResourcesDiff(resourcesA, resourcesB []Resource) []Resource {
+	if len(resourcesA) < len(resourcesB) {
+		return ResourcesDiff(resourcesB, resourcesA)
+	}
+	freqMap := make(map[string]struct{}, len(resourcesB))
+	for _, x := range resourcesB {
+		freqMap[x.ID()] = struct{}{}
+	}
+	var diff []Resource
+	for _, x := range resourcesA {
+		if _, found := freqMap[x.ID()]; !found {
+			diff = append(diff, x)
 		}
 	}
-	return true
+	return diff
 }
 
 type Resource struct {
@@ -95,6 +90,10 @@ func (r Resource) ToUnstructured() *unstructured.Unstructured {
 	obj.SetName(r.Name)
 	obj.SetNamespace(r.Namespace)
 	return &obj
+}
+
+func (r Resource) ID() string {
+	return strings.Join([]string{r.Namespace, r.Name, r.Group, r.Version, r.Kind}, "/")
 }
 
 // LastOperation defines the last operation from the control-loop.

@@ -191,13 +191,17 @@ var _ = Describe(
 					obj := &testv1.TestAPI{}
 					Expect(testClient.Get(ctx, key, obj)).To(Succeed())
 					oldAmount := len(obj.GetStatus().Synced)
-
+					EventuallyDeclarativeStatusShould(
+						ctx, key,
+						HaveSyncedResources(oldAmount),
+						BeInState(State(types.StateReady)),
+					)
 					source.ValuesFn = func(_ context.Context, _ Object) any {
 						return map[string]any{"autoscaling": map[string]any{"enabled": true}}
 					}
 					EventuallyDeclarativeStatusShould(
 						ctx, key,
-						HaveAtLeastSyncedResources(oldAmount+1),
+						HaveSyncedResources(oldAmount+1),
 						BeInState(State(types.StateReady)),
 					)
 					source.ValuesFn = func(_ context.Context, _ Object) any {
@@ -205,7 +209,7 @@ var _ = Describe(
 					}
 					EventuallyDeclarativeStatusShould(
 						ctx, key,
-						HaveAtLeastSyncedResources(oldAmount),
+						HaveSyncedResources(oldAmount),
 						BeInState(State(types.StateReady)),
 					)
 				},

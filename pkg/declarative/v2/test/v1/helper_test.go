@@ -135,26 +135,30 @@ func (matcher *SyncedResourcesExistingMatcher) NegatedFailureMessage(actual inte
 	return format.Message(actual, fmt.Sprintf("not %s", matcher.FailureMessage(actual)))
 }
 
-func HaveAtLeastSyncedResources(count int) types.GomegaMatcher {
-	return &HaveAtLeastSyncedResourceMatcher{count: count}
+func HaveSyncedResources(count int) types.GomegaMatcher {
+	return &HaveSyncedResourceMatcher{count: count}
 }
 
-type HaveAtLeastSyncedResourceMatcher struct {
+type HaveSyncedResourceMatcher struct {
 	count int
 }
 
-func (matcher *HaveAtLeastSyncedResourceMatcher) Match(actual interface{}) (bool, error) {
+func (matcher *HaveSyncedResourceMatcher) Match(actual interface{}) (bool, error) {
 	status, ok := actual.(declarative.Status)
 	if !ok {
 		return false, fmt.Errorf("Expected a Status. Got:\n%s", format.Object(actual, 1))
 	}
-	return len(status.Synced) >= matcher.count, nil
+	return len(status.Synced) == matcher.count, nil
 }
 
-func (matcher *HaveAtLeastSyncedResourceMatcher) FailureMessage(actual interface{}) string {
-	return format.Message(actual, fmt.Sprintf("to have at least %v synced resources in status", matcher.count))
+func (matcher *HaveSyncedResourceMatcher) FailureMessage(actual interface{}) string {
+	return format.Message(
+		actual, fmt.Sprintf(
+			"to have %v synced resources in status, but got %v", matcher.count, len(actual.(declarative.Status).Synced),
+		),
+	)
 }
 
-func (matcher *HaveAtLeastSyncedResourceMatcher) NegatedFailureMessage(actual interface{}) string {
+func (matcher *HaveSyncedResourceMatcher) NegatedFailureMessage(actual interface{}) string {
 	return format.Message(actual, fmt.Sprintf("not %s", matcher.FailureMessage(actual)))
 }

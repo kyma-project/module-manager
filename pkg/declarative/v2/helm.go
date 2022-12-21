@@ -61,7 +61,6 @@ func (h *Helm) Initialize(obj Object) error {
 
 	prerequisiteExists := meta.FindStatusCondition(status.Conditions, h.prerequisiteCondition(obj).Type) != nil
 	if !prerequisiteExists {
-		status := obj.GetStatus()
 		meta.SetStatusCondition(&status.Conditions, h.prerequisiteCondition(obj))
 		obj.SetStatus(status)
 		return ErrConditionsNotYetRegistered

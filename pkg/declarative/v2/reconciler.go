@@ -46,6 +46,26 @@ const (
 	ConditionReasonReady                 ConditionReason = "Ready"
 )
 
+func newInstallationCondition(obj Object) metav1.Condition {
+	return metav1.Condition{
+		Type:               string(ConditionTypeInstallation),
+		Reason:             string(ConditionReasonReady),
+		Status:             metav1.ConditionFalse,
+		Message:            "installation is ready and resources can be used",
+		ObservedGeneration: obj.GetGeneration(),
+	}
+}
+
+func newResourcesCondition(obj Object) metav1.Condition {
+	return metav1.Condition{
+		Type:               string(ConditionTypeResources),
+		Reason:             string(ConditionReasonResourcesAreAvailable),
+		Status:             metav1.ConditionFalse,
+		Message:            "resources are parsed and ready for use",
+		ObservedGeneration: obj.GetGeneration(),
+	}
+}
+
 //nolint:funlen,nestif,gocognit,gocyclo,cyclop,maintidx //TODO discuss if worth breaking up or if more readable as is.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
@@ -77,30 +97,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	var (
-		resourceCondition = metav1.Condition{
-			Type:               string(ConditionTypeResources),
-			Reason:             string(ConditionReasonResourcesAreAvailable),
-			Status:             metav1.ConditionFalse,
-			Message:            "resources are parsed and ready for use",
-			ObservedGeneration: obj.GetGeneration(),
-		}
-		installationCondition = metav1.Condition{
-			Type:               string(ConditionTypeInstallation),
-			Reason:             string(ConditionReasonReady),
-			Status:             metav1.ConditionFalse,
-			Message:            "installation is ready and resources can be used",
-			ObservedGeneration: obj.GetGeneration(),
-		}
+		resourceCondition     = newResourcesCondition(obj)
+		installationCondition = newInstallationCondition(obj)
 	)
 
 	// Processing
 	if status.State == "" {
-		presetConditions := 2
-		status.Conditions = make([]metav1.Condition, 0, presetConditions)
-		meta.SetStatusCondition(&status.Conditions, resourceCondition)
-		meta.SetStatusCondition(&status.Conditions, installationCondition)
-		status.Synced = make([]Resource, 0)
-		obj.SetStatus(status.WithState(StateProcessing).WithOperation("switched to processing"))
+		initializeStatus(obj, resourceCondition, installationCondition)
+		obj.SetStatus(obj.GetStatus().WithState(StateProcessing).WithOperation("switched to processing"))
 		return r.ssaStatus(ctx, obj)
 	}
 
@@ -119,18 +123,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 	resourceConverter := NewResourceConverter(skr, r.Namespace)
 
-	var renderer Renderer
-
-	switch spec.Mode {
-	case RenderModeHelm:
-		renderer = NewHelmRenderer(spec, skr, r.Options)
-		renderer = WrapWithRendererCache(renderer, spec, r.Options)
-	case RenderModeKustomize:
-		renderer = NewKustomizeRenderer(spec, r.Options)
-		renderer = WrapWithRendererCache(renderer, spec, r.Options)
-	case RenderModeRaw:
-		renderer = NewRawRenderer(spec, r.Options)
-	}
+	renderer := r.createRenderer(spec, skr)
 
 	if err := renderer.Initialize(obj); err != nil {
 		return r.ssaStatus(ctx, obj)
@@ -176,6 +169,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			return r.ssaStatus(ctx, obj)
 		}
 	} else {
+		// if we are deleting the resources,
+		// we no longer want to have any target resources and want to clean up all existing resources.
+		// Thus, we empty the target here so the difference will be the entire current
+		// resource list in the cluster.
 		target = kube.ResourceList{}
 	}
 
@@ -244,8 +241,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	oldStatus := status
 	status = resourceConverter.ConvertSyncedToNewStatus(status, target)
 
-	if !Resources(oldStatus.Synced).ContainsAll(status.Synced) {
-		obj.SetStatus(status.WithState(StateProcessing).WithOperation("new resources detected"))
+	if len(ResourcesDiff(oldStatus.Synced, status.Synced)) > 0 {
+		obj.SetStatus(status.WithState(StateProcessing).WithOperation("resource sync state diff detected"))
 		return r.ssaStatus(ctx, obj)
 	}
 
@@ -285,6 +282,34 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	return r.CtrlOnSuccess, nil
+}
+
+func (r *Reconciler) createRenderer(spec *Spec, client Client) Renderer {
+	var renderer Renderer
+
+	switch spec.Mode {
+	case RenderModeHelm:
+		renderer = NewHelmRenderer(spec, client, r.Options)
+		renderer = WrapWithRendererCache(renderer, spec, r.Options)
+	case RenderModeKustomize:
+		renderer = NewKustomizeRenderer(spec, r.Options)
+		renderer = WrapWithRendererCache(renderer, spec, r.Options)
+	case RenderModeRaw:
+		renderer = NewRawRenderer(spec, r.Options)
+	}
+	return renderer
+}
+
+func initializeStatus(
+	obj Object, initialConditions ...metav1.Condition,
+) {
+	status := obj.GetStatus()
+	status.Conditions = make([]metav1.Condition, 0, len(initialConditions))
+	for _, condition := range initialConditions {
+		meta.SetStatusCondition(&status.Conditions, condition)
+	}
+	status.Synced = make([]Resource, 0)
+	obj.SetStatus(status)
 }
 
 func (r *Reconciler) initializeClient(
