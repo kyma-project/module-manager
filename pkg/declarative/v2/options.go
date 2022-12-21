@@ -6,19 +6,22 @@ import (
 	"time"
 
 	"github.com/kyma-project/module-manager/pkg/types"
+	"github.com/kyma-project/module-manager/pkg/util"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
 const (
-	FinalizerDefault     = "declarative.kyma-project.io/finalizer"
-	FieldOwnerDefault    = "declarative.kyma-project.io/applier"
-	EventRecorderDefault = "declarative.kyma-project.io/events"
+	FinalizerDefault          = "declarative.kyma-project.io/finalizer"
+	FieldOwnerDefault         = "declarative.kyma-project.io/applier"
+	EventRecorderDefault      = "declarative.kyma-project.io/events"
+	DefaultSkipReconcileLabel = "declarative.kyma-project.io/skip-reconciliation"
 )
 
 func DefaultOptions() *Options {
@@ -35,6 +38,7 @@ func DefaultOptions() *Options {
 		WithPermanentConsistencyCheck(false),
 		WithSingletonClientCache(NewMemorySingletonClientCache()),
 		WithManifestCache(os.TempDir()),
+		WithSkipReconcileOn(SkipOnLabelPresentAndTrue),
 	)
 }
 
@@ -63,6 +67,8 @@ type Options struct {
 	PreDeletes []PreDelete
 
 	DeletePrerequisitesOnUninstall bool
+
+	ShouldSkip SkipReconcile
 
 	CtrlOnSuccess ctrl.Result
 }
@@ -255,4 +261,27 @@ type WithRemoteTargetClusterOption struct {
 
 func (o WithRemoteTargetClusterOption) Apply(options *Options) {
 	options.TargetClient = o.Client
+}
+
+func WithSkipReconcileOn(skipReconcile SkipReconcile) WithSkipReconcileOnOption {
+	return WithSkipReconcileOnOption{skipReconcile: skipReconcile}
+}
+
+type SkipReconcile func(context.Context, Object) (skip bool)
+
+// SkipOnLabelPresentAndTrue determines SkipReconcile by checking if DefaultSkipReconcileLabel is true
+//
+//nolint:gochecknoglobals
+var SkipOnLabelPresentAndTrue = func(ctx context.Context, object Object) bool {
+	log.FromContext(ctx, "skip-label", DefaultSkipReconcileLabel).
+		V(util.DebugLogLevel).Info("resource gets skipped because of label")
+	return object.GetLabels() != nil && object.GetLabels()[DefaultSkipReconcileLabel] == "true"
+}
+
+type WithSkipReconcileOnOption struct {
+	skipReconcile SkipReconcile
+}
+
+func (o WithSkipReconcileOnOption) Apply(options *Options) {
+	options.ShouldSkip = o.skipReconcile
 }

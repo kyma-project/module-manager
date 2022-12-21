@@ -57,6 +57,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	if r.ShouldSkip(ctx, obj) {
+		return ctrl.Result{}, nil
+	}
+
 	// ServerSideApply requires nil ManagedFields
 	obj.SetManagedFields(nil)
 
