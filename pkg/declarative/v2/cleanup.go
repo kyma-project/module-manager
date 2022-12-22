@@ -2,6 +2,7 @@ package v2
 
 import (
 	"context"
+	"errors"
 
 	"github.com/kyma-project/module-manager/pkg/types"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -10,8 +11,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+var ErrDeletionNotFinished = errors.New("deletion is not yet finished")
+
 type Cleanup interface {
-	Run(context.Context, []*resource.Info) (bool, error)
+	Run(context.Context, []*resource.Info) error
 }
 
 type ConcurrentCleanup struct {
@@ -23,7 +26,7 @@ func NewConcurrentCleanup(clnt client.Client) Cleanup {
 	return &ConcurrentCleanup{clnt: clnt, policy: client.PropagationPolicy(metav1.DeletePropagationBackground)}
 }
 
-func (c *ConcurrentCleanup) Run(ctx context.Context, infos []*resource.Info) (bool, error) {
+func (c *ConcurrentCleanup) Run(ctx context.Context, infos []*resource.Info) error {
 	// The Runtime Complexity of this Branch is N as only ServerSideApplier Patch is required
 	results := make(chan error, len(infos))
 	for i := range infos {
@@ -43,15 +46,15 @@ func (c *ConcurrentCleanup) Run(ctx context.Context, infos []*resource.Info) (bo
 			errs = append(errs, err)
 		}
 	}
-	// if present resources are present, return false
-	// if present resources are 0, return true
-	allDeleted := !(present > 0)
 
 	if len(errs) > 0 {
-		return false, types.NewMultiError(errs)
+		return types.NewMultiError(errs)
 	}
 
-	return allDeleted, nil
+	if present > 0 {
+		return ErrDeletionNotFinished
+	}
+	return nil
 }
 
 func (c *ConcurrentCleanup) cleanupResource(ctx context.Context, info *resource.Info, results chan error) {

@@ -23,7 +23,7 @@ func getCRDs(clnt Client, crdFiles []chart.CRD) (kube.ResourceList, error) {
 	var crds kube.ResourceList
 	errs := make([]error, 0, len(crdsObjects.Items))
 	for _, crd := range crdsObjects.Items {
-		crdInfo, err := clnt.ResourceInfo(crd, true)
+		crdInfo, err := clnt.ResourceInfo(crd, false)
 		if err != nil {
 			errs = append(errs, err)
 			continue

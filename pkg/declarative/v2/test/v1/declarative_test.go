@@ -121,7 +121,9 @@ var _ = Describe(
 				"Create simple chart with a different Control Plane and Runtime Client",
 				testv1.TestAPISpec{ManifestName: "custom-client"},
 				DefaultSpec(filepath.Join(testSamplesDir, "module-chart"), map[string]any{}, RenderModeHelm),
-				[]Option{WithRemoteTargetCluster(testClient)},
+				[]Option{WithRemoteTargetCluster(
+					func(context.Context, Object) (client.Client, error) { return testClient, nil },
+				)},
 				nil,
 			),
 			Entry(

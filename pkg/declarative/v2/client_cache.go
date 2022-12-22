@@ -7,8 +7,8 @@ import (
 )
 
 type ClientCache interface {
-	GetClients(key any) Client
-	SetClients(key client.ObjectKey, client Client)
+	GetClientFromCache(key any) Client
+	SetClientInCache(key client.ObjectKey, client Client)
 }
 
 type MemoryClientCache struct {
@@ -22,7 +22,7 @@ func NewMemorySingletonClientCache() *MemoryClientCache {
 	}
 }
 
-func (r *MemoryClientCache) GetClients(key any) Client {
+func (r *MemoryClientCache) GetClientFromCache(key any) Client {
 	value, ok := r.cache.Load(key)
 	if !ok {
 		return nil
@@ -30,6 +30,6 @@ func (r *MemoryClientCache) GetClients(key any) Client {
 	return value.(Client)
 }
 
-func (r *MemoryClientCache) SetClients(key client.ObjectKey, client Client) {
+func (r *MemoryClientCache) SetClientInCache(key client.ObjectKey, client Client) {
 	r.cache.Store(key, client)
 }

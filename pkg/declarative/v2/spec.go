@@ -2,8 +2,6 @@ package v2
 
 import (
 	"context"
-
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 type SpecResolver interface {
@@ -11,11 +9,10 @@ type SpecResolver interface {
 }
 
 type Spec struct {
-	ManifestName    string
-	Path            string
-	Values          any
-	Mode            RenderMode
-	TargetResources []*unstructured.Unstructured
+	ManifestName string
+	Path         string
+	Values       any
+	Mode         RenderMode
 }
 
 func DefaultSpec(path string, values any, mode RenderMode) *CustomSpecFns {

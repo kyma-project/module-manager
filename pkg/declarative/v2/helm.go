@@ -2,6 +2,7 @@ package v2
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 
@@ -103,19 +104,20 @@ func (h *Helm) EnsurePrerequisites(ctx context.Context, obj Object) error {
 		return fmt.Errorf("crds could not be installed: %w", err)
 	}
 
-	crdsReady, err := h.crdChecker.Run(ctx, h.crds)
+	err := h.crdChecker.Run(ctx, h.crds)
+
+	if errors.Is(err, ErrResourcesNotReady) {
+		h.recorder.Event(obj, "Normal", "CRDReadyCheck", "crds are not yet ready...")
+		meta.SetStatusCondition(&status.Conditions, h.prerequisiteCondition(obj))
+		obj.SetStatus(status.WithErr(ErrPrerequisitesNotFulfilled))
+		return fmt.Errorf("crds are not yet ready: %w", ErrPrerequisitesNotFulfilled)
+	}
+
 	if err != nil {
 		h.recorder.Event(obj, "Warning", "CRDReadyCheck", err.Error())
 		meta.SetStatusCondition(&status.Conditions, h.prerequisiteCondition(obj))
 		obj.SetStatus(status.WithState(State(types.StateError)).WithErr(err))
 		return fmt.Errorf("crds could not be checked for readiness: %w", err)
-	}
-
-	if !crdsReady {
-		h.recorder.Event(obj, "Normal", "CRDReadyCheck", "crds are not yet ready...")
-		meta.SetStatusCondition(&status.Conditions, h.prerequisiteCondition(obj))
-		obj.SetStatus(status.WithErr(ErrPrerequisitesNotFulfilled))
-		return fmt.Errorf("crds are not yet ready: %w", ErrPrerequisitesNotFulfilled)
 	}
 
 	restMapper, _ := h.clnt.ToRESTMapper()
@@ -131,15 +133,15 @@ func (h *Helm) EnsurePrerequisites(ctx context.Context, obj Object) error {
 
 func (h *Helm) RemovePrerequisites(ctx context.Context, obj Object) error {
 	status := obj.GetStatus()
-	if deleted, err := NewConcurrentCleanup(h.clnt).Run(ctx, h.crds); err != nil {
-		h.recorder.Event(obj, "Warning", "CRDsUninstallation", err.Error())
-		obj.SetStatus(status.WithState(State(types.StateError)).WithErr(err))
-		return err
-	} else if !deleted {
+	if err := NewConcurrentCleanup(h.clnt).Run(ctx, h.crds); errors.Is(err, ErrDeletionNotFinished) {
 		waitingMsg := "waiting for crds to be uninstalled"
 		h.recorder.Event(obj, "Normal", "CRDsUninstallation", waitingMsg)
 		obj.SetStatus(status.WithOperation(waitingMsg))
-		return fmt.Errorf("crds are not yet deleted: %w", ErrPrerequisitesNotRemoved)
+		return err
+	} else if err != nil {
+		h.recorder.Event(obj, "Warning", "CRDsUninstallation", err.Error())
+		obj.SetStatus(status.WithState(State(types.StateError)).WithErr(err))
+		return err
 	}
 	return nil
 }

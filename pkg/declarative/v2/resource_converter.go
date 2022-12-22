@@ -12,46 +12,55 @@ type ResourceInfoConverter interface {
 	ResourceInfo(obj *unstructured.Unstructured, retryOnNoMatch bool) (*resource.Info, error)
 }
 
-type ResourceConverter interface {
-	ConvertSyncedToNewStatus(status Status, resources []*resource.Info) Status
-	ConvertStatusToResources(status Status) ([]*resource.Info, error)
-	ConvertResourcesFromManifest(resources []*unstructured.Unstructured) ([]*resource.Info, error)
+type ResourceToInfoConverter interface {
+	ResourcesToInfos([]Resource) ([]*resource.Info, error)
+	UnstructuredToInfos([]*unstructured.Unstructured) ([]*resource.Info, error)
 }
 
-func NewResourceConverter(converter ResourceInfoConverter, defaultNamespace string) ResourceConverter {
-	return &defaultResourceConverter{converter: converter, defaultNamespace: defaultNamespace}
+type InfoToResourceConverter interface {
+	InfosToResources([]*resource.Info) []Resource
 }
 
-type defaultResourceConverter struct {
+func NewResourceToInfoConverter(converter ResourceInfoConverter, defaultNamespace string) ResourceToInfoConverter {
+	return &defaultResourceToInfoConverter{converter: converter, defaultNamespace: defaultNamespace}
+}
+
+type defaultResourceToInfoConverter struct {
 	converter        ResourceInfoConverter
 	defaultNamespace string
 }
 
-func (c *defaultResourceConverter) ConvertSyncedToNewStatus(status Status, resources []*resource.Info) Status {
-	status.Synced = make([]Resource, 0, len(resources))
-	for _, info := range resources {
+func NewInfoToResourceConverter() InfoToResourceConverter {
+	return &defaultInfoToResourceConverter{}
+}
+
+type defaultInfoToResourceConverter struct{}
+
+func (c *defaultInfoToResourceConverter) InfosToResources(infos []*resource.Info) []Resource {
+	resources := make([]Resource, 0, len(infos))
+	for _, info := range infos {
 		var gvk v1.GroupVersionKind
 		if info.Mapping != nil {
 			gvk = v1.GroupVersionKind(info.ResourceMapping().GroupVersionKind)
 		} else {
 			gvk = v1.GroupVersionKind(info.Object.GetObjectKind().GroupVersionKind())
 		}
-		status.Synced = append(
-			status.Synced, Resource{
+		resources = append(
+			resources, Resource{
 				Name:             info.Name,
 				Namespace:        info.Namespace,
 				GroupVersionKind: gvk,
 			},
 		)
 	}
-	return status
+	return resources
 }
 
-func (c *defaultResourceConverter) ConvertStatusToResources(status Status) ([]*resource.Info, error) {
-	current := make([]*resource.Info, 0, len(status.Synced))
-	errs := make([]error, 0, len(status.Synced))
-	for _, synced := range status.Synced {
-		resourceInfo, err := c.converter.ResourceInfo(synced.ToUnstructured(), true)
+func (c *defaultResourceToInfoConverter) ResourcesToInfos(resources []Resource) ([]*resource.Info, error) {
+	current := make([]*resource.Info, 0, len(resources))
+	errs := make([]error, 0, len(resources))
+	for _, res := range resources {
+		resourceInfo, err := c.converter.ResourceInfo(res.ToUnstructured(), true)
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -65,7 +74,7 @@ func (c *defaultResourceConverter) ConvertStatusToResources(status Status) ([]*r
 	return current, nil
 }
 
-func (c *defaultResourceConverter) ConvertResourcesFromManifest(
+func (c *defaultResourceToInfoConverter) UnstructuredToInfos(
 	resources []*unstructured.Unstructured,
 ) ([]*resource.Info, error) {
 	target := make([]*resource.Info, 0, len(resources))
@@ -103,7 +112,7 @@ func (c *defaultResourceConverter) ConvertResourcesFromManifest(
 }
 
 // normaliseNamespaces is only a workaround for malformed resources, e.g. by bad charts or wrong type configs.
-func (c *defaultResourceConverter) normaliseNamespaces(infos []*resource.Info) {
+func (c *defaultResourceToInfoConverter) normaliseNamespaces(infos []*resource.Info) {
 	for _, info := range infos {
 		obj, ok := info.Object.(v1.Object)
 		if !ok {

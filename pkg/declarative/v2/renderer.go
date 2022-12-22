@@ -10,7 +10,6 @@ import (
 var (
 	ErrConditionsNotYetRegistered = errors.New("conditions have not yet been registered in status")
 	ErrPrerequisitesNotFulfilled  = errors.New("prerequisites for installation are not fulfilled")
-	ErrPrerequisitesNotRemoved    = errors.New("prerequisites for installation are not removed yet")
 )
 
 type Prerequisites []*resource.Info

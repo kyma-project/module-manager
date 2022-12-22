@@ -26,7 +26,7 @@ const (
 
 func DefaultOptions() *Options {
 	return (&Options{}).Apply(
-		WithDeleteCRDsOnUninstall(false),
+		WithDeleteCRDs(false),
 		WithNamespace(metav1.NamespaceDefault, false),
 		WithFinalizer(FinalizerDefault),
 		WithFieldOwner(FieldOwnerDefault),
@@ -46,7 +46,7 @@ type Options struct {
 	record.EventRecorder
 	Config *rest.Config
 	client.Client
-	TargetClient client.Client
+	TargetClient ClientFn
 
 	SpecResolver
 	ClientCache
@@ -66,7 +66,7 @@ type Options struct {
 	PostRuns   []PostRun
 	PreDeletes []PreDelete
 
-	DeletePrerequisitesOnUninstall bool
+	DeletePrerequisites bool
 
 	ShouldSkip SkipReconcile
 
@@ -188,14 +188,14 @@ type (
 	PreDelete Hook
 )
 
-// WithPostRun applies PostRun
+// WithPostRun applies PostRun.
 type WithPostRun []PostRun
 
 func (o WithPostRun) Apply(options *Options) {
 	options.PostRuns = append(options.PostRuns, o...)
 }
 
-// WithPreDelete applies PreDelete
+// WithPreDelete applies PreDelete.
 type WithPreDelete []PreDelete
 
 func (o WithPreDelete) Apply(options *Options) {
@@ -230,10 +230,10 @@ func (o WithSingletonClientCacheOption) Apply(options *Options) {
 	options.ClientCache = o
 }
 
-type WithDeleteCRDsOnUninstall bool
+type WithDeleteCRDs bool
 
-func (o WithDeleteCRDsOnUninstall) Apply(options *Options) {
-	options.DeletePrerequisitesOnUninstall = bool(o)
+func (o WithDeleteCRDs) Apply(options *Options) {
+	options.DeletePrerequisites = bool(o)
 }
 
 type ManifestCache string
@@ -258,16 +258,18 @@ func (o WithCustomReadyCheckOption) Apply(options *Options) {
 	options.CustomReadyCheck = o
 }
 
-func WithRemoteTargetCluster(clnt client.Client) WithRemoteTargetClusterOption {
-	return WithRemoteTargetClusterOption{Client: clnt}
+type ClientFn func(context.Context, Object) (client.Client, error)
+
+func WithRemoteTargetCluster(clientFn ClientFn) WithRemoteTargetClusterOption {
+	return WithRemoteTargetClusterOption{ClientFn: clientFn}
 }
 
 type WithRemoteTargetClusterOption struct {
-	client.Client
+	ClientFn func(context.Context, Object) (client.Client, error)
 }
 
 func (o WithRemoteTargetClusterOption) Apply(options *Options) {
-	options.TargetClient = o.Client
+	options.TargetClient = o.ClientFn
 }
 
 func WithSkipReconcileOn(skipReconcile SkipReconcile) WithSkipReconcileOnOption {
