@@ -367,7 +367,8 @@ func filterNotFoundError(delErrors []error) []error {
 func (h *helm) checkTargetResources(ctx context.Context,
 	targetResources kube.ResourceList,
 	operation types.HelmOperation,
-	verifyWithoutTimeout bool) error {
+	verifyWithoutTimeout bool,
+) error {
 	// verifyWithoutTimeout flag checks native resources are in their respective ready states
 	// without a timeout defined
 	if verifyWithoutTimeout {
@@ -473,11 +474,11 @@ func (h *helm) optimizedInstallCRDs(ctx context.Context, chartRequested *chart.C
 	}
 
 	crdInstallWaitGroup := sync.WaitGroup{}
-	errors := make(chan error, len(resList))
+	errs := make(chan error, len(resList))
 	createCRD := func(i int) {
 		defer crdInstallWaitGroup.Done()
 		_, err := h.clients.KubeClient().Create(kube.ResourceList{resList[i]})
-		errors <- err
+		errs <- err
 	}
 
 	for i := range resList {
@@ -485,9 +486,9 @@ func (h *helm) optimizedInstallCRDs(ctx context.Context, chartRequested *chart.C
 		go createCRD(i)
 	}
 	crdInstallWaitGroup.Wait()
-	close(errors)
+	close(errs)
 
-	for err := range errors {
+	for err := range errs {
 		if err == nil || apierrors.IsAlreadyExists(err) {
 			continue
 		}

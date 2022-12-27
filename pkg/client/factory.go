@@ -166,8 +166,10 @@ func NewSingletonClients(info *types.ClusterInfo, logger logr.Logger) (*Singleto
 }
 
 func (s *SingletonClients) clientCacheKeyForMapping(mapping *meta.RESTMapping) string {
-	return fmt.Sprintf("%s+%s:%s",
-		mapping.Resource.String(), mapping.GroupVersionKind.String(), mapping.Scope.Name())
+	return fmt.Sprintf(
+		"%s+%s:%s",
+		mapping.Resource.String(), mapping.GroupVersionKind.String(), mapping.Scope.Name(),
+	)
 }
 
 func (s *SingletonClients) DynamicResourceInterface(obj *unstructured.Unstructured) (dynamic.ResourceInterface, error) {
@@ -191,7 +193,8 @@ func (s *SingletonClients) DynamicResourceInterface(obj *unstructured.Unstructur
 		if namespace != "" {
 			// TODO: Differentiate between server-fixable vs client-fixable errors?
 			return nil, fmt.Errorf(
-				"namespace %q was provided for cluster-scoped object %v", obj.GetNamespace(), gvk)
+				"namespace %q was provided for cluster-scoped object %v", obj.GetNamespace(), gvk,
+			)
 		}
 		dynamicResource = s.dynamicClient.Resource(mapping.Resource)
 	default:
@@ -207,9 +210,19 @@ func (s *SingletonClients) ResourceInfo(obj *unstructured.Unstructured, retryOnN
 		return nil, err
 	}
 	info := &resource.Info{}
-	clnt, err := s.ClientForMapping(mapping)
-	if err != nil {
-		return nil, err
+
+	var clnt resource.RESTClient
+	if s.Scheme().IsGroupRegistered(mapping.GroupVersionKind.Group) {
+		clnt, err = s.ClientForMapping(mapping)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		clnt, err = s.UnstructuredClientForMapping(mapping)
+		if err != nil {
+			return nil, err
+		}
+		obj.SetGroupVersionKind(mapping.GroupVersionKind)
 	}
 
 	info.Client = clnt

@@ -2,8 +2,8 @@ package manifest
 
 import (
 	"context"
-
 	"errors"
+
 	"helm.sh/helm/v3/pkg/kube"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -12,8 +12,10 @@ import (
 	"k8s.io/cli-runtime/pkg/resource"
 )
 
-var ErrResourceNotReady = errors.New("resource not ready")
-var ErrResourceNotDeleted = errors.New("resource not deleted")
+var (
+	ErrResourceNotReady   = errors.New("resource not ready")
+	ErrResourceNotDeleted = errors.New("resource not deleted")
+)
 
 func checkResourcesDeleted(targetResources kube.ResourceList) error {
 	return targetResources.Visit(func(info *resource.Info, err error) error {

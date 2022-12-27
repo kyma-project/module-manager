@@ -9,8 +9,7 @@ import (
 )
 
 type CustomObject interface {
-	runtime.Object
-	metav1.Object
+	BaseCustomObject
 	ComponentName() string
 	GetStatus() Status
 	SetStatus(Status)
