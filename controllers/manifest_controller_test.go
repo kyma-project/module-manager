@@ -134,19 +134,18 @@ var _ = Describe("Given manifest with OCI specs", Ordered, func() {
 			"expect state in ready and helmClient cache exist",
 			withValidInstallImageSpec(installName, false),
 			expectManifestStateIn(v1alpha1.ManifestStateReady), expectHelmClientCacheExist(true)),
-		Entry("When Manifest CR contains a valid install OCI image specification and enabled remote, "+
-			"expect state in ready and helmClient cache exist",
-			withValidInstallImageSpec(installName, true),
-			expectManifestStateIn(v1alpha1.ManifestStateReady), expectHelmClientCacheExist(true)),
-		Entry("When Manifest CR contains valid install and CRD image specification, "+
-			"expect state in ready and helmClient cache exist",
-			withValidInstallAndCRDsImageSpec(installName, crdName, true),
-			expectManifestStateIn(v1alpha1.ManifestStateReady), expectHelmClientCacheExist(true)),
-		Entry("When Manifest CR contains an invalid install OCI image specification, "+
-			"expect state in error and no helmClient cache exit",
-			withInvalidInstallImageSpec(false),
-			expectManifestStateIn(v1alpha1.ManifestStateError), expectHelmClientCacheExist(false),
-		),
+		//Entry("When Manifest CR contains a valid install OCI image specification and enabled remote, "+
+		//	"expect state in ready and helmClient cache exist",
+		//	withValidInstallImageSpec(installName, true),
+		//	expectManifestStateIn(v1alpha1.ManifestStateReady), expectHelmClientCacheExist(true)),
+		//Entry("When Manifest CR contains valid install and CRD image specification, "+
+		//	"expect state in ready and helmClient cache exist",
+		//	withValidInstallAndCRDsImageSpec(installName, crdName, true),
+		//	expectManifestStateIn(v1alpha1.ManifestStateReady), expectHelmClientCacheExist(true)),
+		//Entry("When Manifest CR contains an invalid install OCI image specification, "+
+		//	"expect state in error and no helmClient cache exit",
+		//	withInvalidInstallImageSpec(false),
+		//	expectManifestStateIn(v1alpha1.ManifestStateError), expectHelmClientCacheExist(false)),
 	)
 })
 

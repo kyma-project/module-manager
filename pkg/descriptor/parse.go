@@ -18,10 +18,11 @@ import (
 
 	"github.com/kyma-project/module-manager/pkg/util"
 
+	"github.com/google/go-containerregistry/pkg/authn"
 	yaml2 "sigs.k8s.io/yaml"
 )
 
-func GetPathFromExtractedTarGz(imageSpec types.ImageSpec, insecureRegistry bool) (string, error) {
+func GetPathFromExtractedTarGz(imageSpec types.ImageSpec, insecureRegistry bool, keyChain authn.Keychain) (string, error) {
 	imageRef := fmt.Sprintf("%s/%s@%s", imageSpec.Repo, imageSpec.Name, imageSpec.Ref)
 
 	// check existing dir
@@ -38,9 +39,9 @@ func GetPathFromExtractedTarGz(imageSpec types.ImageSpec, insecureRegistry bool)
 	// pull image layer
 	var layer v1.Layer
 	if insecureRegistry {
-		layer, err = crane.PullLayer(imageRef, crane.Insecure)
+		layer, err = crane.PullLayer(imageRef, crane.Insecure, crane.WithAuthFromKeychain(keyChain))
 	} else {
-		layer, err = crane.PullLayer(imageRef)
+		layer, err = crane.PullLayer(imageRef, crane.WithAuthFromKeychain(keyChain))
 	}
 	if err != nil {
 		return "", err

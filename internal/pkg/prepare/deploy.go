@@ -14,6 +14,8 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/google/go-containerregistry/pkg/authn"
+	authnK8s "github.com/google/go-containerregistry/pkg/authn/kubernetes"
 	"github.com/kyma-project/module-manager/api/v1alpha1"
 	manifestCustom "github.com/kyma-project/module-manager/internal/pkg/custom"
 	internalTypes "github.com/kyma-project/module-manager/internal/pkg/types"
@@ -23,6 +25,8 @@ import (
 	"github.com/kyma-project/module-manager/pkg/resource"
 	"github.com/kyma-project/module-manager/pkg/types"
 	"github.com/kyma-project/module-manager/pkg/util"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const configReadError = "reading install %s resulted in an error for " + v1alpha1.ManifestKind
@@ -58,7 +62,7 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 	customResCheck := &manifestCustom.Resource{DefaultClient: defaultClusterInfo.Client}
 
 	// check crds - if present do not update
-	crds, err := parseCrds(ctx, manifestObj.Spec.CRDs, flags.InsecureRegistry)
+	crds, err := parseCrds(ctx, manifestObj, flags.InsecureRegistry, defaultClusterInfo.Client)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +105,7 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 		baseDeployInfo.CustomResources = append(baseDeployInfo.CustomResources, &manifestObj.Spec.Resource)
 	}
 
-	return parseInstallations(manifestObj, flags.Codec, configs, &baseDeployInfo, flags.InsecureRegistry)
+	return parseInstallations(ctx, manifestObj, flags.Codec, configs, &baseDeployInfo, flags.InsecureRegistry)
 }
 
 func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo types.ClusterInfo,
@@ -161,9 +165,12 @@ func parseInstallConfigs(decodedConfig interface{}) ([]interface{}, error) {
 	return configs, nil
 }
 
-func parseInstallations(manifestObj *v1alpha1.Manifest, codec *types.Codec,
-	configs []interface{}, baseDeployInfo *types.InstallInfo, insecureRegistry bool,
-) ([]*types.InstallInfo, error) {
+func parseInstallations(ctx context.Context,
+	manifestObj *v1alpha1.Manifest,
+	codec *types.Codec,
+	configs []interface{},
+	baseDeployInfo *types.InstallInfo,
+	insecureRegistry bool) ([]*types.InstallInfo, error) {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 	deployInfos := make([]*types.InstallInfo, 0)
 
@@ -171,7 +178,7 @@ func parseInstallations(manifestObj *v1alpha1.Manifest, codec *types.Codec,
 		deployInfo := baseDeployInfo
 
 		// retrieve chart info
-		chartInfo, err := getChartInfoForInstall(install, codec, manifestObj, insecureRegistry)
+		chartInfo, err := getChartInfoForInstall(ctx, install, codec, manifestObj, insecureRegistry, deployInfo.Client)
 		if err != nil {
 			return nil, err
 		}
@@ -196,23 +203,69 @@ func parseInstallations(manifestObj *v1alpha1.Manifest, codec *types.Codec,
 	return deployInfos, nil
 }
 
-func parseCrds(ctx context.Context, crdImage types.ImageSpec, insecureRegistry bool,
+func parseCrds(ctx context.Context,
+	manifestObj *v1alpha1.Manifest,
+	insecureRegistry bool,
+	clusterClient client.Client,
 ) ([]*v1.CustomResourceDefinition, error) {
 	// if crds do not exist - do nothing
-	if crdImage.Type.NotEmpty() {
+	if manifestObj.Spec.CRDs.Type.NotEmpty() {
 		// extract helm chart from layer digest
-		crdsPath, err := descriptor.GetPathFromExtractedTarGz(crdImage, insecureRegistry)
+		crdsPath, err := getCRDsPath(ctx,
+			manifestObj.Spec.CRDs,
+			manifestObj.Spec.AuthSecretSelector,
+			manifestObj.Namespace,
+			insecureRegistry, clusterClient)
 		if err != nil {
 			return nil, err
 		}
-
 		return resource.GetCRDsFromPath(ctx, crdsPath)
 	}
 	return nil, nil
 }
 
-func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *types.Codec,
-	manifestObj *v1alpha1.Manifest, insecureRegistry bool,
+func getCRDsPath(ctx context.Context,
+	imageSpec types.ImageSpec,
+	authSecretSelector metav1.LabelSelector,
+	namespace string,
+	insecureRegistry bool,
+	clusterClient client.Client,
+) (string, error) {
+	var crdsPath string
+	var err error
+	crdsPath, err = descriptor.GetPathFromExtractedTarGz(imageSpec, insecureRegistry, authn.DefaultKeychain)
+	if err != nil {
+		// try to get credential from secret and try again
+		secretList := corev1.SecretList{}
+		selector, err := metav1.LabelSelectorAsSelector(&authSecretSelector)
+		if err != nil {
+			return "", fmt.Errorf("error converting labelSelector: %w", err)
+		}
+		err = clusterClient.List(ctx, &secretList, &client.ListOptions{
+			LabelSelector: selector,
+			Namespace:     namespace,
+		})
+		if err != nil {
+			return "", err
+		}
+		k8sKeychain, err := authnK8s.NewFromPullSecrets(ctx, secretList.Items)
+		if err != nil {
+			return "", fmt.Errorf("can't fetch OCI registery credencial secret %w", err)
+		}
+		crdsPath, err = descriptor.GetPathFromExtractedTarGz(imageSpec, insecureRegistry, k8sKeychain)
+		if err != nil {
+			return "", err
+		}
+	}
+	return crdsPath, nil
+}
+
+func getChartInfoForInstall(ctx context.Context,
+	install v1alpha1.InstallInfo,
+	codec *types.Codec,
+	manifestObj *v1alpha1.Manifest,
+	insecureRegistry bool,
+	clusterClient client.Client,
 ) (*types.ChartInfo, error) {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 	specType, err := types.GetSpecType(install.Source.Raw)
@@ -222,49 +275,76 @@ func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *types.Codec,
 
 	switch specType {
 	case types.HelmChartType:
-		var helmChartSpec types.HelmChartSpec
-		if err = codec.Decode(install.Source.Raw, &helmChartSpec, specType); err != nil {
-			return nil, err
-		}
-
-		return &types.ChartInfo{
-			ChartName: fmt.Sprintf("%s/%s", install.Name, helmChartSpec.ChartName),
-			RepoName:  install.Name,
-			URL:       helmChartSpec.URL,
-		}, nil
-
+		return createHelmChartInfo(codec, install, specType)
 	case types.OciRefType:
-		var imageSpec types.ImageSpec
-		if err = codec.Decode(install.Source.Raw, &imageSpec, specType); err != nil {
-			return nil, err
-		}
-
-		// extract helm chart from layer digest
-		chartPath, err := descriptor.GetPathFromExtractedTarGz(imageSpec, insecureRegistry)
-		if err != nil {
-			return nil, err
-		}
-
-		return &types.ChartInfo{
-			ChartName: install.Name,
-			ChartPath: chartPath,
-		}, nil
+		return createOciChartInfo(ctx, install, codec, specType, manifestObj, insecureRegistry, clusterClient)
 	case types.KustomizeType:
-		var kustomizeSpec types.KustomizeSpec
-		if err = codec.Decode(install.Source.Raw, &kustomizeSpec, specType); err != nil {
-			return nil, err
-		}
-
-		return &types.ChartInfo{
-			ChartName: install.Name,
-			ChartPath: kustomizeSpec.Path,
-			URL:       kustomizeSpec.URL,
-		}, nil
+		return createKustomizeChartInfo(codec, install, specType)
 	case types.NilRefType:
 		return nil, fmt.Errorf("empty image type for %s resource chart installation", namespacedName.String())
 	}
 
 	return nil, fmt.Errorf("unsupported type %s of install for Manifest %s", specType, namespacedName)
+}
+
+func createKustomizeChartInfo(codec *types.Codec,
+	install v1alpha1.InstallInfo,
+	specType types.RefTypeMetadata,
+) (*types.ChartInfo, error) {
+	var kustomizeSpec types.KustomizeSpec
+	if err := codec.Decode(install.Source.Raw, &kustomizeSpec, specType); err != nil {
+		return nil, err
+	}
+
+	return &types.ChartInfo{
+		ChartName: install.Name,
+		ChartPath: kustomizeSpec.Path,
+		URL:       kustomizeSpec.URL,
+	}, nil
+}
+
+func createOciChartInfo(ctx context.Context,
+	install v1alpha1.InstallInfo,
+	codec *types.Codec,
+	specType types.RefTypeMetadata,
+	manifestObj *v1alpha1.Manifest,
+	insecureRegistry bool,
+	clusterClient client.Client,
+) (*types.ChartInfo, error) {
+	var imageSpec types.ImageSpec
+	if err := codec.Decode(install.Source.Raw, &imageSpec, specType); err != nil {
+		return nil, err
+	}
+
+	// extract helm chart from layer digest
+	chartPath, err := getCRDsPath(ctx, imageSpec,
+		manifestObj.Spec.AuthSecretSelector,
+		manifestObj.Namespace,
+		insecureRegistry, clusterClient)
+	if err != nil {
+		return nil, err
+	}
+
+	return &types.ChartInfo{
+		ChartName: install.Name,
+		ChartPath: chartPath,
+	}, nil
+}
+
+func createHelmChartInfo(codec *types.Codec,
+	install v1alpha1.InstallInfo,
+	specType types.RefTypeMetadata,
+) (*types.ChartInfo, error) {
+	var helmChartSpec types.HelmChartSpec
+	if err := codec.Decode(install.Source.Raw, &helmChartSpec, specType); err != nil {
+		return nil, err
+	}
+
+	return &types.ChartInfo{
+		ChartName: fmt.Sprintf("%s/%s", install.Name, helmChartSpec.ChartName),
+		RepoName:  install.Name,
+		URL:       helmChartSpec.URL,
+	}, nil
 }
 
 func getConfigAndValuesForInstall(installName string, configs []interface{}) (
