@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 
@@ -19,11 +20,13 @@ import (
 	"github.com/kyma-project/module-manager/pkg/util"
 
 	"github.com/google/go-containerregistry/pkg/authn"
-	"path"
 	yaml2 "sigs.k8s.io/yaml"
 )
 
-func GetPathFromExtractedTarGz(imageSpec types.ImageSpec, insecureRegistry bool, keyChain authn.Keychain) (string, error) {
+func GetPathFromExtractedTarGz(imageSpec types.ImageSpec,
+	insecureRegistry bool,
+	keyChain authn.Keychain,
+) (string, error) {
 	imageRef := fmt.Sprintf("%s/%s@%s", imageSpec.Repo, imageSpec.Name, imageSpec.Ref)
 
 	// check existing dir

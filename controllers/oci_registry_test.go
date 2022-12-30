@@ -2,6 +2,8 @@ package controllers_test
 
 import (
 	"encoding/json"
+	"os"
+
 	"github.com/kyma-project/module-manager/api/v1alpha1"
 	"github.com/kyma-project/module-manager/pkg/labels"
 	"github.com/kyma-project/module-manager/pkg/types"
@@ -9,7 +11,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"os"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 )
@@ -43,6 +45,7 @@ func installAuthSecret() {
 	secretFile, err := os.ReadFile("../pkg/test_samples/auth_secret.yaml")
 	Expect(err).ToNot(HaveOccurred())
 	err = yaml.Unmarshal(secretFile, secret)
+	Expect(err).ToNot(HaveOccurred())
 	err = k8sClient.Create(ctx, secret)
 	Expect(err).ToNot(HaveOccurred())
 	err = k8sClient.Get(ctx, client.ObjectKeyFromObject(secret), &corev1.Secret{})

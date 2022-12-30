@@ -241,21 +241,11 @@ func getChartPath(ctx context.Context,
 	chartPath, err = descriptor.GetPathFromExtractedTarGz(imageSpec, insecureRegistry, authn.DefaultKeychain)
 	if err != nil {
 		// try to get credential from secret and try again
-		secretList := corev1.SecretList{}
-		selector, err := metav1.LabelSelectorAsSelector(&authSecretSelector)
-		if err != nil {
-			return "", fmt.Errorf("error converting labelSelector: %w", err)
-		}
-		err = clusterClient.List(ctx, &secretList, &client.ListOptions{
-			LabelSelector: selector,
-			Namespace:     namespace,
-		})
+		secretList, err := getAuthSecrets(ctx, authSecretSelector, clusterClient, namespace)
 		if err != nil {
 			return "", err
 		}
-		if len(secretList.Items) == 0 {
-			return "", ErrNoAuthSecretFound
-		}
+
 		k8sKeychain, err := authnK8s.NewFromPullSecrets(ctx, secretList.Items)
 		if err != nil {
 			return "", fmt.Errorf("can't fetch OCI registry credencial secret %w", err)
@@ -266,6 +256,29 @@ func getChartPath(ctx context.Context,
 		}
 	}
 	return chartPath, nil
+}
+
+func getAuthSecrets(ctx context.Context,
+	authSecretSelector metav1.LabelSelector,
+	clusterClient client.Client,
+	namespace string,
+) (corev1.SecretList, error) {
+	secretList := corev1.SecretList{}
+	selector, err := metav1.LabelSelectorAsSelector(&authSecretSelector)
+	if err != nil {
+		return secretList, fmt.Errorf("error converting labelSelector: %w", err)
+	}
+	err = clusterClient.List(ctx, &secretList, &client.ListOptions{
+		LabelSelector: selector,
+		Namespace:     namespace,
+	})
+	if err != nil {
+		return secretList, err
+	}
+	if len(secretList.Items) == 0 {
+		return secretList, ErrNoAuthSecretFound
+	}
+	return secretList, nil
 }
 
 func getChartInfoForInstall(ctx context.Context,
