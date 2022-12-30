@@ -6,6 +6,7 @@ const (
 	ComponentOwner    = OperatorPrefix + Separator + "kyma-name"
 	CacheKey          = OperatorPrefix + Separator + "cache-key"
 	ManagedBy         = OperatorPrefix + Separator + "managed-by"
+	OCIRegistryCred   = OperatorPrefix + Separator + "oci-registry-cred"
 	LifecycleManager  = "lifecycle-manager"
 	ManifestFinalizer = "operator.kyma-project.io/manifest"
 	OperatorName      = "module-manager"

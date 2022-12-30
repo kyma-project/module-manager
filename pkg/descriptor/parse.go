@@ -19,6 +19,7 @@ import (
 	"github.com/kyma-project/module-manager/pkg/util"
 
 	"github.com/google/go-containerregistry/pkg/authn"
+	"path"
 	yaml2 "sigs.k8s.io/yaml"
 )
 
@@ -75,18 +76,21 @@ func writeTarGzContent(installPath string, tarReader *tar.Reader, layerReference
 			return fmt.Errorf("failed Next() while extracting TarGz %s: %w", layerReference, err)
 		}
 
-		destinationPath, err := util.CleanFilePathJoin(installPath, header.Name)
+		destDir, destFile := path.Split(header.Name)
+		destinationPath, err := util.CleanFilePathJoin(installPath, destDir)
 		if err != nil {
 			return err
 		}
-		if err = handleExtractedHeaderFile(header, tarReader, destinationPath, layerReference); err != nil {
+		if err = handleExtractedHeaderFile(header, tarReader, destFile, destinationPath, layerReference); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func handleExtractedHeaderFile(header *tar.Header, reader io.Reader, destinationPath string, layerReference string,
+func handleExtractedHeaderFile(header *tar.Header,
+	reader io.Reader,
+	file, destinationPath, layerReference string,
 ) error {
 	switch header.Typeflag {
 	case tar.TypeDir:
@@ -94,8 +98,9 @@ func handleExtractedHeaderFile(header *tar.Header, reader io.Reader, destination
 			return fmt.Errorf("failure in Mkdir() storage while extracting TarGz %s: %w", layerReference, err)
 		}
 	case tar.TypeReg:
+		filePath := path.Join(destinationPath, file)
 		//nolint:nosnakecase
-		outFile, err := os.OpenFile(destinationPath, os.O_CREATE|os.O_RDWR, os.FileMode(header.Mode))
+		outFile, err := os.OpenFile(filePath, os.O_CREATE|os.O_RDWR, os.FileMode(header.Mode))
 		if err != nil {
 			return fmt.Errorf("file create failed while extracting TarGz %s: %w", layerReference, err)
 		}

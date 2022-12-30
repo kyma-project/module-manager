@@ -134,18 +134,18 @@ var _ = Describe("Given manifest with OCI specs", Ordered, func() {
 			"expect state in ready and helmClient cache exist",
 			withValidInstallImageSpec(installName, false),
 			expectManifestStateIn(v1alpha1.ManifestStateReady), expectHelmClientCacheExist(true)),
-		//Entry("When Manifest CR contains a valid install OCI image specification and enabled remote, "+
-		//	"expect state in ready and helmClient cache exist",
-		//	withValidInstallImageSpec(installName, true),
-		//	expectManifestStateIn(v1alpha1.ManifestStateReady), expectHelmClientCacheExist(true)),
-		//Entry("When Manifest CR contains valid install and CRD image specification, "+
-		//	"expect state in ready and helmClient cache exist",
-		//	withValidInstallAndCRDsImageSpec(installName, crdName, true),
-		//	expectManifestStateIn(v1alpha1.ManifestStateReady), expectHelmClientCacheExist(true)),
-		//Entry("When Manifest CR contains an invalid install OCI image specification, "+
-		//	"expect state in error and no helmClient cache exit",
-		//	withInvalidInstallImageSpec(false),
-		//	expectManifestStateIn(v1alpha1.ManifestStateError), expectHelmClientCacheExist(false)),
+		Entry("When Manifest CR contains a valid install OCI image specification and enabled remote, "+
+			"expect state in ready and helmClient cache exist",
+			withValidInstallImageSpec(installName, true),
+			expectManifestStateIn(v1alpha1.ManifestStateReady), expectHelmClientCacheExist(true)),
+		Entry("When Manifest CR contains valid install and CRD image specification, "+
+			"expect state in ready and helmClient cache exist",
+			withValidInstallAndCRDsImageSpec(installName, crdName, true),
+			expectManifestStateIn(v1alpha1.ManifestStateReady), expectHelmClientCacheExist(true)),
+		Entry("When Manifest CR contains an invalid install OCI image specification, "+
+			"expect state in error and no helmClient cache exit",
+			withInvalidInstallImageSpec(false),
+			expectManifestStateIn(v1alpha1.ManifestStateError), expectHelmClientCacheExist(false)),
 	)
 })
 
@@ -184,7 +184,7 @@ var _ = Describe("Test multiple Manifest CRs with same parent and OCI spec", Ord
 		manifestWithInstall := NewTestManifest("multi-oci1")
 		Eventually(withValidInstallImageSpec(installName, false), standardTimeout, standardInterval).
 			WithArguments(manifestWithInstall).Should(Succeed())
-		validImageSpec := createImageSpec(installName, server.Listener.Addr().String(), layerInstalls)
+		validImageSpec := createOCIImageSpec(installName, server.Listener.Addr().String(), layerInstalls)
 		Eventually(expectHelmClientCacheExist(true), standardTimeout, standardInterval).
 			WithArguments(manifestWithInstall.GetLabels()[labels.ComponentOwner]).Should(BeTrue())
 		// this will ensure only manifest.yaml remains
@@ -217,7 +217,7 @@ func skipExpect() func() bool {
 
 func withInvalidInstallImageSpec(remote bool) func(manifest *v1alpha1.Manifest) error {
 	return func(manifest *v1alpha1.Manifest) error {
-		invalidImageSpec := createImageSpec("invalid-image-spec", "domain.invalid", layerInstalls)
+		invalidImageSpec := createOCIImageSpec("invalid-image-spec", "domain.invalid", layerInstalls)
 		imageSpecByte, err := json.Marshal(invalidImageSpec)
 		Expect(err).ToNot(HaveOccurred())
 		return installManifest(manifest, imageSpecByte, types.ImageSpec{}, remote)
@@ -226,7 +226,7 @@ func withInvalidInstallImageSpec(remote bool) func(manifest *v1alpha1.Manifest) 
 
 func withValidInstallImageSpec(name string, remote bool) func(manifest *v1alpha1.Manifest) error {
 	return func(manifest *v1alpha1.Manifest) error {
-		validImageSpec := createImageSpec(name, server.Listener.Addr().String(), layerInstalls)
+		validImageSpec := createOCIImageSpec(name, server.Listener.Addr().String(), layerInstalls)
 		imageSpecByte, err := json.Marshal(validImageSpec)
 		Expect(err).ToNot(HaveOccurred())
 		return installManifest(manifest, imageSpecByte, types.ImageSpec{}, remote)
@@ -243,11 +243,11 @@ func withValidInstallAndCRDsImageSpec(installName,
 	crdName string, remote bool,
 ) func(manifest *v1alpha1.Manifest) error {
 	return func(manifest *v1alpha1.Manifest) error {
-		validInstallImageSpec := createImageSpec(installName, server.Listener.Addr().String(), layerInstalls)
+		validInstallImageSpec := createOCIImageSpec(installName, server.Listener.Addr().String(), layerInstalls)
 		installSpecByte, err := json.Marshal(validInstallImageSpec)
 		Expect(err).ToNot(HaveOccurred())
 
-		validCRDsImageSpec := createImageSpec(crdName, server.Listener.Addr().String(), layerCRDs)
+		validCRDsImageSpec := createOCIImageSpec(crdName, server.Listener.Addr().String(), layerCRDs)
 		return installManifest(manifest, installSpecByte, validCRDsImageSpec, remote)
 	}
 }

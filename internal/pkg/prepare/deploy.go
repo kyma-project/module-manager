@@ -31,6 +31,8 @@ import (
 
 const configReadError = "reading install %s resulted in an error for " + v1alpha1.ManifestKind
 
+var ErrNoAuthSecretFound = errors.New("no auth secret found")
+
 // GetInstallInfos pre-processes the passed Manifest CR and returns a list types.InstallInfo objects,
 // each representing an installation artifact.
 func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClusterInfo types.ClusterInfo,
@@ -105,7 +107,8 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 		baseDeployInfo.CustomResources = append(baseDeployInfo.CustomResources, &manifestObj.Spec.Resource)
 	}
 
-	return parseInstallations(ctx, manifestObj, flags.Codec, configs, &baseDeployInfo, flags.InsecureRegistry)
+	return parseInstallations(ctx, manifestObj, flags.Codec, configs, &baseDeployInfo,
+		flags.InsecureRegistry, defaultClusterInfo.Client)
 }
 
 func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo types.ClusterInfo,
@@ -170,7 +173,9 @@ func parseInstallations(ctx context.Context,
 	codec *types.Codec,
 	configs []interface{},
 	baseDeployInfo *types.InstallInfo,
-	insecureRegistry bool) ([]*types.InstallInfo, error) {
+	insecureRegistry bool,
+	clusterClient client.Client,
+) ([]*types.InstallInfo, error) {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 	deployInfos := make([]*types.InstallInfo, 0)
 
@@ -178,7 +183,7 @@ func parseInstallations(ctx context.Context,
 		deployInfo := baseDeployInfo
 
 		// retrieve chart info
-		chartInfo, err := getChartInfoForInstall(ctx, install, codec, manifestObj, insecureRegistry, deployInfo.Client)
+		chartInfo, err := getChartInfoForInstall(ctx, install, codec, manifestObj, insecureRegistry, clusterClient)
 		if err != nil {
 			return nil, err
 		}
@@ -211,7 +216,7 @@ func parseCrds(ctx context.Context,
 	// if crds do not exist - do nothing
 	if manifestObj.Spec.CRDs.Type.NotEmpty() {
 		// extract helm chart from layer digest
-		crdsPath, err := getCRDsPath(ctx,
+		crdsPath, err := getChartPath(ctx,
 			manifestObj.Spec.CRDs,
 			manifestObj.Spec.AuthSecretSelector,
 			manifestObj.Namespace,
@@ -224,16 +229,16 @@ func parseCrds(ctx context.Context,
 	return nil, nil
 }
 
-func getCRDsPath(ctx context.Context,
+func getChartPath(ctx context.Context,
 	imageSpec types.ImageSpec,
 	authSecretSelector metav1.LabelSelector,
 	namespace string,
 	insecureRegistry bool,
 	clusterClient client.Client,
 ) (string, error) {
-	var crdsPath string
+	var chartPath string
 	var err error
-	crdsPath, err = descriptor.GetPathFromExtractedTarGz(imageSpec, insecureRegistry, authn.DefaultKeychain)
+	chartPath, err = descriptor.GetPathFromExtractedTarGz(imageSpec, insecureRegistry, authn.DefaultKeychain)
 	if err != nil {
 		// try to get credential from secret and try again
 		secretList := corev1.SecretList{}
@@ -248,16 +253,19 @@ func getCRDsPath(ctx context.Context,
 		if err != nil {
 			return "", err
 		}
+		if len(secretList.Items) == 0 {
+			return "", ErrNoAuthSecretFound
+		}
 		k8sKeychain, err := authnK8s.NewFromPullSecrets(ctx, secretList.Items)
 		if err != nil {
-			return "", fmt.Errorf("can't fetch OCI registery credencial secret %w", err)
+			return "", fmt.Errorf("can't fetch OCI registry credencial secret %w", err)
 		}
-		crdsPath, err = descriptor.GetPathFromExtractedTarGz(imageSpec, insecureRegistry, k8sKeychain)
+		chartPath, err = descriptor.GetPathFromExtractedTarGz(imageSpec, insecureRegistry, k8sKeychain)
 		if err != nil {
 			return "", err
 		}
 	}
-	return crdsPath, nil
+	return chartPath, nil
 }
 
 func getChartInfoForInstall(ctx context.Context,
@@ -317,7 +325,7 @@ func createOciChartInfo(ctx context.Context,
 	}
 
 	// extract helm chart from layer digest
-	chartPath, err := getCRDsPath(ctx, imageSpec,
+	chartPath, err := getChartPath(ctx, imageSpec,
 		manifestObj.Spec.AuthSecretSelector,
 		manifestObj.Namespace,
 		insecureRegistry, clusterClient)
