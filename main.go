@@ -17,17 +17,31 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"flag"
+	"fmt"
 	"net/http"
 	"net/http/pprof"
 	"os"
+	"strings"
 	"time"
 
+	declarative "github.com/kyma-project/module-manager/pkg/declarative/v2"
+	"github.com/kyma-project/module-manager/pkg/labels"
+	listener "github.com/kyma-project/runtime-watcher/listener/pkg/event"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/util/workqueue"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	manifestv1alpha1 "github.com/kyma-project/module-manager/api/v1alpha1"
 	"github.com/kyma-project/module-manager/controllers"
-	internalTypes "github.com/kyma-project/module-manager/internal/pkg/types"
 	"github.com/kyma-project/module-manager/internal/pkg/util"
 	"github.com/kyma-project/module-manager/pkg/types"
 
@@ -129,47 +143,118 @@ func pprofStartServer(addr string, timeout time.Duration) {
 }
 
 func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme *runtime.Scheme, config *rest.Config) {
-	mgr, err := ctrl.NewManager(config, ctrl.Options{
-		Scheme:                 scheme,
-		MetricsBindAddress:     flagVar.metricsAddr,
-		Port:                   port,
-		HealthProbeBindAddress: flagVar.probeAddr,
-		LeaderElection:         flagVar.enableLeaderElection,
-		LeaderElectionID:       "7f5e28d0.kyma-project.io",
-		NewCache:               newCacheFunc,
-	})
+	mgr, err := ctrl.NewManager(
+		config, ctrl.Options{
+			Scheme:                 scheme,
+			MetricsBindAddress:     flagVar.metricsAddr,
+			Port:                   port,
+			HealthProbeBindAddress: flagVar.probeAddr,
+			LeaderElection:         flagVar.enableLeaderElection,
+			LeaderElectionID:       "7f5e28d0.kyma-project.io",
+			NewCache:               newCacheFunc,
+		},
+	)
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
-	context := ctrl.SetupSignalHandler()
-	workersLogger := ctrl.Log.WithName("workers")
-	manifestWorkers := controllers.NewManifestWorkers(workersLogger, flagVar.workersConcurrentManifests)
+	signals := ctrl.SetupSignalHandler()
 	codec, err := types.NewCodec()
 	if err != nil {
 		setupLog.Error(err, "unable to initialize codec")
 		os.Exit(1)
 	}
-	if err = (&controllers.ManifestReconciler{
-		Client:           mgr.GetClient(),
-		Scheme:           mgr.GetScheme(),
-		Workers:          manifestWorkers,
-		CacheSyncTimeout: flagVar.cacheSyncTimeout,
-		ReconcileFlagConfig: internalTypes.ReconcileFlagConfig{
-			Codec:                   codec,
-			MaxConcurrentReconciles: flagVar.concurrentReconciles,
-			CheckReadyStates:        flagVar.checkReadyStates,
-			CustomStateCheck:        flagVar.customStateCheck,
-			InsecureRegistry:        flagVar.insecureRegistry,
-		},
-		RequeueIntervals: controllers.RequeueIntervals{
-			Success: flagVar.requeueSuccessInterval,
-		},
-	}).SetupWithManager(context, mgr, flagVar.failureBaseDelay, flagVar.failureMaxDelay,
-		flagVar.rateLimiterFrequency, flagVar.rateLimiterBurst, flagVar.listenerAddr); err != nil {
+
+	runnableListener, eventChannel := listener.RegisterListenerComponent(
+		flagVar.listenerAddr, strings.ToLower(labels.OperatorName),
+	)
+
+	// start listener as a manager runnable
+	if err := mgr.Add(runnableListener); err != nil {
+		setupLog.Error(err, "unable to initialize listener")
+		os.Exit(1)
+	}
+
+	if err = ctrl.NewControllerManagedBy(mgr).
+		For(&manifestv1alpha1.Manifest{}).
+		Watches(&source.Kind{Type: &v1.Secret{}}, handler.Funcs{}).
+		Watches(
+			eventChannel, &handler.Funcs{
+				GenericFunc: func(event event.GenericEvent, queue workqueue.RateLimitingInterface) {
+					ctrl.Log.WithName("listener").Info(
+						fmt.Sprintf(
+							"event coming from SKR, adding %s to queue",
+							client.ObjectKeyFromObject(event.Object).String(),
+						),
+					)
+					queue.Add(ctrl.Request{NamespacedName: client.ObjectKeyFromObject(event.Object)})
+				},
+			},
+		).
+		WithOptions(
+			controller.Options{
+				RateLimiter: controllers.ManifestRateLimiter(
+					flagVar.failureBaseDelay, flagVar.failureMaxDelay,
+					flagVar.rateLimiterFrequency,
+					flagVar.rateLimiterBurst,
+				),
+				MaxConcurrentReconciles: flagVar.concurrentReconciles,
+				CacheSyncTimeout:        flagVar.cacheSyncTimeout,
+			},
+		).Complete(
+		declarative.NewFromManager(
+			mgr, &manifestv1alpha1.Manifest{},
+			declarative.WithSpecResolver(
+				&controllers.ManifestSpecResolver{
+					Codec: codec,
+					ClusterInfo: &types.ClusterInfo{
+						Config: mgr.GetConfig(),
+						Client: mgr.GetClient(),
+					},
+					Insecure: flagVar.insecureRegistry,
+				},
+			),
+			declarative.WithPostRun{func(
+				ctx context.Context, skr declarative.Client, kcp client.Client, obj declarative.Object,
+			) error {
+				manifest := obj.(*manifestv1alpha1.Manifest)
+				if err := skr.Patch(
+					ctx, &manifest.Spec.Resource,
+					client.Apply,
+					client.ForceOwnership,
+					client.FieldOwner("module.kyma-project.io"),
+				); err != nil && !errors.IsAlreadyExists(err) {
+					return err
+				}
+				if added := controllerutil.AddFinalizer(obj, "module.kyma-project.io"); added {
+					if err := kcp.Update(ctx, obj); err != nil {
+						return err
+					}
+					obj.SetManagedFields(nil)
+				}
+				return nil
+			}},
+			declarative.WithPreDelete{func(
+				ctx context.Context, skr declarative.Client, kcp client.Client, obj declarative.Object,
+			) error {
+				manifest := obj.(*manifestv1alpha1.Manifest)
+				if err := skr.Delete(ctx, &manifest.Spec.Resource); err != nil && !errors.IsNotFound(err) {
+					return err
+				}
+				if removed := controllerutil.RemoveFinalizer(obj, "module.kyma-project.io"); removed {
+					if err := kcp.Update(ctx, obj); err != nil {
+						return err
+					}
+					obj.SetManagedFields(nil)
+				}
+				return nil
+			}},
+		),
+	); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Manifest")
 		os.Exit(1)
 	}
+
 	if flagVar.enableWebhooks {
 		if err = (&manifestv1alpha1.Manifest{}).SetupWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "Manifest")
@@ -187,7 +272,7 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 		os.Exit(1)
 	}
 	setupLog.Info("starting manager")
-	if err := mgr.Start(context); err != nil {
+	if err := mgr.Start(signals); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
@@ -195,48 +280,86 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 
 func defineFlagVar() *FlagVar {
 	flagVar := new(FlagVar)
-	flag.StringVar(&flagVar.metricsAddr, "metrics-bind-address", ":8080",
-		"The address the metric endpoint binds to.")
-	flag.StringVar(&flagVar.probeAddr, "health-probe-bind-address", ":8081",
-		"The address the probe endpoint binds to.")
-	flag.StringVar(&flagVar.listenerAddr, "listener-address", ":8082",
-		"The address the probe endpoint binds to.")
-	flag.StringVar(&flagVar.pprofAddr, "pprof-bind-address", ":8083",
-		"The address the pprof endpoint binds to.")
-	flag.BoolVar(&flagVar.enableLeaderElection, "leader-elect", false,
+	flag.StringVar(
+		&flagVar.metricsAddr, "metrics-bind-address", ":8080",
+		"The address the metric endpoint binds to.",
+	)
+	flag.StringVar(
+		&flagVar.probeAddr, "health-probe-bind-address", ":8081",
+		"The address the probe endpoint binds to.",
+	)
+	flag.StringVar(
+		&flagVar.listenerAddr, "listener-address", ":8082",
+		"The address the probe endpoint binds to.",
+	)
+	flag.StringVar(
+		&flagVar.pprofAddr, "pprof-bind-address", ":8083",
+		"The address the pprof endpoint binds to.",
+	)
+	flag.BoolVar(
+		&flagVar.enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
-			"Enabling this will ensure there is only one active controller manager.")
-	flag.DurationVar(&flagVar.requeueSuccessInterval, "requeue-success-interval", requeueSuccessIntervalDefault,
+			"Enabling this will ensure there is only one active controller manager.",
+	)
+	flag.DurationVar(
+		&flagVar.requeueSuccessInterval, "requeue-success-interval", requeueSuccessIntervalDefault,
 		"Determines the duration after which an already successfully reconciled Manifest is "+
-			"enqueued for checking, if it's still in a consistent state.")
-	flag.IntVar(&flagVar.concurrentReconciles, "max-concurrent-reconciles", 1,
-		"Determines the number of concurrent reconciliations by the operator.")
-	flag.IntVar(&flagVar.workersConcurrentManifests, "workers-concurrent-manifest", workersCountDefault,
-		"Determines the number of concurrent manifest operations for a single resource by the operator.")
-	flag.BoolVar(&flagVar.checkReadyStates, "check-ready-states", false,
+			"enqueued for checking, if it's still in a consistent state.",
+	)
+	flag.IntVar(
+		&flagVar.concurrentReconciles, "max-concurrent-reconciles", 1,
+		"Determines the number of concurrent reconciliations by the operator.",
+	)
+	flag.IntVar(
+		&flagVar.workersConcurrentManifests, "workers-concurrent-manifest", workersCountDefault,
+		"Determines the number of concurrent manifest operations for a single resource by the operator.",
+	)
+	flag.BoolVar(
+		&flagVar.checkReadyStates, "check-ready-states", false,
 		"Indicates if installed resources should be verified after installation, "+
-			"before marking the resource state to a consistent state.")
-	flag.BoolVar(&flagVar.customStateCheck, "custom-state-check", false,
-		"Indicates if desired state should be checked on custom resource(s)")
-	flag.IntVar(&flagVar.rateLimiterBurst, "rate-limiter-burst", rateLimiterBurstDefault,
-		"Indicates the burst value for the bucket rate limiter.")
-	flag.IntVar(&flagVar.rateLimiterFrequency, "rate-limiter-frequency", rateLimiterFrequencyDefault,
-		"Indicates the bucket rate limiter frequency, signifying no. of events per second.")
-	flag.DurationVar(&flagVar.failureBaseDelay, "failure-base-delay", failureBaseDelayDefault,
-		"Indicates the failure base delay in seconds for rate limiter.")
-	flag.DurationVar(&flagVar.failureMaxDelay, "failure-max-delay", failureMaxDelayDefault,
-		"Indicates the failure max delay in seconds")
+			"before marking the resource state to a consistent state.",
+	)
+	flag.BoolVar(
+		&flagVar.customStateCheck, "custom-state-check", false,
+		"Indicates if desired state should be checked on custom resource(s)",
+	)
+	flag.IntVar(
+		&flagVar.rateLimiterBurst, "rate-limiter-burst", rateLimiterBurstDefault,
+		"Indicates the burst value for the bucket rate limiter.",
+	)
+	flag.IntVar(
+		&flagVar.rateLimiterFrequency, "rate-limiter-frequency", rateLimiterFrequencyDefault,
+		"Indicates the bucket rate limiter frequency, signifying no. of events per second.",
+	)
+	flag.DurationVar(
+		&flagVar.failureBaseDelay, "failure-base-delay", failureBaseDelayDefault,
+		"Indicates the failure base delay in seconds for rate limiter.",
+	)
+	flag.DurationVar(
+		&flagVar.failureMaxDelay, "failure-max-delay", failureMaxDelayDefault,
+		"Indicates the failure max delay in seconds",
+	)
 	flag.Float64Var(&flagVar.clientQPS, "k8s-client-qps", clientQPSDefault, "kubernetes client QPS")
 	flag.IntVar(&flagVar.clientBurst, "k8s-client-burst", clientBurstDefault, "kubernetes client Burst")
-	flag.BoolVar(&flagVar.insecureRegistry, "insecure-registry", false,
-		"indicates if insecure (http) response is expected from image registry")
-	flag.BoolVar(&flagVar.enableWebhooks, "enable-webhooks", false,
-		"indicates if webhooks should be enabled")
-	flag.BoolVar(&flagVar.enablePProf, "enable-pprof", false,
-		"indicates if pprof should be enabled")
-	flag.DurationVar(&flagVar.pprofServerTimeout, "pprof-server-timeout", defaultPprofServerTimeout,
-		"Timeout of Read / Write for the pprof server.")
-	flag.DurationVar(&flagVar.cacheSyncTimeout, "cache-sync-timeout", defaultCacheSyncTimeout,
-		"Indicates the cache sync timeout in seconds")
+	flag.BoolVar(
+		&flagVar.insecureRegistry, "insecure-registry", false,
+		"indicates if insecure (http) response is expected from image registry",
+	)
+	flag.BoolVar(
+		&flagVar.enableWebhooks, "enable-webhooks", false,
+		"indicates if webhooks should be enabled",
+	)
+	flag.BoolVar(
+		&flagVar.enablePProf, "enable-pprof", false,
+		"indicates if pprof should be enabled",
+	)
+	flag.DurationVar(
+		&flagVar.pprofServerTimeout, "pprof-server-timeout", defaultPprofServerTimeout,
+		"Timeout of Read / Write for the pprof server.",
+	)
+	flag.DurationVar(
+		&flagVar.cacheSyncTimeout, "cache-sync-timeout", defaultCacheSyncTimeout,
+		"Indicates the cache sync timeout in seconds",
+	)
 	return flagVar
 }

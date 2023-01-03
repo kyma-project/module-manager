@@ -470,12 +470,14 @@ func cacheKeyFromObject(ctx context.Context, resource client.Object) client.Obje
 }
 
 func (r *Reconciler) ssaStatus(ctx context.Context, obj client.Object) (ctrl.Result, error) {
+	obj.SetUID("")
 	obj.SetManagedFields(nil)
 	obj.SetResourceVersion("")
 	return ctrl.Result{Requeue: true}, r.Status().Patch(ctx, obj, client.Apply, client.ForceOwnership, r.FieldOwner)
 }
 
 func (r *Reconciler) ssa(ctx context.Context, obj client.Object) (ctrl.Result, error) {
+	obj.SetUID("")
 	obj.SetManagedFields(nil)
 	obj.SetResourceVersion("")
 	return ctrl.Result{Requeue: true}, r.Patch(ctx, obj, client.Apply, client.ForceOwnership, r.FieldOwner)
