@@ -41,12 +41,7 @@ func GetPathFromExtractedTarGz(imageSpec types.ImageSpec,
 	}
 
 	// pull image layer
-	var layer v1.Layer
-	if insecureRegistry {
-		layer, err = crane.PullLayer(imageRef, crane.Insecure, crane.WithAuthFromKeychain(keyChain))
-	} else {
-		layer, err = crane.PullLayer(imageRef, crane.WithAuthFromKeychain(keyChain))
-	}
+	layer, err := pullLayer(insecureRegistry, imageRef, keyChain)
 	if err != nil {
 		return "", err
 	}
@@ -54,7 +49,7 @@ func GetPathFromExtractedTarGz(imageSpec types.ImageSpec,
 	// uncompress chart to install path
 	blobReadCloser, err := layer.Compressed()
 	if err != nil {
-		return "", fmt.Errorf("fetching blob resulted in an error %s: %w", imageRef, err)
+		return "", fmt.Errorf("fetching blob for compressed layer %s: %w", imageRef, err)
 	}
 
 	uncompressedStream, err := gzip.NewReader(blobReadCloser)
@@ -86,7 +81,7 @@ func writeTarGzContent(installPath string, tarReader *tar.Reader, layerReference
 		if err != nil {
 			return err
 		}
-		//make sure additional path can be created
+
 		if err := os.MkdirAll(destinationPath, fs.ModePerm); err != nil {
 			return fmt.Errorf("failure in MkdirAll() while extracting TarGz for destinationPath %s: %w",
 				layerReference, err)
@@ -125,30 +120,39 @@ func handleExtractedHeaderFile(header *tar.Header,
 	return nil
 }
 
-func DecodeYamlFromDigest(config types.ImageSpec) (interface{}, error) {
-	filePath := util.GetConfigFilePath(config)
-	imageRef := fmt.Sprintf("%s/%s@%s", config.Repo, config.Name, config.Ref)
-
+func DecodeUncompressedLayer(imageSpec types.ImageSpec,
+	insecureRegistry bool,
+	keyChain authn.Keychain,
+	fileDestPath string,
+) (interface{}, error) {
+	imageRef := fmt.Sprintf("%s/%s@%s", imageSpec.Repo, imageSpec.Name, imageSpec.Ref)
 	// check existing file
-	decodedConfig, err := util.GetYamlFileContent(filePath)
+	decodedFile, err := util.GetYamlFileContent(fileDestPath)
 	if err == nil {
-		return decodedConfig, nil
+		return decodedFile, nil
 	} else if !os.IsNotExist(err) {
-		return nil, fmt.Errorf("opening file for install config caused an error %s: %w", imageRef, err)
+		return nil, fmt.Errorf("opening file for install imageSpec caused an error %s: %w", imageRef, err)
 	}
 
 	// proceed only if file was not found
 	// yaml is not compressed
-	layer, err := crane.PullLayer(imageRef)
+	layer, err := pullLayer(insecureRegistry, imageRef, keyChain)
 	if err != nil {
 		return nil, err
 	}
 	blob, err := layer.Uncompressed()
 	if err != nil {
-		return nil, fmt.Errorf("fetching blob resulted in an error %s: %w", layer, err)
+		return nil, fmt.Errorf("fetching blob for uncompressed layer %s: %w", imageRef, err)
 	}
 
-	return writeYamlContent(blob, imageRef, filePath)
+	return writeYamlContent(blob, imageRef, fileDestPath)
+}
+
+func pullLayer(insecureRegistry bool, imageRef string, keyChain authn.Keychain) (v1.Layer, error) {
+	if insecureRegistry {
+		return crane.PullLayer(imageRef, crane.Insecure, crane.WithAuthFromKeychain(keyChain))
+	}
+	return crane.PullLayer(imageRef, crane.WithAuthFromKeychain(keyChain))
 }
 
 func writeYamlContent(blob io.ReadCloser, layerReference string, filePath string) (interface{}, error) {

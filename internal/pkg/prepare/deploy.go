@@ -38,28 +38,6 @@ var ErrNoAuthSecretFound = errors.New("no auth secret found")
 func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClusterInfo types.ClusterInfo,
 	flags internalTypes.ReconcileFlagConfig, processorCache types.RendererCache,
 ) ([]*types.InstallInfo, error) {
-	namespacedName := client.ObjectKeyFromObject(manifestObj)
-
-	// extract config
-	config := manifestObj.Spec.Config
-
-	var configs []any
-	if config.Type.NotEmpty() { //nolint:nestif
-		decodedConfig, err := descriptor.DecodeYamlFromDigest(config)
-		if err != nil {
-			// if EOF error proceed without config
-			if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
-				return nil, err
-			}
-		} else {
-			var err error
-			configs, err = parseInstallConfigs(decodedConfig)
-			if err != nil {
-				return nil, fmt.Errorf("manifest %s encountered an err: %w", namespacedName, err)
-			}
-		}
-	}
-
 	// evaluate rest config
 	customResCheck := &manifestCustom.Resource{DefaultClient: defaultClusterInfo.Client}
 
@@ -107,8 +85,77 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 		baseDeployInfo.CustomResources = append(baseDeployInfo.CustomResources, &manifestObj.Spec.Resource)
 	}
 
+	// extract config
+	configs, err := parseConfigs(ctx, manifestObj.Spec.Config,
+		manifestObj.Namespace, defaultClusterInfo.Client, flags.InsecureRegistry)
+	if err != nil {
+		return nil, err
+	}
 	return parseInstallations(ctx, manifestObj, flags.Codec, configs, &baseDeployInfo,
 		flags.InsecureRegistry, defaultClusterInfo.Client)
+}
+
+func parseConfigs(ctx context.Context,
+	config types.ImageSpec,
+	namespace string,
+	clusterClient client.Client,
+	insecureRegistry bool,
+) ([]interface{}, error) {
+	var configs []any
+	if config.Type.NotEmpty() { //nolint:nestif
+		filePath := util.GetConfigFilePath(config)
+		decodedConfig, err := getDecodedConfig(ctx, namespace, clusterClient, insecureRegistry, config, filePath)
+		if err != nil {
+			// if EOF error proceed without config
+			if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+				return nil, err
+			}
+			return configs, nil
+		}
+		installConfigObj, decodeOk := decodedConfig.(map[string]any)
+		if !decodeOk {
+			return nil, fmt.Errorf(configReadError, ".spec.config")
+		}
+		if installConfigObj["configs"] != nil {
+			var configOk bool
+			configs, configOk = installConfigObj["configs"].([]any)
+			if !configOk {
+				return nil, fmt.Errorf(configReadError, "chart config object of .spec.config")
+			}
+		}
+	}
+	return configs, nil
+}
+
+func getDecodedConfig(ctx context.Context,
+	namespace string,
+	clusterClient client.Client,
+	insecureRegistry bool,
+	config types.ImageSpec,
+	filePath string,
+) (any, error) {
+	keyChain, err := configKeyChain(ctx, namespace, clusterClient, config)
+	if err != nil {
+		return nil, err
+	}
+	return descriptor.DecodeUncompressedLayer(config, insecureRegistry, keyChain, filePath)
+}
+
+func configKeyChain(ctx context.Context,
+	namespace string,
+	clusterClient client.Client,
+	imageSpec types.ImageSpec,
+) (authn.Keychain, error) {
+	var keyChain authn.Keychain
+	var err error
+	if imageSpec.CredSecretSelector != nil {
+		if keyChain, err = GetAuthnKeychain(ctx, imageSpec, clusterClient, namespace); err != nil {
+			return nil, err
+		}
+	} else {
+		keyChain = authn.DefaultKeychain
+	}
+	return keyChain, nil
 }
 
 func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo types.ClusterInfo,
@@ -150,22 +197,6 @@ func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo types
 		Config: restConfig,
 		// client will be set during processing of manifest
 	}, nil
-}
-
-func parseInstallConfigs(decodedConfig interface{}) ([]interface{}, error) {
-	var configs []interface{}
-	installConfigObj, decodeOk := decodedConfig.(map[string]interface{})
-	if !decodeOk {
-		return nil, fmt.Errorf(configReadError, ".spec.config")
-	}
-	if installConfigObj["configs"] != nil {
-		var configOk bool
-		configs, configOk = installConfigObj["configs"].([]interface{})
-		if !configOk {
-			return nil, fmt.Errorf(configReadError, "chart config object of .spec.config")
-		}
-	}
-	return configs, nil
 }
 
 func parseInstallations(ctx context.Context,
@@ -231,25 +262,11 @@ func getChartPath(ctx context.Context,
 	insecureRegistry bool,
 	clusterClient client.Client,
 ) (string, error) {
-	var chartPath string
-	var err error
-	if imageSpec.CredSecretSelector != nil {
-		k8sKeychain, err := GetAuthnKeychain(ctx, imageSpec, clusterClient, namespace)
-		if err != nil {
-			return "", err
-		}
-		chartPath, err = descriptor.GetPathFromExtractedTarGz(imageSpec, insecureRegistry, k8sKeychain)
-		if err != nil {
-			return "", err
-		}
-	} else {
-		chartPath, err = descriptor.GetPathFromExtractedTarGz(imageSpec, insecureRegistry, authn.DefaultKeychain)
-		if err != nil {
-			return "", err
-		}
+	keyChain, err := configKeyChain(ctx, namespace, clusterClient, imageSpec)
+	if err != nil {
+		return "", err
 	}
-
-	return chartPath, nil
+	return descriptor.GetPathFromExtractedTarGz(imageSpec, insecureRegistry, keyChain)
 }
 
 func GetAuthnKeychain(ctx context.Context,
@@ -261,11 +278,7 @@ func GetAuthnKeychain(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	k8sKeychain, err := authnK8s.NewFromPullSecrets(ctx, secretList.Items)
-	if err != nil {
-		return nil, fmt.Errorf("can't fetch OCI registry credencial secret %w", err)
-	}
-	return k8sKeychain, nil
+	return authnK8s.NewFromPullSecrets(ctx, secretList.Items)
 }
 
 func getCredSecrets(ctx context.Context,

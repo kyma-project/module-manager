@@ -31,7 +31,6 @@ var _ = Describe("test authnKeyChain", func() {
 		Expect(authConfig.Username).To(Equal("test_user"))
 		Expect(authConfig.Password).To(Equal("test_pass"))
 	})
-
 })
 
 type TestRegistry struct {
