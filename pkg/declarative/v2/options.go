@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/kyma-project/module-manager/pkg/types"
 	"github.com/kyma-project/module-manager/pkg/util"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -46,7 +47,7 @@ type Options struct {
 	record.EventRecorder
 	Config *rest.Config
 	client.Client
-	TargetClient ClientFn
+	TargetCluster ClusterFn
 
 	SpecResolver
 	ClientCache
@@ -258,18 +259,18 @@ func (o WithCustomReadyCheckOption) Apply(options *Options) {
 	options.CustomReadyCheck = o
 }
 
-type ClientFn func(context.Context, Object) (client.Client, error)
+type ClusterFn func(context.Context, Object) (*types.ClusterInfo, error)
 
-func WithRemoteTargetCluster(clientFn ClientFn) WithRemoteTargetClusterOption {
-	return WithRemoteTargetClusterOption{ClientFn: clientFn}
+func WithRemoteTargetCluster(configFn ClusterFn) WithRemoteTargetClusterOption {
+	return WithRemoteTargetClusterOption{ClusterFn: configFn}
 }
 
 type WithRemoteTargetClusterOption struct {
-	ClientFn func(context.Context, Object) (client.Client, error)
+	ClusterFn
 }
 
 func (o WithRemoteTargetClusterOption) Apply(options *Options) {
-	options.TargetClient = o.ClientFn
+	options.TargetCluster = o.ClusterFn
 }
 
 func WithSkipReconcileOn(skipReconcile SkipReconcile) WithSkipReconcileOnOption {

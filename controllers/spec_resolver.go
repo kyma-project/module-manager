@@ -5,20 +5,37 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"reflect"
 
 	"github.com/kyma-project/module-manager/api/v1alpha1"
 	declarative "github.com/kyma-project/module-manager/pkg/declarative/v2"
 	"github.com/kyma-project/module-manager/pkg/descriptor"
 	"github.com/kyma-project/module-manager/pkg/types"
+	"helm.sh/helm/v3/pkg/cli"
+	"helm.sh/helm/v3/pkg/downloader"
+	"helm.sh/helm/v3/pkg/getter"
+	"helm.sh/helm/v3/pkg/repo"
 	"helm.sh/helm/v3/pkg/strvals"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type ManifestSpecResolver struct {
 	*types.Codec
-	*types.ClusterInfo
 	Insecure bool
+
+	ChartCache   string
+	cachedCharts map[string]string
+}
+
+func NewManifestSpecResolver(codec *types.Codec, insecure bool) *ManifestSpecResolver {
+	return &ManifestSpecResolver{
+		Codec:        codec,
+		Insecure:     insecure,
+		ChartCache:   os.TempDir(),
+		cachedCharts: make(map[string]string),
+	}
 }
 
 func (m *ManifestSpecResolver) Spec(ctx context.Context, obj declarative.Object) (*declarative.Spec, error) {
@@ -27,6 +44,10 @@ func (m *ManifestSpecResolver) Spec(ctx context.Context, obj declarative.Object)
 		return nil, fmt.Errorf(
 			"spec resolver can only resolve v1alpha1 Manifests, but was given %s", reflect.TypeOf(obj),
 		)
+	}
+
+	if len(manifest.Spec.Installs) != 1 {
+		return nil, fmt.Errorf("%v installs found in manifest, cannot install", len(manifest.Spec.Installs))
 	}
 
 	install := manifest.Spec.Installs[0]
@@ -51,7 +72,6 @@ func (m *ManifestSpecResolver) Spec(ctx context.Context, obj declarative.Object)
 		mode = declarative.RenderModeKustomize
 	case types.NilRefType:
 		return nil, fmt.Errorf("could not determine render mode for %s", client.ObjectKeyFromObject(manifest))
-
 	}
 
 	values, err := m.getValuesFromConfig(manifest.Spec.Config, install.Name)
@@ -59,12 +79,51 @@ func (m *ManifestSpecResolver) Spec(ctx context.Context, obj declarative.Object)
 		return nil, err
 	}
 
+	path := chartInfo.ChartPath
+	if path == "" && chartInfo.URL != "" {
+		path = chartInfo.URL
+
+		if mode == declarative.RenderModeHelm {
+			path, err = m.downloadAndCacheHelmChart(chartInfo)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	return &declarative.Spec{
 		ManifestName: install.Name,
-		Path:         chartInfo.ChartPath,
+		Path:         path,
 		Values:       values,
 		Mode:         mode,
 	}, nil
+}
+
+func (m *ManifestSpecResolver) downloadAndCacheHelmChart(chartInfo *types.ChartInfo) (string, error) {
+	filename := filepath.Join(m.ChartCache, chartInfo.ChartName)
+
+	if cachedChart, ok := m.cachedCharts[filename]; !ok {
+		getters := getter.All(cli.New())
+		chart, err := repo.FindChartInRepoURL(
+			chartInfo.URL,
+			chartInfo.ChartName, "", "", "", "", getters,
+		)
+		if err != nil {
+			return "", err
+		}
+		cachedChart, _, err := (&downloader.ChartDownloader{Getters: getters}).DownloadTo(
+			chart, "", m.ChartCache,
+		)
+		if err != nil {
+			return "", err
+		}
+		m.cachedCharts[filename] = cachedChart
+		filename = cachedChart
+	} else {
+		filename = cachedChart
+	}
+
+	return filename, nil
 }
 
 func (m *ManifestSpecResolver) getValuesFromConfig(config types.ImageSpec, name string) (map[string]any, error) {
@@ -133,7 +192,7 @@ func (m *ManifestSpecResolver) getChartInfoForInstall(
 		}
 
 		return &types.ChartInfo{
-			ChartName: fmt.Sprintf("%s/%s", install.Name, helmChartSpec.ChartName),
+			ChartName: helmChartSpec.ChartName,
 			RepoName:  install.Name,
 			URL:       helmChartSpec.URL,
 		}, nil

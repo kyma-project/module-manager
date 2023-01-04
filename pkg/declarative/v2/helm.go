@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/kyma-project/module-manager/pkg/types"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/kube"
@@ -71,7 +70,7 @@ func (h *Helm) Initialize(obj Object) error {
 	if err != nil {
 		h.recorder.Event(obj, "Warning", "ChartLoading", err.Error())
 		meta.SetStatusCondition(&status.Conditions, h.prerequisiteCondition(obj))
-		obj.SetStatus(status.WithState(State(types.StateError)).WithErr(err))
+		obj.SetStatus(status.WithState(StateError).WithErr(err))
 		return err
 	}
 	h.chart = loadedChart
@@ -80,7 +79,7 @@ func (h *Helm) Initialize(obj Object) error {
 	if err != nil {
 		h.recorder.Event(obj, "Warning", "CRDParsing", err.Error())
 		meta.SetStatusCondition(&status.Conditions, h.prerequisiteCondition(obj))
-		obj.SetStatus(status.WithState(State(types.StateError)).WithErr(err))
+		obj.SetStatus(status.WithState(StateError).WithErr(err))
 		return err
 	}
 	h.crds = crds
@@ -100,7 +99,7 @@ func (h *Helm) EnsurePrerequisites(ctx context.Context, obj Object) error {
 	if err := installCRDs(h.clnt, h.crds); err != nil {
 		h.recorder.Event(obj, "Warning", "CRDInstallation", err.Error())
 		meta.SetStatusCondition(&status.Conditions, h.prerequisiteCondition(obj))
-		obj.SetStatus(status.WithState(State(types.StateError)).WithErr(err))
+		obj.SetStatus(status.WithState(StateError).WithErr(err))
 		return fmt.Errorf("crds could not be installed: %w", err)
 	}
 
@@ -116,7 +115,7 @@ func (h *Helm) EnsurePrerequisites(ctx context.Context, obj Object) error {
 	if err != nil {
 		h.recorder.Event(obj, "Warning", "CRDReadyCheck", err.Error())
 		meta.SetStatusCondition(&status.Conditions, h.prerequisiteCondition(obj))
-		obj.SetStatus(status.WithState(State(types.StateError)).WithErr(err))
+		obj.SetStatus(status.WithState(StateError).WithErr(err))
 		return fmt.Errorf("crds could not be checked for readiness: %w", err)
 	}
 
@@ -140,7 +139,7 @@ func (h *Helm) RemovePrerequisites(ctx context.Context, obj Object) error {
 		return err
 	} else if err != nil {
 		h.recorder.Event(obj, "Warning", "CRDsUninstallation", err.Error())
-		obj.SetStatus(status.WithState(State(types.StateError)).WithErr(err))
+		obj.SetStatus(status.WithState(StateError).WithErr(err))
 		return err
 	}
 	return nil
@@ -164,7 +163,7 @@ func (h *Helm) Render(ctx context.Context, obj Object) ([]byte, error) {
 	release, err := h.clnt.Install().RunWithContext(ctx, h.chart, valuesAsMap)
 	if err != nil {
 		h.recorder.Event(obj, "Warning", "HelmRenderRun", err.Error())
-		obj.SetStatus(status.WithState(State(types.StateError)).WithErr(err))
+		obj.SetStatus(status.WithState(StateError).WithErr(err))
 		return nil, err
 	}
 	return []byte(release.Manifest), nil

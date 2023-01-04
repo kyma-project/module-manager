@@ -17,7 +17,6 @@ limitations under the License.
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"net/http"
@@ -26,23 +25,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kyma-project/module-manager/internal/util"
 	declarative "github.com/kyma-project/module-manager/pkg/declarative/v2"
 	"github.com/kyma-project/module-manager/pkg/labels"
 	listener "github.com/kyma-project/runtime-watcher/listener/pkg/event"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	manifestv1alpha1 "github.com/kyma-project/module-manager/api/v1alpha1"
 	"github.com/kyma-project/module-manager/controllers"
-	"github.com/kyma-project/module-manager/internal/pkg/util"
 	"github.com/kyma-project/module-manager/pkg/types"
 
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -205,50 +202,16 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 		declarative.NewFromManager(
 			mgr, &manifestv1alpha1.Manifest{},
 			declarative.WithSpecResolver(
-				&controllers.ManifestSpecResolver{
-					Codec: codec,
-					ClusterInfo: &types.ClusterInfo{
-						Config: mgr.GetConfig(),
-						Client: mgr.GetClient(),
-					},
-					Insecure: flagVar.insecureRegistry,
-				},
+				controllers.NewManifestSpecResolver(codec, flagVar.insecureRegistry),
 			),
-			declarative.WithPostRun{func(
-				ctx context.Context, skr declarative.Client, kcp client.Client, obj declarative.Object,
-			) error {
-				manifest := obj.(*manifestv1alpha1.Manifest)
-				if err := skr.Patch(
-					ctx, &manifest.Spec.Resource,
-					client.Apply,
-					client.ForceOwnership,
-					client.FieldOwner("module.kyma-project.io"),
-				); err != nil && !errors.IsAlreadyExists(err) {
-					return err
-				}
-				if added := controllerutil.AddFinalizer(obj, "module.kyma-project.io"); added {
-					if err := kcp.Update(ctx, obj); err != nil {
-						return err
-					}
-					obj.SetManagedFields(nil)
-				}
-				return nil
-			}},
-			declarative.WithPreDelete{func(
-				ctx context.Context, skr declarative.Client, kcp client.Client, obj declarative.Object,
-			) error {
-				manifest := obj.(*manifestv1alpha1.Manifest)
-				if err := skr.Delete(ctx, &manifest.Spec.Resource); err != nil && !errors.IsNotFound(err) {
-					return err
-				}
-				if removed := controllerutil.RemoveFinalizer(obj, "module.kyma-project.io"); removed {
-					if err := kcp.Update(ctx, obj); err != nil {
-						return err
-					}
-					obj.SetManagedFields(nil)
-				}
-				return nil
-			}},
+			declarative.WithRemoteTargetCluster(
+				(&controllers.RemoteClusterLookup{KCP: &types.ClusterInfo{
+					Client: mgr.GetClient(),
+					Config: mgr.GetConfig(),
+				}}).ConfigResolver,
+			),
+			declarative.WithPostRun{controllers.PostRunCreateCR},
+			declarative.WithPreDelete{controllers.PreDeleteDeleteCR},
 		),
 	); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Manifest")

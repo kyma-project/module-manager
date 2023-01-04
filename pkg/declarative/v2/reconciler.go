@@ -3,6 +3,7 @@ package v2
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	manifestClient "github.com/kyma-project/module-manager/pkg/client"
 	manifestLabels "github.com/kyma-project/module-manager/pkg/labels"
@@ -89,8 +90,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return r.ssaStatus(ctx, obj)
 	}
 
-	if controllerutil.AddFinalizer(obj, r.Finalizer) {
-		return r.ssa(ctx, obj)
+	if obj.GetDeletionTimestamp().IsZero() {
+		objMeta := r.partialObjectMetadata(obj)
+		if controllerutil.AddFinalizer(objMeta, r.Finalizer) {
+			return r.ssa(ctx, objMeta)
+		}
 	}
 
 	spec, err := r.Spec(ctx, obj)
@@ -128,7 +132,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		if controllerutil.RemoveFinalizer(obj, r.Finalizer) {
 			return ctrl.Result{}, r.Update(ctx, obj) // no SSA since delete does not work for finalizers.
 		}
-		msg := "waiting as other finalizers are present"
+		msg := fmt.Sprintf("waiting as other finalizers are present: %s", obj.GetFinalizers())
 		r.Event(obj, "Normal", "FinalizerRemoval", msg)
 		obj.SetStatus(obj.GetStatus().WithState(StateDeleting).WithOperation(msg))
 		return r.ssaStatus(ctx, obj)
@@ -139,6 +143,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	return r.CtrlOnSuccess, nil
+}
+
+func (r *Reconciler) partialObjectMetadata(obj Object) *metav1.PartialObjectMetadata {
+	objMeta := &metav1.PartialObjectMetadata{}
+	objMeta.SetName(obj.GetName())
+	objMeta.SetNamespace(obj.GetNamespace())
+	objMeta.SetGroupVersionKind(obj.GetObjectKind().GroupVersionKind())
+	objMeta.SetFinalizers(obj.GetFinalizers())
+	return objMeta
 }
 
 func (r *Reconciler) initialize(obj Object) error {
@@ -395,8 +408,8 @@ func (r *Reconciler) getTargetClient(
 			Config: r.Config,
 			Client: r.Client,
 		}
-		if r.TargetClient != nil {
-			cluster.Client, err = r.TargetClient(ctx, obj)
+		if r.TargetCluster != nil {
+			cluster, err = r.TargetCluster(ctx, obj)
 		}
 		if err != nil {
 			return nil, err

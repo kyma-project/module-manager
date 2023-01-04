@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/registry"
+	"github.com/kyma-project/module-manager/internal/util"
 	declarative "github.com/kyma-project/module-manager/pkg/declarative/v2"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -44,7 +45,6 @@ import (
 
 	"github.com/kyma-project/module-manager/api/v1alpha1"
 	"github.com/kyma-project/module-manager/controllers"
-	"github.com/kyma-project/module-manager/internal/pkg/util"
 	"github.com/kyma-project/module-manager/pkg/log"
 	"github.com/kyma-project/module-manager/pkg/types"
 )
@@ -71,8 +71,8 @@ const (
 	helmCacheRepoEnv   = "HELM_REPOSITORY_CACHE"
 	helmRepoEnv        = "HELM_REPOSITORY_CONFIG"
 	kustomizeLocalPath = "../pkg/test_samples/kustomize"
-	standardTimeout    = 1 * time.Minute
-	standardInterval   = 250 * time.Millisecond
+	standardTimeout    = 30 * time.Second
+	standardInterval   = 100 * time.Millisecond
 )
 
 func TestAPIs(t *testing.T) {
@@ -136,21 +136,15 @@ var _ = BeforeSuite(
 		reconciler = declarative.NewFromManager(
 			k8sManager, &v1alpha1.Manifest{},
 			declarative.WithSpecResolver(
-				&controllers.ManifestSpecResolver{
-					Codec: codec,
-					ClusterInfo: &types.ClusterInfo{
-						Config: k8sManager.GetConfig(),
-						Client: k8sManager.GetClient(),
-					},
-					Insecure: true,
-				},
+				controllers.NewManifestSpecResolver(codec, true),
 			),
 			declarative.WithPermanentConsistencyCheck(true),
 			declarative.WithRemoteTargetCluster(
-				func(_ context.Context, _ declarative.Object) (client.Client, error) {
-					return client.New(authUser.Config(), client.Options{Scheme: k8sClient.Scheme()})
+				func(_ context.Context, _ declarative.Object) (*types.ClusterInfo, error) {
+					return &types.ClusterInfo{Config: authUser.Config()}, nil
 				},
 			),
+			declarative.WithCustomReadyCheck(declarative.NewExistsReadyCheck(k8sManager.GetClient())),
 		)
 
 		err = ctrl.NewControllerManagedBy(k8sManager).

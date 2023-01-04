@@ -3,7 +3,6 @@ package util
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
@@ -22,11 +21,6 @@ import (
 	"github.com/kyma-project/module-manager/pkg/types"
 
 	"github.com/pkg/errors"
-	"helm.sh/helm/v3/pkg/kube"
-	v1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/cli-runtime/pkg/resource"
 	"sigs.k8s.io/yaml"
 )
 
@@ -39,50 +33,6 @@ const (
 	DebugLogLevel                   = 2
 	TraceLogLevel                   = 3
 )
-
-func GetNamespaceObjBytes(clientNs string) ([]byte, error) {
-	namespace := v1.Namespace{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "v1",
-			Kind:       "Namespace",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name: clientNs,
-			Labels: map[string]string{
-				"name": clientNs,
-			},
-		},
-	}
-	return yaml.Marshal(namespace)
-}
-
-func FilterExistingResources(resources kube.ResourceList) (kube.ResourceList, error) {
-	existingResources := kube.ResourceList{}
-	errs := make([]error, 0, len(resources))
-	for i := range resources {
-		info := resources[i]
-		helper := resource.NewHelper(info.Client, info.Mapping)
-		_, err := helper.Get(info.Namespace, info.Name)
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				continue
-			}
-			errs = append(errs, errors.Wrapf(err,
-				"could not get information about the resource %s / %s", info.Name, info.Namespace))
-			continue
-		}
-
-		// TODO: Adapt standard labels / annotations here
-
-		existingResources.Append(info)
-	}
-
-	if len(errs) > 0 {
-		return existingResources, types.NewMultiError(errs)
-	}
-
-	return existingResources, nil
-}
 
 func CleanFilePathJoin(root, dest string) (string, error) {
 	// On Windows, this is a drive separator. On UNIX-like, this is the path list separator.
@@ -146,10 +96,6 @@ func GetFsChartPath(imageSpec types.ImageSpec) string {
 
 func GetConfigFilePath(config types.ImageSpec) string {
 	return filepath.Join(os.TempDir(), filepath.Join(config.Ref, configFileName))
-}
-
-func GetFsManifestChartPath(imageChartPath string) string {
-	return filepath.Join(imageChartPath, ManifestDir, manifestFile)
 }
 
 func GetYamlFileContent(filePath string) (interface{}, error) {
@@ -218,22 +164,4 @@ func CalculateHash(interfaceToBeHashed any) (uint32, error) {
 	h := fnv.New32a()
 	h.Write(data)
 	return h.Sum32(), nil
-}
-
-// Transform applies the passed object transformations to the manifest string passed.
-func Transform(ctx context.Context, manifestStringified string,
-	object types.BaseCustomObject, transforms []types.ObjectTransform,
-) (*types.ManifestResources, error) {
-	objects, err := ParseManifestStringToObjects(manifestStringified)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, transform := range transforms {
-		if err = transform(ctx, object, objects); err != nil {
-			return nil, err
-		}
-	}
-
-	return objects, nil
 }

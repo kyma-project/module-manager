@@ -111,6 +111,7 @@ spec:
                 description: Resource specifies a resource to be watched for state
                   updates
                 type: object
+                x-kubernetes-embedded-resource: true
                 x-kubernetes-preserve-unknown-fields: true
             required:
             - installs
@@ -240,9 +241,6 @@ spec:
             - state
             - synced
             type: object
-        required:
-        - metadata
-        - spec
         type: object
     served: true
     storage: true

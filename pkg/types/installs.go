@@ -1,48 +1,11 @@
 package types
 
 import (
-	"context"
-
 	"helm.sh/helm/v3/pkg/kube"
-	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
-
-// ManifestClient offers client utility methods for processing of manifest resources.
-type ManifestClient interface {
-	// GetRawManifest returns processed resource manifest using the client.
-	GetRawManifest(deployInfo *InstallInfo) *ParsedFile
-
-	// Install transforms and applies resources based on InstallInfo.
-	Install(manifest string, deployInfo *InstallInfo, transforms []ObjectTransform, postRuns []PostRun) (bool, error)
-
-	// Uninstall transforms and applies resources based on InstallInfo.
-	Uninstall(manifest string, deployInfo *InstallInfo, transforms []ObjectTransform, postRuns []PostRun) (bool, error)
-
-	// IsConsistent transforms and checks if resources are consistently installed based on InstallInfo.
-	IsConsistent(manifest string, deployInfo *InstallInfo, transforms []ObjectTransform, postRuns []PostRun) (bool, error)
-
-	// GetCachedResources returns a resource manifest which was already cached during previous operations.
-	// By default, it looks inside <chart-path>/manifest/manifest.yaml
-	GetCachedResources(chartName, chartPath string) *ParsedFile
-
-	// DeleteCachedResources deletes cached resource manifest.
-	// By default, it deletes <chart-path>/manifest/manifest.yaml.
-	DeleteCachedResources(chartPath string) *ParsedFile
-
-	// GetManifestResources returns a pre-rendered resource manifest file located at the passed chartPath.
-	// If multiple YAML files are present at the dirPath, it cannot resolve the file to be used, hence will not process.
-	GetManifestResources(dirPath string) *ParsedFile
-
-	// InvalidateConfigAndRenderedManifest compares the cached hash with the processed hash for helm flags.
-	// On mismatch, it invalidates the cached manifest and resets flags on client.
-	InvalidateConfigAndRenderedManifest(deployInfo *InstallInfo, cachedHash uint32) (uint32, error)
-
-	// GetClusterInfo returns Client and REST config for the target cluster
-	GetClusterInfo() (ClusterInfo, error)
-}
 
 // RefTypeMetadata specifies the type of installation specification
 // that could be provided as part of a custom resource.
@@ -138,37 +101,10 @@ func (r ClusterInfo) IsEmpty() bool {
 	return r.Config == nil
 }
 
-type OperationType string
-
-type HelmOperation OperationType
-
-const (
-	OperationCreate HelmOperation = "create"
-	OperationDelete HelmOperation = "delete"
-)
-
 type ResourceLists struct {
 	Target    kube.ResourceList
 	Installed kube.ResourceList
 	Namespace kube.ResourceList
-}
-
-// InstallInfo represents deployment information artifacts to be processed.
-type InstallInfo struct {
-	// ChartInfo represents chart information to be processed
-	*ChartInfo
-	// ResourceInfo represents additional resources to be processed
-	*ResourceInfo
-	// ClusterInfo represents target cluster information
-	*ClusterInfo
-	// Ctx hold the current context
-	Ctx context.Context //nolint:containedctx
-	// CheckFn returns a boolean indicating ready state based on custom checks
-	CheckFn CheckFnType
-	// CheckReadyStates indicates if native resources should be checked for ready states
-	CheckReadyStates bool
-	// UpdateRepositories indicates if repositories should be updated
-	UpdateRepositories bool
 }
 
 // ChartInfo defines helm chart information.
@@ -178,15 +114,4 @@ type ChartInfo struct {
 	URL         string
 	ChartName   string
 	ReleaseName string
-	Flags       ChartFlags
-}
-
-// ResourceInfo represents additional resources.
-type ResourceInfo struct {
-	// BaseResource represents base custom resource that is being reconciled
-	BaseResource *unstructured.Unstructured
-	// CustomResources represents a set of additional custom resources to be installed
-	CustomResources []*unstructured.Unstructured
-	// Crds represents a set of additional custom resource definitions to be installed
-	Crds []*v1.CustomResourceDefinition
 }

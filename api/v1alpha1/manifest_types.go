@@ -48,19 +48,19 @@ type ManifestSpec struct {
 
 	// Config specifies OCI image configuration for Manifest
 	// +kubebuilder:validation:Optional
-	Config types.ImageSpec `json:"config"`
+	Config types.ImageSpec `json:"config,omitempty"`
 
 	// Installs specifies a list of installations for Manifest
 	Installs []InstallInfo `json:"installs"`
 
 	//+kubebuilder:pruning:PreserveUnknownFields
-	//+kubebuilder:validation:Optional
+	//+kubebuilder:validation:XEmbeddedResource
 	// Resource specifies a resource to be watched for state updates
 	Resource unstructured.Unstructured `json:"resource,omitempty"`
 
 	// CRDs specifies the custom resource definitions' ImageSpec
 	// +kubebuilder:validation:Optional
-	CRDs types.ImageSpec `json:"crds"`
+	CRDs types.ImageSpec `json:"crds,omitempty"`
 }
 
 // ManifestStatus defines the observed state of Manifest.
@@ -89,14 +89,14 @@ type InstallItem struct {
 // Manifest is the Schema for the manifests API.
 type Manifest struct {
 	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// Spec specifies the content and configuration for Manifest
-	Spec ManifestSpec `json:"spec"`
+	Spec ManifestSpec `json:"spec,omitempty"`
 
 	// Status signifies the current status of the Manifest
 	// +kubebuilder:validation:Optional
-	Status ManifestStatus `json:"status"`
+	Status ManifestStatus `json:"status,omitempty"`
 }
 
 func (m *Manifest) ComponentName() string {

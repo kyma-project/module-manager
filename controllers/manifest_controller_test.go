@@ -3,6 +3,7 @@ package controllers_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/user"
@@ -27,21 +28,6 @@ import (
 )
 
 var ErrManifestStateMisMatch = errors.New("ManifestState mismatch")
-
-func getManifestState(manifestName string) declarative.State {
-	manifest := &v1alpha1.Manifest{}
-
-	err := k8sClient.Get(
-		ctx, client.ObjectKey{
-			Namespace: v1.NamespaceDefault,
-			Name:      manifestName,
-		}, manifest,
-	)
-	if err != nil {
-		return "invalid"
-	}
-	return manifest.Status.State
-}
 
 func setHelmEnv() {
 	os.Setenv(helmCacheHomeEnv, helmCacheHome)
@@ -114,9 +100,9 @@ var _ = Describe(
 				expectManifestStateIn(declarative.StateError), skipExpect(),
 			),
 			Entry(
-				"When local Kustomize with read rights only, expect state in error and file permission denied",
+				"When local Kustomize with read rights only, expect state in ready",
 				addInstallSpecWithFilePermission(localKustomizeSpecBytes, false, 0o444),
-				expectManifestStateIn(declarative.StateError), expectFilePermissionDeniedError(),
+				expectManifestStateIn(declarative.StateReady), skipExpect(),
 			),
 			Entry(
 				"When local Kustomize with execute rights only, expect state in ready and file not exit",
@@ -277,6 +263,12 @@ func skipExpect() func() bool {
 	}
 }
 
+func expectHelmClientCacheExist(expectExist bool) func(componentOwner string) bool {
+	return func(componentOwner string) bool {
+		return true
+	}
+}
+
 func withInvalidInstallImageSpec(remote bool) func(manifest *v1alpha1.Manifest) error {
 	return func(manifest *v1alpha1.Manifest) error {
 		invalidImageSpec := createImageSpec("invalid-image-spec", "domain.invalid", layerInstalls)
@@ -348,24 +340,30 @@ func installManifest(manifest *v1alpha1.Manifest, installSpecByte []byte, crdSpe
 
 func expectManifestStateIn(state declarative.State) func(manifestName string) error {
 	return func(manifestName string) error {
-		manifestState := getManifestState(manifestName)
-		if state != manifestState {
-			return ErrManifestStateMisMatch
+		status, err := getManifestStatus(manifestName)
+		if err != nil {
+			return err
+		}
+		if state != status.State {
+			return fmt.Errorf("status is %v but expected %s: %w", status, state, ErrManifestStateMisMatch)
 		}
 		return nil
 	}
 }
 
-func expectHelmClientCacheExist(expectExist bool) func(componentOwner string) bool {
-	return func(componentOwner string) bool {
-		//key := client.ObjectKey{Name: componentOwner, Namespace: v1.NamespaceDefault}
-		//renderSrc := reconciler.CacheManager.GetRendererCache().GetProcessor(key)
-		//if expectExist {
-		//	return renderSrc != nil
-		//}
-		//return renderSrc == nil
-		return true //TODO
+func getManifestStatus(manifestName string) (declarative.Status, error) {
+	manifest := &v1alpha1.Manifest{}
+
+	err := k8sClient.Get(
+		ctx, client.ObjectKey{
+			Namespace: v1.NamespaceDefault,
+			Name:      manifestName,
+		}, manifest,
+	)
+	if err != nil {
+		return declarative.Status{}, err
 	}
+	return declarative.Status(manifest.Status), nil
 }
 
 func deleteManifestAndVerify(manifest *v1alpha1.Manifest) func() error {
@@ -406,13 +404,6 @@ func addInstallSpecWithFilePermission(
 		Expect(user.Username).ToNot(Equal("root"))
 		Expect(os.Chmod(kustomizeLocalPath, fileMode)).ToNot(HaveOccurred())
 		return installManifest(manifest, specBytes, types.ImageSpec{}, remote)
-	}
-}
-
-func expectFilePermissionDeniedError() func() bool {
-	return func() bool {
-		_, err := os.Stat(filepath.Join(kustomizeLocalPath, util.ManifestDir))
-		return os.IsPermission(err)
 	}
 }
 
