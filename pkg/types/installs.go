@@ -5,6 +5,7 @@ import (
 
 	"helm.sh/helm/v3/pkg/kube"
 	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -74,6 +75,7 @@ type ChartFlags struct {
 	SetFlags Flags
 }
 
+// +k8s:deepcopy-gen=true
 // ImageSpec defines OCI Image specifications.
 type ImageSpec struct {
 	// Repo defines the Image repo
@@ -91,8 +93,15 @@ type ImageSpec struct {
 	// Type defines the chart as "oci-ref"
 	// +kubebuilder:validation:Optional
 	Type RefTypeMetadata `json:"type"`
+
+	// CredSecretSelector is on optional field, for OCI image saved in private registry,
+	// use it to indicate the secret which contains registry credentials,
+	// must exist in the namespace same as manifest
+	// +kubebuilder:validation:Optional
+	CredSecretSelector *metav1.LabelSelector `json:"credSecretSelector,omitempty"`
 }
 
+// +k8s:deepcopy-gen=true
 // HelmChartSpec defines the specification for a helm chart.
 type HelmChartSpec struct {
 	// URL defines the helm repo URL

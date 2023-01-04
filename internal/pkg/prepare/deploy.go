@@ -216,11 +216,7 @@ func parseCrds(ctx context.Context,
 	// if crds do not exist - do nothing
 	if manifestObj.Spec.CRDs.Type.NotEmpty() {
 		// extract helm chart from layer digest
-		crdsPath, err := getChartPath(ctx,
-			manifestObj.Spec.CRDs,
-			manifestObj.Spec.AuthSecretSelector,
-			manifestObj.Namespace,
-			insecureRegistry, clusterClient)
+		crdsPath, err := getChartPath(ctx, manifestObj.Spec.CRDs, manifestObj.Namespace, insecureRegistry, clusterClient)
 		if err != nil {
 			return nil, err
 		}
@@ -231,40 +227,54 @@ func parseCrds(ctx context.Context,
 
 func getChartPath(ctx context.Context,
 	imageSpec types.ImageSpec,
-	authSecretSelector metav1.LabelSelector,
 	namespace string,
 	insecureRegistry bool,
 	clusterClient client.Client,
 ) (string, error) {
 	var chartPath string
 	var err error
-	chartPath, err = descriptor.GetPathFromExtractedTarGz(imageSpec, insecureRegistry, authn.DefaultKeychain)
-	if err != nil {
-		// try to get credential from secret and try again
-		secretList, err := getAuthSecrets(ctx, authSecretSelector, clusterClient, namespace)
+	if imageSpec.CredSecretSelector != nil {
+		k8sKeychain, err := GetAuthnKeychain(ctx, imageSpec, clusterClient, namespace)
 		if err != nil {
 			return "", err
-		}
-
-		k8sKeychain, err := authnK8s.NewFromPullSecrets(ctx, secretList.Items)
-		if err != nil {
-			return "", fmt.Errorf("can't fetch OCI registry credencial secret %w", err)
 		}
 		chartPath, err = descriptor.GetPathFromExtractedTarGz(imageSpec, insecureRegistry, k8sKeychain)
 		if err != nil {
 			return "", err
 		}
+	} else {
+		chartPath, err = descriptor.GetPathFromExtractedTarGz(imageSpec, insecureRegistry, authn.DefaultKeychain)
+		if err != nil {
+			return "", err
+		}
 	}
+
 	return chartPath, nil
 }
 
-func getAuthSecrets(ctx context.Context,
-	authSecretSelector metav1.LabelSelector,
+func GetAuthnKeychain(ctx context.Context,
+	imageSpec types.ImageSpec,
+	clusterClient client.Client,
+	namespace string,
+) (authn.Keychain, error) {
+	secretList, err := getCredSecrets(ctx, imageSpec.CredSecretSelector, clusterClient, namespace)
+	if err != nil {
+		return nil, err
+	}
+	k8sKeychain, err := authnK8s.NewFromPullSecrets(ctx, secretList.Items)
+	if err != nil {
+		return nil, fmt.Errorf("can't fetch OCI registry credencial secret %w", err)
+	}
+	return k8sKeychain, nil
+}
+
+func getCredSecrets(ctx context.Context,
+	credSecretSelector *metav1.LabelSelector,
 	clusterClient client.Client,
 	namespace string,
 ) (corev1.SecretList, error) {
 	secretList := corev1.SecretList{}
-	selector, err := metav1.LabelSelectorAsSelector(&authSecretSelector)
+	selector, err := metav1.LabelSelectorAsSelector(credSecretSelector)
 	if err != nil {
 		return secretList, fmt.Errorf("error converting labelSelector: %w", err)
 	}
@@ -338,10 +348,7 @@ func createOciChartInfo(ctx context.Context,
 	}
 
 	// extract helm chart from layer digest
-	chartPath, err := getChartPath(ctx, imageSpec,
-		manifestObj.Spec.AuthSecretSelector,
-		manifestObj.Namespace,
-		insecureRegistry, clusterClient)
+	chartPath, err := getChartPath(ctx, imageSpec, manifestObj.Namespace, insecureRegistry, clusterClient)
 	if err != nil {
 		return nil, err
 	}

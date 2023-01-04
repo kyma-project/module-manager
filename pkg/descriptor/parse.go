@@ -56,6 +56,7 @@ func GetPathFromExtractedTarGz(imageSpec types.ImageSpec,
 	if err != nil {
 		return "", fmt.Errorf("fetching blob resulted in an error %s: %w", imageRef, err)
 	}
+
 	uncompressedStream, err := gzip.NewReader(blobReadCloser)
 	if err != nil {
 		return "", fmt.Errorf("failure in NewReader() while extracting TarGz %s: %w", imageRef, err)
@@ -67,7 +68,8 @@ func GetPathFromExtractedTarGz(imageSpec types.ImageSpec,
 func writeTarGzContent(installPath string, tarReader *tar.Reader, layerReference string) error {
 	// create dir for uncompressed chart
 	if err := os.MkdirAll(installPath, fs.ModePerm); err != nil {
-		return fmt.Errorf("failure in MkdirAll() while extracting TarGz %s: %w", layerReference, err)
+		return fmt.Errorf("failure in MkdirAll() while extracting TarGz for installPath %s: %w",
+			layerReference, err)
 	}
 
 	for {
@@ -83,6 +85,11 @@ func writeTarGzContent(installPath string, tarReader *tar.Reader, layerReference
 		destinationPath, err := util.CleanFilePathJoin(installPath, destDir)
 		if err != nil {
 			return err
+		}
+		//make sure additional path can be created
+		if err := os.MkdirAll(destinationPath, fs.ModePerm); err != nil {
+			return fmt.Errorf("failure in MkdirAll() while extracting TarGz for destinationPath %s: %w",
+				layerReference, err)
 		}
 		if err = handleExtractedHeaderFile(header, tarReader, destFile, destinationPath, layerReference); err != nil {
 			return err

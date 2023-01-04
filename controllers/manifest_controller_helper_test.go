@@ -106,12 +106,13 @@ func PushToRemoteOCIRegistry(layerName string, ociLayerType OCILayerType) {
 	Expect(gotHash).To(Equal(digest))
 }
 
-func createOCIImageSpecWithDigest(name, repo, digest string) manifestTypes.ImageSpec {
+func createOCIImageSpecWithCredSelect(name, repo, digest string, credSecretSelector metav1.LabelSelector) manifestTypes.ImageSpec {
 	imageSpec := manifestTypes.ImageSpec{
-		Name: name,
-		Repo: repo,
-		Type: "oci-ref",
-		Ref:  digest,
+		Name:               name,
+		Repo:               repo,
+		Type:               "oci-ref",
+		Ref:                digest,
+		CredSecretSelector: &credSecretSelector,
 	}
 	return imageSpec
 }
