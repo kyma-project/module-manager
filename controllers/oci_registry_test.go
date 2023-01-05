@@ -4,7 +4,6 @@ import (
 	"os"
 
 	"github.com/kyma-project/module-manager/internal/pkg/prepare"
-	"github.com/kyma-project/module-manager/pkg/labels"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -60,6 +59,6 @@ func installCredSecret() {
 
 func credSecretLabel() metav1.LabelSelector {
 	return metav1.LabelSelector{
-		MatchLabels: map[string]string{labels.OCIRegistryCred: "test-operator"},
+		MatchLabels: map[string]string{"operator.kyma-project.io/oci-registry-cred": "test-operator"},
 	}
 }
