@@ -472,6 +472,7 @@ func cacheKeyFromObject(ctx context.Context, resource client.Object) client.Obje
 func (r *Reconciler) ssaStatus(ctx context.Context, obj client.Object) (ctrl.Result, error) {
 	obj.SetManagedFields(nil)
 	obj.SetResourceVersion("")
+	//TODO: replace the SubResourcePatchOptions with  client.ForceOwnership, r.FieldOwner in later compatible version
 	return ctrl.Result{Requeue: true}, r.Status().Patch(ctx, obj, client.Apply,
 		&client.SubResourcePatchOptions{PatchOptions: client.PatchOptions{Force: boolPointer(true)}},
 		&client.SubResourcePatchOptions{PatchOptions: client.PatchOptions{FieldManager: string(r.FieldOwner)}})
