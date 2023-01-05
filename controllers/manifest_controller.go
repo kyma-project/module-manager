@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/kyma-project/module-manager/api/v1alpha1"
 	internalv1alpha1 "github.com/kyma-project/module-manager/internal/manifest/v1alpha1"
@@ -25,6 +26,7 @@ func SetupWithManager(
 	codec *types.Codec,
 	options controller.Options,
 	insecure bool,
+	checkInterval time.Duration,
 ) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Manifest{}).
@@ -41,10 +43,12 @@ func SetupWithManager(
 					queue.Add(ctrl.Request{NamespacedName: client.ObjectKeyFromObject(event.Object)})
 				},
 			},
-		).WithOptions(options).Complete(ManifestReconciler(mgr, codec, insecure))
+		).WithOptions(options).Complete(ManifestReconciler(mgr, codec, insecure, checkInterval))
 }
 
-func ManifestReconciler(mgr manager.Manager, codec *types.Codec, insecure bool) *declarative.Reconciler {
+func ManifestReconciler(
+	mgr manager.Manager, codec *types.Codec, insecure bool, checkInterval time.Duration,
+) *declarative.Reconciler {
 	return declarative.NewFromManager(
 		mgr, &v1alpha1.Manifest{},
 		declarative.WithSpecResolver(
@@ -59,5 +63,6 @@ func ManifestReconciler(mgr manager.Manager, codec *types.Codec, insecure bool) 
 		declarative.WithClientCacheKeyFromLabelOrResource(labels.KymaName),
 		declarative.WithPostRun{internalv1alpha1.PostRunCreateCR},
 		declarative.WithPreDelete{internalv1alpha1.PreDeleteDeleteCR},
+		declarative.WithPeriodicConsistencyCheck(checkInterval),
 	)
 }

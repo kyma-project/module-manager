@@ -217,11 +217,7 @@ func (o WithPeriodicConsistencyCheck) Apply(options *Options) {
 type WithPermanentConsistencyCheck bool
 
 func (o WithPermanentConsistencyCheck) Apply(options *Options) {
-	if o {
-		options.CtrlOnSuccess = ctrl.Result{Requeue: true}
-	} else {
-		options.CtrlOnSuccess = ctrl.Result{}
-	}
+	options.CtrlOnSuccess = ctrl.Result{Requeue: bool(o)}
 }
 
 type WithSingletonClientCacheOption struct {

@@ -210,7 +210,6 @@ func (m *ManifestSpecResolver) getChartInfoForInstall(
 			RepoName:  install.Name,
 			URL:       helmChartSpec.URL,
 		}, nil
-
 	case types.OciRefType:
 		var imageSpec types.ImageSpec
 		if err = m.Codec.Decode(install.Source.Raw, &imageSpec, specType); err != nil {

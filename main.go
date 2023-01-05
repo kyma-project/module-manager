@@ -172,7 +172,7 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 			),
 			MaxConcurrentReconciles: flagVar.concurrentReconciles,
 			CacheSyncTimeout:        flagVar.cacheSyncTimeout,
-		}, flagVar.insecureRegistry,
+		}, flagVar.insecureRegistry, flagVar.requeueSuccessInterval,
 	); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Manifest")
 		os.Exit(1)
