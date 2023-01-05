@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/kyma-project/module-manager/internal"
 	"github.com/kyma-project/module-manager/pkg/types"
-	"github.com/kyma-project/module-manager/pkg/util"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -35,6 +35,7 @@ func DefaultOptions() *Options {
 		WithFieldOwner(FieldOwnerDefault),
 		WithPostRenderTransform(
 			managedByDeclarativeV2,
+			watchedByOwnedBy,
 			kymaComponentTransform,
 			disclaimerTransform,
 		),
@@ -286,7 +287,7 @@ type SkipReconcile func(context.Context, Object) (skip bool)
 // SkipReconcileOnDefaultLabelPresentAndTrue determines SkipReconcile by checking if DefaultSkipReconcileLabel is true.
 func SkipReconcileOnDefaultLabelPresentAndTrue(ctx context.Context, object Object) bool {
 	log.FromContext(ctx, "skip-label", DefaultSkipReconcileLabel).
-		V(util.DebugLogLevel).Info("resource gets skipped because of label")
+		V(internal.DebugLogLevel).Info("resource gets skipped because of label")
 	return object.GetLabels() != nil && object.GetLabels()[DefaultSkipReconcileLabel] == "true"
 }
 
@@ -308,11 +309,11 @@ func WithClientCacheKeyFromLabelOrResource(label string) WithClientCacheKeyOptio
 			return client.ObjectKey{}
 		}
 
-		label, err := util.GetResourceLabel(resource, label)
+		label, err := internal.GetResourceLabel(resource, label)
 		objectKey := client.ObjectKeyFromObject(resource)
 		var labelErr *types.LabelNotFoundError
 		if errors.As(err, &labelErr) {
-			logger.V(util.DebugLogLevel).Info(
+			logger.V(internal.DebugLogLevel).Info(
 				label+" missing on resource, it will be cached "+
 					"based on resource name and namespace.",
 				"resource", objectKey,
@@ -320,7 +321,7 @@ func WithClientCacheKeyFromLabelOrResource(label string) WithClientCacheKeyOptio
 			return objectKey
 		}
 
-		logger.V(util.DebugLogLevel).Info(
+		logger.V(internal.DebugLogLevel).Info(
 			"resource will be cached based on "+label,
 			"resource", objectKey,
 			"label", label,

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/kyma-project/module-manager/internal"
 	"github.com/kyma-project/module-manager/pkg/types"
-	"github.com/kyma-project/module-manager/pkg/util"
 	"helm.sh/helm/v3/pkg/kube"
 	"k8s.io/cli-runtime/pkg/resource"
 	"k8s.io/client-go/kubernetes"
@@ -37,10 +37,10 @@ func NewExistsReadyCheck(client client.Reader) ReadyCheck {
 func (c *HelmReadyCheck) Run(ctx context.Context, resources []*resource.Info) error {
 	start := time.Now()
 	logger := log.FromContext(ctx)
-	logger.V(util.TraceLogLevel).Info("ReadyCheck", "resources", len(resources))
+	logger.V(internal.TraceLogLevel).Info("ReadyCheck", "resources", len(resources))
 	checker := kube.NewReadyChecker(
 		c.clientSet, func(format string, args ...interface{}) {
-			logger.V(util.DebugLogLevel).Info(fmt.Sprintf(format, args...))
+			logger.V(internal.DebugLogLevel).Info(fmt.Sprintf(format, args...))
 		}, kube.PausedAsReady(false), kube.CheckJobs(true),
 	)
 
@@ -75,7 +75,7 @@ func (c *HelmReadyCheck) Run(ctx context.Context, resources []*resource.Info) er
 		return types.NewMultiError(errs)
 	}
 
-	logger.V(util.DebugLogLevel).Info(
+	logger.V(internal.DebugLogLevel).Info(
 		"ReadyCheck finished",
 		"resources", len(resources), "time", time.Since(start),
 	)

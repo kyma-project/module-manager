@@ -1,9 +1,10 @@
-package util
+package internal
 
 import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -13,52 +14,49 @@ import (
 	"path/filepath"
 	"strings"
 
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	yamlUtil "k8s.io/apimachinery/pkg/util/yaml"
-
+	opLabels "github.com/kyma-project/module-manager/pkg/labels"
 	"github.com/kyma-project/module-manager/pkg/types"
-
-	"github.com/pkg/errors"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
+	yamlUtil "k8s.io/apimachinery/pkg/util/yaml"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 )
 
 const (
-	ManifestDir                     = "manifest"
-	manifestFile                    = "manifest.yaml"
-	configFileName                  = "installConfig.yaml"
 	YamlDecodeBufferSize            = 2048
 	OthersReadExecuteFilePermission = 0o755
 	DebugLogLevel                   = 2
 	TraceLogLevel                   = 3
 )
 
-func CleanFilePathJoin(root, dest string) (string, error) {
+func CleanFilePathJoin(root, destDir string) (string, error) {
 	// On Windows, this is a drive separator. On UNIX-like, this is the path list separator.
 	// In neither case do we want to trust a TAR that contains these.
-	if strings.Contains(dest, ":") {
+	if strings.Contains(destDir, ":") {
 		return "", errors.New("path contains ':', which is illegal")
 	}
 
 	// The Go tar library does not convert separators for us.
 	// We assume here, as we do elsewhere, that `\\` means a Windows path.
-	dest = strings.ReplaceAll(dest, "\\", "/")
+	destDir = strings.ReplaceAll(destDir, "\\", "/")
 
 	// We want to alert the user that something bad was attempted. Cleaning it
 	// is not a good practice.
-	for _, part := range strings.Split(dest, "/") {
+	for _, part := range strings.Split(destDir, "/") {
 		if part == ".." {
 			return "", errors.New("path contains '..', which is illegal")
 		}
 	}
 
 	// If a path is absolute, the creator of the TAR is doing something shady.
-	if path.IsAbs(dest) {
+	if path.IsAbs(destDir) {
 		return "", errors.New("path is absolute, which is illegal")
 	}
 
-	newPath := filepath.Join(root, filepath.Clean(dest))
+	newPath := filepath.Join(root, filepath.Clean(destDir))
 
 	return filepath.ToSlash(newPath), nil
 }
@@ -92,10 +90,6 @@ func ParseManifestStringToObjects(manifest string) (*types.ManifestResources, er
 
 func GetFsChartPath(imageSpec types.ImageSpec) string {
 	return filepath.Join(os.TempDir(), fmt.Sprintf("%s-%s", imageSpec.Name, imageSpec.Ref))
-}
-
-func GetConfigFilePath(config types.ImageSpec) string {
-	return filepath.Join(os.TempDir(), filepath.Join(config.Ref, configFileName))
 }
 
 func GetYamlFileContent(filePath string) (interface{}, error) {
@@ -164,4 +158,18 @@ func CalculateHash(interfaceToBeHashed any) (uint32, error) {
 	h := fnv.New32a()
 	h.Write(data)
 	return h.Sum32(), nil
+}
+
+func GetCacheFunc() cache.NewCacheFunc {
+	return cache.BuilderWithOptions(
+		cache.Options{
+			SelectorsByObject: cache.SelectorsByObject{
+				&v1.Secret{}: {
+					Label: labels.SelectorFromSet(
+						labels.Set{opLabels.ManagedBy: opLabels.LifecycleManager},
+					),
+				},
+			},
+		},
+	)
 }

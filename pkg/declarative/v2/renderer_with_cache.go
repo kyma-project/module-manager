@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/kyma-project/module-manager/internal"
 	"github.com/kyma-project/module-manager/pkg/types"
-	"github.com/kyma-project/module-manager/pkg/util"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -63,7 +63,7 @@ func (k *RendererWithCache) Render(ctx context.Context, obj Object) ([]byte, err
 			return nil, fmt.Errorf("rendering new manifest failed: %w", err)
 		}
 		logger.Info("rendering finished", "time", time.Since(renderStart))
-		if err := util.WriteToFile(k.manifestCache.String(), manifest); err != nil {
+		if err := internal.WriteToFile(k.manifestCache.String(), manifest); err != nil {
 			k.recorder.Event(obj, "Warning", "ManifestCacheWrite", err.Error())
 			obj.SetStatus(status.WithState(StateError).WithErr(err))
 			return nil, err
@@ -71,7 +71,7 @@ func (k *RendererWithCache) Render(ctx context.Context, obj Object) ([]byte, err
 		return manifest, nil
 	}
 
-	logger.V(util.DebugLogLevel).Info("reuse manifest from cache")
+	logger.V(internal.DebugLogLevel).Info("reuse manifest from cache")
 
 	return []byte(cacheFile.GetContent()), nil
 }
@@ -85,7 +85,7 @@ type manifestCache struct {
 func newManifestCache(baseDir string, spec *Spec) *manifestCache {
 	root := filepath.Join(baseDir, manifest, spec.Path)
 	file := filepath.Join(root, spec.ManifestName)
-	hashedValues, _ := util.CalculateHash(spec.Values)
+	hashedValues, _ := internal.CalculateHash(spec.Values)
 	hash := fmt.Sprintf("%v", hashedValues)
 	file = fmt.Sprintf("%s-%s-%s.yaml", file, spec.Mode, hash)
 
@@ -115,5 +115,5 @@ func (c *manifestCache) Clean() error {
 }
 
 func (c *manifestCache) ReadYAML() *types.ParsedFile {
-	return types.NewParsedFile(util.GetStringifiedYamlFromFilePath(c.String()))
+	return types.NewParsedFile(internal.GetStringifiedYamlFromFilePath(c.String()))
 }

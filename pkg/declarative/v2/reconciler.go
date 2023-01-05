@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/kyma-project/module-manager/internal"
 	manifestClient "github.com/kyma-project/module-manager/pkg/client"
 	"github.com/kyma-project/module-manager/pkg/types"
-	"github.com/kyma-project/module-manager/pkg/util"
 	"helm.sh/helm/v3/pkg/kube"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -329,7 +329,7 @@ func (r *Reconciler) renderTargetResources(
 		return nil, err
 	}
 
-	targetResources, err := util.ParseManifestStringToObjects(string(manifest))
+	targetResources, err := internal.ParseManifestStringToObjects(string(manifest))
 	if err != nil {
 		r.Event(obj, "Warning", "ManifestParsing", err.Error())
 		obj.SetStatus(status.WithState(StateError).WithErr(err))
@@ -455,7 +455,14 @@ func (r *Reconciler) ssaStatus(ctx context.Context, obj client.Object) (ctrl.Res
 	obj.SetUID("")
 	obj.SetManagedFields(nil)
 	obj.SetResourceVersion("")
-	return ctrl.Result{Requeue: true}, r.Status().Patch(ctx, obj, client.Apply, client.ForceOwnership, r.FieldOwner)
+	// TODO: replace the SubResourcePatchOptions with  client.ForceOwnership, r.FieldOwner in later compatible version
+	return ctrl.Result{Requeue: true}, r.Status().Patch(
+		ctx, obj, client.Apply, subResourceOpts(client.ForceOwnership, r.FieldOwner),
+	)
+}
+
+func subResourceOpts(opts ...client.PatchOption) client.SubResourcePatchOption {
+	return &client.SubResourcePatchOptions{PatchOptions: *(&client.PatchOptions{}).ApplyOptions(opts)}
 }
 
 func (r *Reconciler) ssa(ctx context.Context, obj client.Object) (ctrl.Result, error) {

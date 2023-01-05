@@ -1,4 +1,4 @@
-package controllers
+package v1alpha1
 
 import (
 	"context"
@@ -9,9 +9,10 @@ import (
 	"path/filepath"
 	"reflect"
 
+	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/kyma-project/module-manager/api/v1alpha1"
+	"github.com/kyma-project/module-manager/internal"
 	declarative "github.com/kyma-project/module-manager/pkg/declarative/v2"
-	"github.com/kyma-project/module-manager/pkg/descriptor"
 	"github.com/kyma-project/module-manager/pkg/types"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/downloader"
@@ -21,7 +22,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+var ErrNoAuthSecretFound = errors.New("no auth secret found")
+
 type ManifestSpecResolver struct {
+	KCP client.Client
+
 	*types.Codec
 	Insecure bool
 
@@ -57,7 +62,12 @@ func (m *ManifestSpecResolver) Spec(ctx context.Context, obj declarative.Object)
 		return nil, err
 	}
 
-	chartInfo, err := m.getChartInfoForInstall(install, specType)
+	keyChain, err := m.lookupKeyChain(ctx, manifest.Spec.Config, obj.GetNamespace())
+	if err != nil {
+		return nil, err
+	}
+
+	chartInfo, err := m.getChartInfoForInstall(ctx, install, specType, keyChain)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +84,7 @@ func (m *ManifestSpecResolver) Spec(ctx context.Context, obj declarative.Object)
 		return nil, fmt.Errorf("could not determine render mode for %s", client.ObjectKeyFromObject(manifest))
 	}
 
-	values, err := m.getValuesFromConfig(manifest.Spec.Config, install.Name)
+	values, err := m.getValuesFromConfig(ctx, manifest.Spec.Config, install.Name, keyChain)
 	if err != nil {
 		return nil, err
 	}
@@ -126,10 +136,12 @@ func (m *ManifestSpecResolver) downloadAndCacheHelmChart(chartInfo *types.ChartI
 	return filename, nil
 }
 
-func (m *ManifestSpecResolver) getValuesFromConfig(config types.ImageSpec, name string) (map[string]any, error) {
+func (m *ManifestSpecResolver) getValuesFromConfig(
+	ctx context.Context, config types.ImageSpec, name string, keyChain authn.Keychain,
+) (map[string]any, error) {
 	var configs []any
 	if config.Type.NotEmpty() { //nolint:nestif
-		decodedConfig, err := descriptor.DecodeYamlFromDigest(config)
+		decodedConfig, err := internal.DecodeUncompressedYAMLLayer(ctx, config, m.Insecure, keyChain, name)
 		if err != nil {
 			// if EOF error, we should proceed without config
 			if !errors.Is(err, io.EOF) {
@@ -180,8 +192,10 @@ func parseInstallConfigs(decodedConfig interface{}) ([]interface{}, error) {
 }
 
 func (m *ManifestSpecResolver) getChartInfoForInstall(
+	ctx context.Context,
 	install v1alpha1.InstallInfo,
 	specType types.RefTypeMetadata,
+	keyChain authn.Keychain,
 ) (*types.ChartInfo, error) {
 	var err error
 	switch specType {
@@ -204,7 +218,7 @@ func (m *ManifestSpecResolver) getChartInfoForInstall(
 		}
 
 		// extract helm chart from layer digest
-		chartPath, err := descriptor.GetPathFromExtractedTarGz(imageSpec, m.Insecure)
+		chartPath, err := internal.GetPathFromExtractedTarGz(ctx, imageSpec, m.Insecure, keyChain)
 		if err != nil {
 			return nil, err
 		}
@@ -283,4 +297,21 @@ func getConfigAndValuesForInstall(configs []interface{}, name string) (
 		}
 	}
 	return clientConfig, defaultOverrides, nil
+}
+
+func (m *ManifestSpecResolver) lookupKeyChain(
+	ctx context.Context,
+	imageSpec types.ImageSpec,
+	namespace string,
+) (authn.Keychain, error) {
+	var keyChain authn.Keychain
+	var err error
+	if imageSpec.CredSecretSelector != nil {
+		if keyChain, err = GetAuthnKeychain(ctx, imageSpec, m.KCP, namespace); err != nil {
+			return nil, err
+		}
+	} else {
+		keyChain = authn.DefaultKeychain
+	}
+	return keyChain, nil
 }

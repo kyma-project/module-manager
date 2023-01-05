@@ -1,14 +1,14 @@
-package controllers
+package v1alpha1
 
 import (
 	"context"
 
 	"github.com/kyma-project/module-manager/api/v1alpha1"
+	"github.com/kyma-project/module-manager/internal"
 	"github.com/kyma-project/module-manager/pkg/custom"
 	declarative "github.com/kyma-project/module-manager/pkg/declarative/v2"
 	"github.com/kyma-project/module-manager/pkg/labels"
 	"github.com/kyma-project/module-manager/pkg/types"
-	"github.com/kyma-project/module-manager/pkg/util"
 	"k8s.io/client-go/rest"
 )
 
@@ -27,7 +27,7 @@ func (r *RemoteClusterLookup) ConfigResolver(ctx context.Context, obj declarativ
 		return r.KCP, nil
 	}
 
-	kymaOwnerLabel, err := util.GetResourceLabel(manifest, labels.KymaName)
+	kymaOwnerLabel, err := internal.GetResourceLabel(manifest, labels.KymaName)
 	if err != nil {
 		return nil, err
 	}

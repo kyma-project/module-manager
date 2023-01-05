@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/go-logr/logr"
+	"github.com/kyma-project/module-manager/internal"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/kube"
 	"helm.sh/helm/v3/pkg/storage"
@@ -26,7 +27,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kyma-project/module-manager/pkg/types"
-	"github.com/kyma-project/module-manager/pkg/util"
 )
 
 const (
@@ -137,7 +137,7 @@ func NewSingletonClients(info *types.ClusterInfo, logger logr.Logger) (*Singleto
 	clients.helmClient = &kube.Client{
 		Factory: clients,
 		Log: func(msg string, args ...interface{}) {
-			logger.V(util.DebugLogLevel).Info(fmt.Sprintf(msg, args...))
+			logger.V(internal.DebugLogLevel).Info(fmt.Sprintf(msg, args...))
 		},
 		Namespace: metav1.NamespaceDefault,
 	}

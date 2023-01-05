@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controllers_test
+package v1alpha1_test
 
 import (
 	"context"
@@ -25,7 +25,8 @@ import (
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/registry"
-	"github.com/kyma-project/module-manager/internal/util"
+	"github.com/kyma-project/module-manager/internal"
+	internalv1alpha1 "github.com/kyma-project/module-manager/internal/manifest/v1alpha1"
 	declarative "github.com/kyma-project/module-manager/pkg/declarative/v2"
 	"github.com/kyma-project/module-manager/pkg/labels"
 	. "github.com/onsi/ginkgo/v2"
@@ -44,7 +45,6 @@ import (
 	//+kubebuilder:scaffold:imports
 
 	"github.com/kyma-project/module-manager/api/v1alpha1"
-	"github.com/kyma-project/module-manager/controllers"
 	"github.com/kyma-project/module-manager/pkg/log"
 	"github.com/kyma-project/module-manager/pkg/types"
 )
@@ -70,7 +70,7 @@ const (
 	helmCacheHome      = "/tmp/caches"
 	helmCacheRepoEnv   = "HELM_REPOSITORY_CACHE"
 	helmRepoEnv        = "HELM_REPOSITORY_CONFIG"
-	kustomizeLocalPath = "../pkg/test_samples/kustomize"
+	kustomizeLocalPath = "../../../pkg/test_samples/kustomize"
 	standardTimeout    = 30 * time.Second
 	standardInterval   = 100 * time.Millisecond
 )
@@ -97,7 +97,7 @@ var _ = BeforeSuite(
 
 		By("bootstrapping test environment")
 		testEnv = &envtest.Environment{
-			CRDDirectoryPaths:     []string{filepath.Join("..", "config", "crd", "bases")},
+			CRDDirectoryPaths:     []string{filepath.Join("..", "..", "..", "config", "crd", "bases")},
 			ErrorIfCRDPathMissing: false,
 		}
 
@@ -117,7 +117,7 @@ var _ = BeforeSuite(
 			cfg, ctrl.Options{
 				MetricsBindAddress: metricsBindAddress,
 				Scheme:             scheme.Scheme,
-				NewCache:           util.GetCacheFunc(),
+				NewCache:           internal.GetCacheFunc(),
 			},
 		)
 		Expect(err).ToNot(HaveOccurred())
@@ -136,7 +136,7 @@ var _ = BeforeSuite(
 		reconciler = declarative.NewFromManager(
 			k8sManager, &v1alpha1.Manifest{},
 			declarative.WithSpecResolver(
-				controllers.NewManifestSpecResolver(codec, true),
+				internalv1alpha1.NewManifestSpecResolver(codec, true),
 			),
 			declarative.WithPermanentConsistencyCheck(true),
 			declarative.WithRemoteTargetCluster(
@@ -144,10 +144,9 @@ var _ = BeforeSuite(
 					return &types.ClusterInfo{Config: authUser.Config()}, nil
 				},
 			),
-			declarative.WithPostRenderTransform(controllers.WatchedByOwnedBy),
 			declarative.WithClientCacheKeyFromLabelOrResource(labels.KymaName),
-			declarative.WithPostRun{controllers.PostRunCreateCR},
-			declarative.WithPreDelete{controllers.PreDeleteDeleteCR},
+			declarative.WithPostRun{internalv1alpha1.PostRunCreateCR},
+			declarative.WithPreDelete{internalv1alpha1.PreDeleteDeleteCR},
 			declarative.WithCustomReadyCheck(declarative.NewExistsReadyCheck(k8sManager.GetClient())),
 		)
 
@@ -156,7 +155,7 @@ var _ = BeforeSuite(
 			Watches(&source.Kind{Type: &v1.Secret{}}, handler.Funcs{}).
 			WithOptions(
 				controller.Options{
-					RateLimiter: controllers.ManifestRateLimiter(
+					RateLimiter: internal.ManifestRateLimiter(
 						1*time.Second, 1000*time.Second,
 						30, 200,
 					),

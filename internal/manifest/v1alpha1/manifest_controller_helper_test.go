@@ -1,4 +1,4 @@
-package controllers_test
+package v1alpha1_test
 
 import (
 	"fmt"
@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/partial"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/types"
+	"github.com/kyma-project/module-manager/internal"
 	_ "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -21,7 +22,6 @@ import (
 	"github.com/kyma-project/module-manager/api/v1alpha1"
 	"github.com/kyma-project/module-manager/pkg/labels"
 	manifestTypes "github.com/kyma-project/module-manager/pkg/types"
-	"github.com/kyma-project/module-manager/pkg/util"
 )
 
 type mockLayer struct {
@@ -52,7 +52,7 @@ func (m mockLayer) Compressed() (io.ReadCloser, error) {
 }
 
 func (m mockLayer) Uncompressed() (io.ReadCloser, error) {
-	f, err := os.Open("../pkg/test_samples/oci/config.yaml")
+	f, err := os.Open("../../../pkg/test_samples/oci/config.yaml")
 	if err != nil {
 		return nil, err
 	}
@@ -67,9 +67,9 @@ func CreateImageSpecLayer(ociLayerType OCILayerType) v1.Layer {
 	var layer v1.Layer
 	var err error
 	if ociLayerType == layerCRDs {
-		layer, err = partial.CompressedToLayer(mockLayer{filePath: "../pkg/test_samples/oci/crd.tgz"})
+		layer, err = partial.CompressedToLayer(mockLayer{filePath: "../../../pkg/test_samples/oci/crd.tgz"})
 	} else {
-		layer, err = partial.CompressedToLayer(mockLayer{filePath: "../pkg/test_samples/oci/helm_chart_with_crds.tgz"})
+		layer, err = partial.CompressedToLayer(mockLayer{filePath: "../../../pkg/test_samples/oci/helm_chart_with_crds.tgz"})
 	}
 	Expect(err).ToNot(HaveOccurred())
 	return layer
@@ -106,7 +106,7 @@ func PushToRemoteOCIRegistry(layerName string, ociLayerType OCILayerType) {
 	Expect(gotHash).To(Equal(digest))
 }
 
-func createImageSpec(name, repo string, ociLayerType OCILayerType) manifestTypes.ImageSpec {
+func createOCIImageSpec(name, repo string, ociLayerType OCILayerType) manifestTypes.ImageSpec {
 	imageSpec := manifestTypes.ImageSpec{
 		Name: name,
 		Repo: repo,
@@ -132,19 +132,19 @@ func NewTestManifest(prefix string) *v1alpha1.Manifest {
 }
 
 func deleteHelmChartResources(imageSpec manifestTypes.ImageSpec) {
-	chartYamlPath := filepath.Join(util.GetFsChartPath(imageSpec), "Chart.yaml")
+	chartYamlPath := filepath.Join(internal.GetFsChartPath(imageSpec), "Chart.yaml")
 	Expect(os.RemoveAll(chartYamlPath)).Should(Succeed())
-	valuesYamlPath := filepath.Join(util.GetFsChartPath(imageSpec), "values.yaml")
+	valuesYamlPath := filepath.Join(internal.GetFsChartPath(imageSpec), "values.yaml")
 	Expect(os.RemoveAll(valuesYamlPath)).Should(Succeed())
-	templatesPath := filepath.Join(util.GetFsChartPath(imageSpec), "templates")
+	templatesPath := filepath.Join(internal.GetFsChartPath(imageSpec), "templates")
 	Expect(os.RemoveAll(templatesPath)).Should(Succeed())
 }
 
 func verifyHelmResourcesDeletion(imageSpec manifestTypes.ImageSpec) {
-	_, err := os.Stat(filepath.Join(util.GetFsChartPath(imageSpec), "Chart.yaml"))
+	_, err := os.Stat(filepath.Join(internal.GetFsChartPath(imageSpec), "Chart.yaml"))
 	Expect(os.IsNotExist(err)).To(BeTrue())
-	_, err = os.Stat(filepath.Join(util.GetFsChartPath(imageSpec), "values.yaml"))
+	_, err = os.Stat(filepath.Join(internal.GetFsChartPath(imageSpec), "values.yaml"))
 	Expect(os.IsNotExist(err)).To(BeTrue())
-	_, err = os.Stat(filepath.Join(util.GetFsChartPath(imageSpec), "templates"))
+	_, err = os.Stat(filepath.Join(internal.GetFsChartPath(imageSpec), "templates"))
 	Expect(os.IsNotExist(err)).To(BeTrue())
 }

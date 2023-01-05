@@ -18,30 +18,20 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"net/http"
 	"net/http/pprof"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/kyma-project/module-manager/internal/util"
-	declarative "github.com/kyma-project/module-manager/pkg/declarative/v2"
-	"github.com/kyma-project/module-manager/pkg/labels"
-	listener "github.com/kyma-project/runtime-watcher/listener/pkg/event"
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/util/workqueue"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/controller-runtime/pkg/source"
-
 	manifestv1alpha1 "github.com/kyma-project/module-manager/api/v1alpha1"
 	"github.com/kyma-project/module-manager/controllers"
+	"github.com/kyma-project/module-manager/internal"
+	"github.com/kyma-project/module-manager/pkg/labels"
 	"github.com/kyma-project/module-manager/pkg/types"
+	listener "github.com/kyma-project/runtime-watcher/listener/pkg/event"
+	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -116,7 +106,7 @@ func main() {
 	if flagVar.enablePProf {
 		go pprofStartServer(flagVar.pprofAddr, flagVar.pprofServerTimeout)
 	}
-	setupWithManager(flagVar, util.GetCacheFunc(), scheme, config)
+	setupWithManager(flagVar, internal.GetCacheFunc(), scheme, config)
 }
 
 func pprofStartServer(addr string, timeout time.Duration) {
@@ -173,33 +163,17 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 		os.Exit(1)
 	}
 
-	if err = ctrl.NewControllerManagedBy(mgr).
-		For(&manifestv1alpha1.Manifest{}).
-		Watches(&source.Kind{Type: &v1.Secret{}}, handler.Funcs{}).
-		Watches(
-			eventChannel, &handler.Funcs{
-				GenericFunc: func(event event.GenericEvent, queue workqueue.RateLimitingInterface) {
-					ctrl.Log.WithName("listener").Info(
-						fmt.Sprintf(
-							"event coming from SKR, adding %s to queue",
-							client.ObjectKeyFromObject(event.Object).String(),
-						),
-					)
-					queue.Add(ctrl.Request{NamespacedName: client.ObjectKeyFromObject(event.Object)})
-				},
-			},
-		).
-		WithOptions(
-			controller.Options{
-				RateLimiter: controllers.ManifestRateLimiter(
-					flagVar.failureBaseDelay, flagVar.failureMaxDelay,
-					flagVar.rateLimiterFrequency,
-					flagVar.rateLimiterBurst,
-				),
-				MaxConcurrentReconciles: flagVar.concurrentReconciles,
-				CacheSyncTimeout:        flagVar.cacheSyncTimeout,
-			},
-		).Complete(manifestReconciler(flagVar, mgr, codec)); err != nil {
+	if err := controllers.SetupWithManager(
+		mgr, eventChannel, codec, controller.Options{
+			RateLimiter: internal.ManifestRateLimiter(
+				flagVar.failureBaseDelay, flagVar.failureMaxDelay,
+				flagVar.rateLimiterFrequency,
+				flagVar.rateLimiterBurst,
+			),
+			MaxConcurrentReconciles: flagVar.concurrentReconciles,
+			CacheSyncTimeout:        flagVar.cacheSyncTimeout,
+		}, flagVar.insecureRegistry,
+	); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Manifest")
 		os.Exit(1)
 	}
@@ -225,25 +199,6 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
-}
-
-func manifestReconciler(flagVar *FlagVar, mgr manager.Manager, codec *types.Codec) *declarative.Reconciler {
-	return declarative.NewFromManager(
-		mgr, &manifestv1alpha1.Manifest{},
-		declarative.WithSpecResolver(
-			controllers.NewManifestSpecResolver(codec, flagVar.insecureRegistry),
-		),
-		declarative.WithRemoteTargetCluster(
-			(&controllers.RemoteClusterLookup{KCP: &types.ClusterInfo{
-				Client: mgr.GetClient(),
-				Config: mgr.GetConfig(),
-			}}).ConfigResolver,
-		),
-		declarative.WithPostRenderTransform(controllers.WatchedByOwnedBy),
-		declarative.WithClientCacheKeyFromLabelOrResource(labels.KymaName),
-		declarative.WithPostRun{controllers.PostRunCreateCR},
-		declarative.WithPreDelete{controllers.PreDeleteDeleteCR},
-	)
 }
 
 func defineFlagVar() *FlagVar {
