@@ -37,7 +37,7 @@ func setHelmEnv() {
 }
 
 var _ = Describe(
-	"Given manifest with kustomize specs", Ordered, func() {
+	"Given manifest with kustomize specs", func() {
 		remoteKustomizeSpec := types.KustomizeSpec{
 			URL:  "https://github.com/kyma-project/lifecycle-manager//config/default?ref=main",
 			Type: "kustomize",
@@ -71,7 +71,6 @@ var _ = Describe(
 		AfterEach(
 			func() {
 				Expect(os.Chmod(kustomizeLocalPath, fs.ModePerm)).To(Succeed())
-				Expect(os.RemoveAll(filepath.Join(kustomizeLocalPath, ManifestDir))).To(Succeed())
 			},
 		)
 		DescribeTable(
@@ -118,12 +117,12 @@ var _ = Describe(
 )
 
 var _ = Describe(
-	"Given manifest with OCI specs", Ordered, func() {
+	"Given manifest with OCI specs", func() {
 		mainOciTempDir := "main-dir"
 		installName := filepath.Join(mainOciTempDir, "installs")
 		crdName := filepath.Join(mainOciTempDir, "crds")
-		BeforeAll(
-			func() {
+		It(
+			"setup OCI", func() {
 				PushToRemoteOCIRegistry(installName, layerInstalls)
 				PushToRemoteOCIRegistry(crdName, layerCRDs)
 			},
@@ -210,10 +209,11 @@ var _ = Describe(
 )
 
 var _ = Describe(
-	"Test multiple Manifest CRs with same parent and OCI spec", Ordered, func() {
+	"Test multiple Manifest CRs with same parent and OCI spec", func() {
 		mainOciTempDir := "multiple"
 		installName := filepath.Join(mainOciTempDir, "crs")
-		BeforeAll(
+		It(
+			"setup remote oci Registry",
 			func() {
 				PushToRemoteOCIRegistry(installName, layerInstalls)
 			},
