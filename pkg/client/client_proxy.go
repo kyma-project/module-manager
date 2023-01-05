@@ -91,11 +91,11 @@ func (p *ProxyClient) Patch(
 }
 
 // Get implements client.Client.
-func (p *ProxyClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object) error {
+func (p *ProxyClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 	if _, err := getResourceMapping(obj, p.mapper, true); err != nil {
 		return err
 	}
-	return p.baseClient.Get(ctx, key, obj)
+	return p.baseClient.Get(ctx, key, obj, opts...)
 }
 
 // List implements client.Client.
@@ -109,4 +109,8 @@ func (p *ProxyClient) List(ctx context.Context, obj client.ObjectList, opts ...c
 // Status implements client.StatusClient.
 func (p *ProxyClient) Status() client.StatusWriter {
 	return p.baseClient.Status()
+}
+
+func (p *ProxyClient) SubResource(subResource string) client.SubResourceClient {
+	return p.baseClient.SubResource(subResource)
 }
