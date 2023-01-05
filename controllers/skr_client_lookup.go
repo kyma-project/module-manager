@@ -27,12 +27,12 @@ func (r *RemoteClusterLookup) ConfigResolver(ctx context.Context, obj declarativ
 		return r.KCP, nil
 	}
 
-	kymaOwnerLabel, err := util.GetResourceLabel(manifest, labels.ComponentOwner)
+	kymaOwnerLabel, err := util.GetResourceLabel(manifest, labels.KymaName)
 	if err != nil {
 		return nil, err
 	}
 
-	// RESTConfig can either be retrieved by a secret with name contained in labels.ComponentOwner Manifest CR label,
+	// RESTConfig can either be retrieved by a secret with name contained in labels.KymaName Manifest CR label,
 	// or it can be retrieved as a function return value, passed during controller startup.
 	var restConfigGetter RESTConfigGetter
 	if r.ConfigGetter != nil {

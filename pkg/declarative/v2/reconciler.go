@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	manifestClient "github.com/kyma-project/module-manager/pkg/client"
-	manifestLabels "github.com/kyma-project/module-manager/pkg/labels"
 	"github.com/kyma-project/module-manager/pkg/types"
 	"github.com/kyma-project/module-manager/pkg/util"
 	"helm.sh/helm/v3/pkg/kube"
@@ -19,7 +18,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 var (
@@ -29,7 +27,7 @@ var (
 	ErrObjectHasEmptyState                       = errors.New("object has an empty state")
 )
 
-func NewFromManager(mgr manager.Manager, prototype Object, options ...Option) reconcile.Reconciler {
+func NewFromManager(mgr manager.Manager, prototype Object, options ...Option) *Reconciler {
 	r := &Reconciler{}
 	r.prototype = prototype
 	r.Options = DefaultOptions().Apply(WithManager(mgr)).Apply(options...)
@@ -399,7 +397,7 @@ func (r *Reconciler) getTargetClient(
 ) (Client, error) {
 	var err error
 
-	clientsCacheKey := cacheKeyFromObject(ctx, obj)
+	clientsCacheKey := r.ClientCacheKeyFn(ctx, obj)
 
 	clnt := r.GetClientFromCache(clientsCacheKey)
 
@@ -451,35 +449,6 @@ func (r *Reconciler) getTargetClient(
 	}
 
 	return clnt, nil
-}
-
-func cacheKeyFromObject(ctx context.Context, resource client.Object) client.ObjectKey {
-	logger := log.FromContext(ctx)
-
-	if resource == nil {
-		return client.ObjectKey{}
-	}
-
-	label, err := util.GetResourceLabel(resource, manifestLabels.CacheKey)
-	objectKey := client.ObjectKeyFromObject(resource)
-	var labelErr *types.LabelNotFoundError
-	if errors.As(err, &labelErr) {
-		logger.V(util.DebugLogLevel).Info(
-			manifestLabels.CacheKey+" missing on resource, it will be cached "+
-				"based on resource name and namespace.",
-			"resource", objectKey,
-		)
-		return objectKey
-	}
-
-	logger.V(util.DebugLogLevel).Info(
-		"resource will be cached based on "+manifestLabels.CacheKey,
-		"resource", objectKey,
-		"label", manifestLabels.CacheKey,
-		"labelValue", label,
-	)
-
-	return client.ObjectKey{Name: label, Namespace: resource.GetNamespace()}
 }
 
 func (r *Reconciler) ssaStatus(ctx context.Context, obj client.Object) (ctrl.Result, error) {

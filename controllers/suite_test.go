@@ -27,6 +27,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/registry"
 	"github.com/kyma-project/module-manager/internal/util"
 	declarative "github.com/kyma-project/module-manager/pkg/declarative/v2"
+	"github.com/kyma-project/module-manager/pkg/labels"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
@@ -38,7 +39,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	//+kubebuilder:scaffold:imports
@@ -61,7 +61,7 @@ var (
 	server        *httptest.Server                                    //nolint:gochecknoglobals
 	helmCacheRepo = filepath.Join(helmCacheHome, "repository")        //nolint:gochecknoglobals
 	helmRepoFile  = filepath.Join(helmCacheHome, "repositories.yaml") //nolint:gochecknoglobals
-	reconciler    reconcile.Reconciler                                //nolint:gochecknoglobals
+	reconciler    *declarative.Reconciler                             //nolint:gochecknoglobals
 	cfg           *rest.Config                                        //nolint:gochecknoglobals
 )
 
@@ -144,6 +144,10 @@ var _ = BeforeSuite(
 					return &types.ClusterInfo{Config: authUser.Config()}, nil
 				},
 			),
+			declarative.WithPostRenderTransform(controllers.WatchedByOwnedBy),
+			declarative.WithClientCacheKeyFromLabelOrResource(labels.KymaName),
+			declarative.WithPostRun{controllers.PostRunCreateCR},
+			declarative.WithPreDelete{controllers.PreDeleteDeleteCR},
 			declarative.WithCustomReadyCheck(declarative.NewExistsReadyCheck(k8sManager.GetClient())),
 		)
 

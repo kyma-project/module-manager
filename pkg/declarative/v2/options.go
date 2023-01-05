@@ -2,6 +2,7 @@ package v2
 
 import (
 	"context"
+	"errors"
 	"os"
 	"time"
 
@@ -23,6 +24,7 @@ const (
 	FieldOwnerDefault         = "declarative.kyma-project.io/applier"
 	EventRecorderDefault      = "declarative.kyma-project.io/events"
 	DefaultSkipReconcileLabel = "declarative.kyma-project.io/skip-reconciliation"
+	DefaultCacheKey           = "declarative.kyma-project.io/cache-key"
 )
 
 func DefaultOptions() *Options {
@@ -38,6 +40,7 @@ func DefaultOptions() *Options {
 		),
 		WithPermanentConsistencyCheck(false),
 		WithSingletonClientCache(NewMemorySingletonClientCache()),
+		WithClientCacheKeyFromLabelOrResource(DefaultCacheKey),
 		WithManifestCache(os.TempDir()),
 		WithSkipReconcileOn(SkipReconcileOnDefaultLabelPresentAndTrue),
 	)
@@ -51,6 +54,7 @@ type Options struct {
 
 	SpecResolver
 	ClientCache
+	ClientCacheKeyFn
 	ManifestCache
 	CustomReadyCheck ReadyCheck
 
@@ -292,4 +296,46 @@ type WithSkipReconcileOnOption struct {
 
 func (o WithSkipReconcileOnOption) Apply(options *Options) {
 	options.ShouldSkip = o.skipReconcile
+}
+
+type ClientCacheKeyFn func(ctx context.Context, obj Object) any
+
+func WithClientCacheKeyFromLabelOrResource(label string) WithClientCacheKeyOption {
+	cacheKey := func(ctx context.Context, resource Object) any {
+		logger := log.FromContext(ctx)
+
+		if resource == nil {
+			return client.ObjectKey{}
+		}
+
+		label, err := util.GetResourceLabel(resource, label)
+		objectKey := client.ObjectKeyFromObject(resource)
+		var labelErr *types.LabelNotFoundError
+		if errors.As(err, &labelErr) {
+			logger.V(util.DebugLogLevel).Info(
+				label+" missing on resource, it will be cached "+
+					"based on resource name and namespace.",
+				"resource", objectKey,
+			)
+			return objectKey
+		}
+
+		logger.V(util.DebugLogLevel).Info(
+			"resource will be cached based on "+label,
+			"resource", objectKey,
+			"label", label,
+			"labelValue", label,
+		)
+
+		return client.ObjectKey{Name: label, Namespace: resource.GetNamespace()}
+	}
+	return WithClientCacheKeyOption{ClientCacheKeyFn: cacheKey}
+}
+
+type WithClientCacheKeyOption struct {
+	ClientCacheKeyFn
+}
+
+func (o WithClientCacheKeyOption) Apply(options *Options) {
+	options.ClientCacheKeyFn = o.ClientCacheKeyFn
 }

@@ -142,7 +142,7 @@ var _ = Describe(
 				Eventually(expectManifestState, standardTimeout, standardInterval).
 					WithArguments(manifest.GetName()).Should(Succeed())
 				Eventually(expectedHelmClientCache, standardTimeout, standardInterval).
-					WithArguments(manifest.GetLabels()[labels.ComponentOwner]).Should(BeTrue())
+					WithArguments(manifest.GetLabels()[labels.KymaName]).Should(BeTrue())
 				Eventually(deleteManifestAndVerify(manifest), standardTimeout, standardInterval).Should(Succeed())
 			},
 			Entry(
@@ -226,12 +226,12 @@ var _ = Describe(
 					WithArguments(manifestWithInstall).Should(Succeed())
 				validImageSpec := createImageSpec(installName, server.Listener.Addr().String(), layerInstalls)
 				Eventually(expectHelmClientCacheExist(true), standardTimeout, standardInterval).
-					WithArguments(manifestWithInstall.GetLabels()[labels.ComponentOwner]).Should(BeTrue())
+					WithArguments(manifestWithInstall.GetLabels()[labels.KymaName]).Should(BeTrue())
 				// this will ensure only manifest.yaml remains
 				deleteHelmChartResources(validImageSpec)
 				manifest2WithInstall := NewTestManifest("multi-oci2")
 				// copy owner label over to the new manifest resource
-				manifest2WithInstall.Labels[labels.ComponentOwner] = manifestWithInstall.Labels[labels.ComponentOwner]
+				manifest2WithInstall.Labels[labels.KymaName] = manifestWithInstall.Labels[labels.KymaName]
 				Eventually(withValidInstallImageSpec(installName, false), standardTimeout, standardInterval).
 					WithArguments(manifest2WithInstall).Should(Succeed())
 				// verify no new Helm resources were created
@@ -242,7 +242,7 @@ var _ = Describe(
 					WithArguments(manifest3WithoutInstall).Should(Succeed())
 				// no cache entry created for empty installs
 				Eventually(expectHelmClientCacheExist(false), standardTimeout, standardInterval).
-					WithArguments(manifest3WithoutInstall.GetLabels()[labels.ComponentOwner]).Should(BeTrue())
+					WithArguments(manifest3WithoutInstall.GetLabels()[labels.KymaName]).Should(BeTrue())
 				Eventually(
 					deleteManifestAndVerify(manifestWithInstall), standardTimeout, standardInterval,
 				).Should(Succeed())
@@ -265,7 +265,12 @@ func skipExpect() func() bool {
 
 func expectHelmClientCacheExist(expectExist bool) func(componentOwner string) bool {
 	return func(componentOwner string) bool {
-		return true
+		key := client.ObjectKey{Name: componentOwner, Namespace: v1.NamespaceDefault}
+		clnt := reconciler.ClientCache.GetClientFromCache(key)
+		if expectExist {
+			return clnt != nil
+		}
+		return clnt == nil
 	}
 }
 

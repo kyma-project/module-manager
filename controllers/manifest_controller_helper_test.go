@@ -125,7 +125,7 @@ func NewTestManifest(prefix string) *v1alpha1.Manifest {
 			Name:      fmt.Sprintf("%s-%d", prefix, rand.Intn(999999)),
 			Namespace: metav1.NamespaceDefault,
 			Labels: map[string]string{
-				labels.ComponentOwner: string(uuid.NewUUID()),
+				labels.KymaName: string(uuid.NewUUID()),
 			},
 		},
 	}

@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	manifestv1alpha1 "github.com/kyma-project/module-manager/api/v1alpha1"
@@ -198,22 +199,7 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 				MaxConcurrentReconciles: flagVar.concurrentReconciles,
 				CacheSyncTimeout:        flagVar.cacheSyncTimeout,
 			},
-		).Complete(
-		declarative.NewFromManager(
-			mgr, &manifestv1alpha1.Manifest{},
-			declarative.WithSpecResolver(
-				controllers.NewManifestSpecResolver(codec, flagVar.insecureRegistry),
-			),
-			declarative.WithRemoteTargetCluster(
-				(&controllers.RemoteClusterLookup{KCP: &types.ClusterInfo{
-					Client: mgr.GetClient(),
-					Config: mgr.GetConfig(),
-				}}).ConfigResolver,
-			),
-			declarative.WithPostRun{controllers.PostRunCreateCR},
-			declarative.WithPreDelete{controllers.PreDeleteDeleteCR},
-		),
-	); err != nil {
+		).Complete(manifestReconciler(flagVar, mgr, codec)); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Manifest")
 		os.Exit(1)
 	}
@@ -239,6 +225,25 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+func manifestReconciler(flagVar *FlagVar, mgr manager.Manager, codec *types.Codec) *declarative.Reconciler {
+	return declarative.NewFromManager(
+		mgr, &manifestv1alpha1.Manifest{},
+		declarative.WithSpecResolver(
+			controllers.NewManifestSpecResolver(codec, flagVar.insecureRegistry),
+		),
+		declarative.WithRemoteTargetCluster(
+			(&controllers.RemoteClusterLookup{KCP: &types.ClusterInfo{
+				Client: mgr.GetClient(),
+				Config: mgr.GetConfig(),
+			}}).ConfigResolver,
+		),
+		declarative.WithPostRenderTransform(controllers.WatchedByOwnedBy),
+		declarative.WithClientCacheKeyFromLabelOrResource(labels.KymaName),
+		declarative.WithPostRun{controllers.PostRunCreateCR},
+		declarative.WithPreDelete{controllers.PreDeleteDeleteCR},
+	)
 }
 
 func defineFlagVar() *FlagVar {

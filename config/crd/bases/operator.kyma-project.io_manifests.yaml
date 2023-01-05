@@ -121,7 +121,7 @@ spec:
             properties:
               conditions:
                 description: Conditions contain a set of conditionals to determine
-                  the State of Status. If all Conditions are met, State is expected
+                  the State of Status. If all Conditions are met, the State is expected
                   to be in StateReady.
                 items:
                   description: "Condition contains details for one aspect of the current
@@ -190,6 +190,9 @@ spec:
                   - type
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
               lastOperation:
                 description: LastOperation defines the last operation from the control-loop.
                 properties:
@@ -237,7 +240,6 @@ spec:
                 type: array
                 x-kubernetes-list-type: atomic
             required:
-            - conditions
             - state
             - synced
             type: object

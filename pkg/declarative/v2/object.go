@@ -26,9 +26,14 @@ type Status struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Enum=Processing;Deleting;Ready;Error
 	State State `json:"state"`
+
 	// Conditions contain a set of conditionals to determine the State of Status.
-	// If all Conditions are met, State is expected to be in StateReady.
-	Conditions []metav1.Condition `json:"conditions"`
+	// If all Conditions are met, the State is expected to be in StateReady.
+	// +patchMergeKey=type
+	// +patchStrategy=merge
+	// +listType=map
+	// +listMapKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 
 	// Synced determine a list of Resources that are currently actively synced.
 	// All resources that are synced are considered for orphan removal on configuration changes,

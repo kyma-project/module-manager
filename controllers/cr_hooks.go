@@ -17,12 +17,17 @@ func PostRunCreateCR(
 	ctx context.Context, skr declarative.Client, kcp client.Client, obj declarative.Object,
 ) error {
 	manifest := obj.(*manifestv1alpha1.Manifest)
+	resource := manifest.Spec.Resource.DeepCopy()
+	if resource.Object == nil {
+		return nil
+	}
+
 	if err := skr.Create(
-		ctx, manifest.Spec.Resource.DeepCopy(),
-		client.FieldOwner(CustomResourceManager),
+		ctx, resource, client.FieldOwner(CustomResourceManager),
 	); err != nil && !errors.IsAlreadyExists(err) {
 		return err
 	}
+
 	oMeta := &v1.PartialObjectMetadata{}
 	oMeta.SetName(obj.GetName())
 	oMeta.SetGroupVersionKind(obj.GetObjectKind().GroupVersionKind())
@@ -42,9 +47,15 @@ func PreDeleteDeleteCR(
 	ctx context.Context, skr declarative.Client, kcp client.Client, obj declarative.Object,
 ) error {
 	manifest := obj.(*manifestv1alpha1.Manifest)
-	if err := skr.Delete(ctx, manifest.Spec.Resource.DeepCopy()); err != nil && !errors.IsNotFound(err) {
+	resource := manifest.Spec.Resource.DeepCopy()
+	if resource.Object == nil {
+		return nil
+	}
+
+	if err := skr.Delete(ctx, resource); err != nil && !errors.IsNotFound(err) {
 		return err
 	}
+
 	onCluster := manifest.DeepCopy()
 	err := kcp.Get(ctx, client.ObjectKeyFromObject(obj), onCluster)
 	if errors.IsNotFound(err) {
