@@ -91,7 +91,11 @@ func (p *ProxyClient) Patch(
 }
 
 // Get implements client.Client.
-func (p *ProxyClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+func (p *ProxyClient) Get(ctx context.Context,
+	key client.ObjectKey,
+	obj client.Object,
+	opts ...client.GetOption,
+) error {
 	if _, err := getResourceMapping(obj, p.mapper, true); err != nil {
 		return err
 	}
