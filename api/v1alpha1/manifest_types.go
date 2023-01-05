@@ -67,12 +67,6 @@ type ManifestSpec struct {
 	// CRDs specifies the custom resource definitions' ImageSpec
 	// +kubebuilder:validation:Optional
 	CRDs types.ImageSpec `json:"crds"`
-
-	// AuthSecretSelector is on optional field, for OCI image saved in private registry,
-	// use it to indicate the secret which contains registry credentials,
-	// must exist in the namespace same as manifest
-	// +kubebuilder:validation:Optional
-	AuthSecretSelector metav1.LabelSelector `json:"authSecretSelector,omitempty"`
 }
 
 // +kubebuilder:validation:Enum=Processing;Deleting;Ready;Error
