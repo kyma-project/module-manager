@@ -14,6 +14,8 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/google/go-containerregistry/pkg/authn"
+	authnK8s "github.com/google/go-containerregistry/pkg/authn/kubernetes"
 	"github.com/kyma-project/module-manager/api/v1alpha1"
 	manifestCustom "github.com/kyma-project/module-manager/internal/pkg/custom"
 	internalTypes "github.com/kyma-project/module-manager/internal/pkg/types"
@@ -23,42 +25,24 @@ import (
 	"github.com/kyma-project/module-manager/pkg/resource"
 	"github.com/kyma-project/module-manager/pkg/types"
 	"github.com/kyma-project/module-manager/pkg/util"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const configReadError = "reading install %s resulted in an error for " + v1alpha1.ManifestKind
+
+var ErrNoAuthSecretFound = errors.New("no auth secret found")
 
 // GetInstallInfos pre-processes the passed Manifest CR and returns a list types.InstallInfo objects,
 // each representing an installation artifact.
 func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaultClusterInfo types.ClusterInfo,
 	flags internalTypes.ReconcileFlagConfig, processorCache types.RendererCache,
 ) ([]*types.InstallInfo, error) {
-	namespacedName := client.ObjectKeyFromObject(manifestObj)
-
-	// extract config
-	config := manifestObj.Spec.Config
-
-	var configs []any
-	if config.Type.NotEmpty() { //nolint:nestif
-		decodedConfig, err := descriptor.DecodeYamlFromDigest(config)
-		if err != nil {
-			// if EOF error proceed without config
-			if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
-				return nil, err
-			}
-		} else {
-			var err error
-			configs, err = parseInstallConfigs(decodedConfig)
-			if err != nil {
-				return nil, fmt.Errorf("manifest %s encountered an err: %w", namespacedName, err)
-			}
-		}
-	}
-
 	// evaluate rest config
 	customResCheck := &manifestCustom.Resource{DefaultClient: defaultClusterInfo.Client}
 
 	// check crds - if present do not update
-	crds, err := parseCrds(ctx, manifestObj.Spec.CRDs, flags.InsecureRegistry)
+	crds, err := parseCrds(ctx, manifestObj, flags.InsecureRegistry, defaultClusterInfo.Client)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +85,77 @@ func GetInstallInfos(ctx context.Context, manifestObj *v1alpha1.Manifest, defaul
 		baseDeployInfo.CustomResources = append(baseDeployInfo.CustomResources, &manifestObj.Spec.Resource)
 	}
 
-	return parseInstallations(manifestObj, flags.Codec, configs, &baseDeployInfo, flags.InsecureRegistry)
+	// extract config
+	configs, err := parseConfigs(ctx, manifestObj.Spec.Config,
+		manifestObj.Namespace, defaultClusterInfo.Client, flags.InsecureRegistry)
+	if err != nil {
+		return nil, err
+	}
+	return parseInstallations(ctx, manifestObj, flags.Codec, configs, &baseDeployInfo,
+		flags.InsecureRegistry, defaultClusterInfo.Client)
+}
+
+func parseConfigs(ctx context.Context,
+	config types.ImageSpec,
+	namespace string,
+	clusterClient client.Client,
+	insecureRegistry bool,
+) ([]interface{}, error) {
+	var configs []any
+	if config.Type.NotEmpty() { //nolint:nestif
+		filePath := util.GetConfigFilePath(config)
+		decodedConfig, err := getDecodedConfig(ctx, namespace, clusterClient, insecureRegistry, config, filePath)
+		if err != nil {
+			// if EOF error proceed without config
+			if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+				return nil, err
+			}
+			return configs, nil
+		}
+		installConfigObj, decodeOk := decodedConfig.(map[string]any)
+		if !decodeOk {
+			return nil, fmt.Errorf(configReadError, ".spec.config")
+		}
+		if installConfigObj["configs"] != nil {
+			var configOk bool
+			configs, configOk = installConfigObj["configs"].([]any)
+			if !configOk {
+				return nil, fmt.Errorf(configReadError, "chart config object of .spec.config")
+			}
+		}
+	}
+	return configs, nil
+}
+
+func getDecodedConfig(ctx context.Context,
+	namespace string,
+	clusterClient client.Client,
+	insecureRegistry bool,
+	config types.ImageSpec,
+	filePath string,
+) (any, error) {
+	keyChain, err := configKeyChain(ctx, namespace, clusterClient, config)
+	if err != nil {
+		return nil, err
+	}
+	return descriptor.DecodeUncompressedLayer(config, insecureRegistry, keyChain, filePath)
+}
+
+func configKeyChain(ctx context.Context,
+	namespace string,
+	clusterClient client.Client,
+	imageSpec types.ImageSpec,
+) (authn.Keychain, error) {
+	var keyChain authn.Keychain
+	var err error
+	if imageSpec.CredSecretSelector != nil {
+		if keyChain, err = GetAuthnKeychain(ctx, imageSpec, clusterClient, namespace); err != nil {
+			return nil, err
+		}
+	} else {
+		keyChain = authn.DefaultKeychain
+	}
+	return keyChain, nil
 }
 
 func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo types.ClusterInfo,
@@ -145,24 +199,13 @@ func getDestinationConfigAndClient(ctx context.Context, defaultClusterInfo types
 	}, nil
 }
 
-func parseInstallConfigs(decodedConfig interface{}) ([]interface{}, error) {
-	var configs []interface{}
-	installConfigObj, decodeOk := decodedConfig.(map[string]interface{})
-	if !decodeOk {
-		return nil, fmt.Errorf(configReadError, ".spec.config")
-	}
-	if installConfigObj["configs"] != nil {
-		var configOk bool
-		configs, configOk = installConfigObj["configs"].([]interface{})
-		if !configOk {
-			return nil, fmt.Errorf(configReadError, "chart config object of .spec.config")
-		}
-	}
-	return configs, nil
-}
-
-func parseInstallations(manifestObj *v1alpha1.Manifest, codec *types.Codec,
-	configs []interface{}, baseDeployInfo *types.InstallInfo, insecureRegistry bool,
+func parseInstallations(ctx context.Context,
+	manifestObj *v1alpha1.Manifest,
+	codec *types.Codec,
+	configs []interface{},
+	baseDeployInfo *types.InstallInfo,
+	insecureRegistry bool,
+	clusterClient client.Client,
 ) ([]*types.InstallInfo, error) {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 	deployInfos := make([]*types.InstallInfo, 0)
@@ -171,7 +214,7 @@ func parseInstallations(manifestObj *v1alpha1.Manifest, codec *types.Codec,
 		deployInfo := baseDeployInfo
 
 		// retrieve chart info
-		chartInfo, err := getChartInfoForInstall(install, codec, manifestObj, insecureRegistry)
+		chartInfo, err := getChartInfoForInstall(ctx, install, codec, manifestObj, insecureRegistry, clusterClient)
 		if err != nil {
 			return nil, err
 		}
@@ -196,23 +239,77 @@ func parseInstallations(manifestObj *v1alpha1.Manifest, codec *types.Codec,
 	return deployInfos, nil
 }
 
-func parseCrds(ctx context.Context, crdImage types.ImageSpec, insecureRegistry bool,
+func parseCrds(ctx context.Context,
+	manifestObj *v1alpha1.Manifest,
+	insecureRegistry bool,
+	clusterClient client.Client,
 ) ([]*v1.CustomResourceDefinition, error) {
 	// if crds do not exist - do nothing
-	if crdImage.Type.NotEmpty() {
+	if manifestObj.Spec.CRDs.Type.NotEmpty() {
 		// extract helm chart from layer digest
-		crdsPath, err := descriptor.GetPathFromExtractedTarGz(crdImage, insecureRegistry)
+		crdsPath, err := getChartPath(ctx, manifestObj.Spec.CRDs, manifestObj.Namespace, insecureRegistry, clusterClient)
 		if err != nil {
 			return nil, err
 		}
-
 		return resource.GetCRDsFromPath(ctx, crdsPath)
 	}
 	return nil, nil
 }
 
-func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *types.Codec,
-	manifestObj *v1alpha1.Manifest, insecureRegistry bool,
+func getChartPath(ctx context.Context,
+	imageSpec types.ImageSpec,
+	namespace string,
+	insecureRegistry bool,
+	clusterClient client.Client,
+) (string, error) {
+	keyChain, err := configKeyChain(ctx, namespace, clusterClient, imageSpec)
+	if err != nil {
+		return "", err
+	}
+	return descriptor.GetPathFromExtractedTarGz(imageSpec, insecureRegistry, keyChain)
+}
+
+func GetAuthnKeychain(ctx context.Context,
+	imageSpec types.ImageSpec,
+	clusterClient client.Client,
+	namespace string,
+) (authn.Keychain, error) {
+	secretList, err := getCredSecrets(ctx, imageSpec.CredSecretSelector, clusterClient, namespace)
+	if err != nil {
+		return nil, err
+	}
+	return authnK8s.NewFromPullSecrets(ctx, secretList.Items)
+}
+
+func getCredSecrets(ctx context.Context,
+	credSecretSelector *metav1.LabelSelector,
+	clusterClient client.Client,
+	namespace string,
+) (corev1.SecretList, error) {
+	secretList := corev1.SecretList{}
+	selector, err := metav1.LabelSelectorAsSelector(credSecretSelector)
+	if err != nil {
+		return secretList, fmt.Errorf("error converting labelSelector: %w", err)
+	}
+	err = clusterClient.List(ctx, &secretList, &client.ListOptions{
+		LabelSelector: selector,
+		Namespace:     namespace,
+	})
+	if err != nil {
+		return secretList, err
+	}
+	if len(secretList.Items) == 0 {
+		return secretList, ErrNoAuthSecretFound
+	}
+	return secretList, nil
+}
+
+func getChartInfoForInstall(ctx context.Context,
+	install v1alpha1.InstallInfo,
+	codec *types.Codec,
+	manifestObj *v1alpha1.Manifest,
+	insecureRegistry bool,
+	clusterClient client.Client,
 ) (*types.ChartInfo, error) {
 	namespacedName := client.ObjectKeyFromObject(manifestObj)
 	specType, err := types.GetSpecType(install.Source.Raw)
@@ -222,49 +319,73 @@ func getChartInfoForInstall(install v1alpha1.InstallInfo, codec *types.Codec,
 
 	switch specType {
 	case types.HelmChartType:
-		var helmChartSpec types.HelmChartSpec
-		if err = codec.Decode(install.Source.Raw, &helmChartSpec, specType); err != nil {
-			return nil, err
-		}
-
-		return &types.ChartInfo{
-			ChartName: fmt.Sprintf("%s/%s", install.Name, helmChartSpec.ChartName),
-			RepoName:  install.Name,
-			URL:       helmChartSpec.URL,
-		}, nil
-
+		return createHelmChartInfo(codec, install, specType)
 	case types.OciRefType:
-		var imageSpec types.ImageSpec
-		if err = codec.Decode(install.Source.Raw, &imageSpec, specType); err != nil {
-			return nil, err
-		}
-
-		// extract helm chart from layer digest
-		chartPath, err := descriptor.GetPathFromExtractedTarGz(imageSpec, insecureRegistry)
-		if err != nil {
-			return nil, err
-		}
-
-		return &types.ChartInfo{
-			ChartName: install.Name,
-			ChartPath: chartPath,
-		}, nil
+		return createOciChartInfo(ctx, install, codec, specType, manifestObj, insecureRegistry, clusterClient)
 	case types.KustomizeType:
-		var kustomizeSpec types.KustomizeSpec
-		if err = codec.Decode(install.Source.Raw, &kustomizeSpec, specType); err != nil {
-			return nil, err
-		}
-
-		return &types.ChartInfo{
-			ChartName: install.Name,
-			ChartPath: kustomizeSpec.Path,
-			URL:       kustomizeSpec.URL,
-		}, nil
+		return createKustomizeChartInfo(codec, install, specType)
 	case types.NilRefType:
 		return nil, fmt.Errorf("empty image type for %s resource chart installation", namespacedName.String())
 	}
 
 	return nil, fmt.Errorf("unsupported type %s of install for Manifest %s", specType, namespacedName)
+}
+
+func createKustomizeChartInfo(codec *types.Codec,
+	install v1alpha1.InstallInfo,
+	specType types.RefTypeMetadata,
+) (*types.ChartInfo, error) {
+	var kustomizeSpec types.KustomizeSpec
+	if err := codec.Decode(install.Source.Raw, &kustomizeSpec, specType); err != nil {
+		return nil, err
+	}
+
+	return &types.ChartInfo{
+		ChartName: install.Name,
+		ChartPath: kustomizeSpec.Path,
+		URL:       kustomizeSpec.URL,
+	}, nil
+}
+
+func createOciChartInfo(ctx context.Context,
+	install v1alpha1.InstallInfo,
+	codec *types.Codec,
+	specType types.RefTypeMetadata,
+	manifestObj *v1alpha1.Manifest,
+	insecureRegistry bool,
+	clusterClient client.Client,
+) (*types.ChartInfo, error) {
+	var imageSpec types.ImageSpec
+	if err := codec.Decode(install.Source.Raw, &imageSpec, specType); err != nil {
+		return nil, err
+	}
+
+	// extract helm chart from layer digest
+	chartPath, err := getChartPath(ctx, imageSpec, manifestObj.Namespace, insecureRegistry, clusterClient)
+	if err != nil {
+		return nil, err
+	}
+
+	return &types.ChartInfo{
+		ChartName: install.Name,
+		ChartPath: chartPath,
+	}, nil
+}
+
+func createHelmChartInfo(codec *types.Codec,
+	install v1alpha1.InstallInfo,
+	specType types.RefTypeMetadata,
+) (*types.ChartInfo, error) {
+	var helmChartSpec types.HelmChartSpec
+	if err := codec.Decode(install.Source.Raw, &helmChartSpec, specType); err != nil {
+		return nil, err
+	}
+
+	return &types.ChartInfo{
+		ChartName: fmt.Sprintf("%s/%s", install.Name, helmChartSpec.ChartName),
+		RepoName:  install.Name,
+		URL:       helmChartSpec.URL,
+	}, nil
 }
 
 func getConfigAndValuesForInstall(installName string, configs []interface{}) (

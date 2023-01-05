@@ -84,31 +84,31 @@ func FilterExistingResources(resources kube.ResourceList) (kube.ResourceList, er
 	return existingResources, nil
 }
 
-func CleanFilePathJoin(root, dest string) (string, error) {
+func CleanFilePathJoin(root, destDir string) (string, error) {
 	// On Windows, this is a drive separator. On UNIX-like, this is the path list separator.
 	// In neither case do we want to trust a TAR that contains these.
-	if strings.Contains(dest, ":") {
+	if strings.Contains(destDir, ":") {
 		return "", errors.New("path contains ':', which is illegal")
 	}
 
 	// The Go tar library does not convert separators for us.
 	// We assume here, as we do elsewhere, that `\\` means a Windows path.
-	dest = strings.ReplaceAll(dest, "\\", "/")
+	destDir = strings.ReplaceAll(destDir, "\\", "/")
 
 	// We want to alert the user that something bad was attempted. Cleaning it
 	// is not a good practice.
-	for _, part := range strings.Split(dest, "/") {
+	for _, part := range strings.Split(destDir, "/") {
 		if part == ".." {
 			return "", errors.New("path contains '..', which is illegal")
 		}
 	}
 
 	// If a path is absolute, the creator of the TAR is doing something shady.
-	if path.IsAbs(dest) {
+	if path.IsAbs(destDir) {
 		return "", errors.New("path is absolute, which is illegal")
 	}
 
-	newPath := filepath.Join(root, filepath.Clean(dest))
+	newPath := filepath.Join(root, filepath.Clean(destDir))
 
 	return filepath.ToSlash(newPath), nil
 }
