@@ -51,5 +51,8 @@ func (r *RemoteClusterLookup) ConfigResolver(ctx context.Context, obj declarativ
 		return nil, err
 	}
 
+	config.QPS = r.KCP.Config.QPS
+	config.Burst = r.KCP.Config.Burst
+
 	return &types.ClusterInfo{Config: config}, nil
 }
