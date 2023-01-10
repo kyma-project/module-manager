@@ -31,9 +31,8 @@ import (
 	"github.com/kyma-project/module-manager/pkg/types"
 	listener "github.com/kyma-project/runtime-watcher/listener/pkg/event"
 	"k8s.io/client-go/rest"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
-
 	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
 	apiExtensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -93,12 +92,13 @@ type FlagVar struct {
 	pprofAddr                                            string
 	pprofServerTimeout                                   time.Duration
 	cacheSyncTimeout                                     time.Duration
+	logLevel                                             int
 }
 
 func main() {
 	flagVar := defineFlagVar()
 	flag.Parse()
-	ctrl.SetLogger(log.ConfigLogger())
+	ctrl.SetLogger(log.ConfigLogger(int8(flagVar.logLevel)))
 
 	config := ctrl.GetConfigOrDie()
 	config.QPS = float32(flagVar.clientQPS)
@@ -283,6 +283,10 @@ func defineFlagVar() *FlagVar {
 	flag.DurationVar(
 		&flagVar.cacheSyncTimeout, "cache-sync-timeout", defaultCacheSyncTimeout,
 		"Indicates the cache sync timeout in seconds",
+	)
+	flag.IntVar(
+		&flagVar.logLevel, "log-level", 0,
+		"indicates the current log-level, enter negative values to increase verbosity (e.g. 9)",
 	)
 	return flagVar
 }

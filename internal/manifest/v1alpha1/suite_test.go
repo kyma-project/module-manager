@@ -89,7 +89,7 @@ var _ = BeforeSuite(
 		Expect(os.MkdirAll(helmCacheHome, os.ModePerm)).NotTo(HaveOccurred())
 
 		ctx, cancel = context.WithCancel(context.TODO())
-		logf.SetLogger(log.ConfigLogger())
+		logf.SetLogger(log.ConfigLogger(9))
 
 		// create registry and server
 		newReg := registry.New()
