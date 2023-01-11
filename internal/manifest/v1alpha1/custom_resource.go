@@ -13,6 +13,8 @@ import (
 
 const CustomResourceManager = "resource.kyma-project.io/finalizer"
 
+// PostRunCreateCR is a hook for creating the manifest default custom resource if not available in the cluster
+// It is used to provide the controller with default data in the Runtime.
 func PostRunCreateCR(
 	ctx context.Context, skr declarative.Client, kcp client.Client, obj declarative.Object,
 ) error {
@@ -43,6 +45,8 @@ func PostRunCreateCR(
 	return nil
 }
 
+// PreDeleteDeleteCR is a hook for deleting the manifest default custom resource if available in the cluster
+// It is used to clean up the controller default data.
 func PreDeleteDeleteCR(
 	ctx context.Context, skr declarative.Client, kcp client.Client, obj declarative.Object,
 ) error {

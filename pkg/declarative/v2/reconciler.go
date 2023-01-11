@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/kyma-project/module-manager/internal"
 	manifestClient "github.com/kyma-project/module-manager/pkg/client"
 	"github.com/kyma-project/module-manager/pkg/types"
 	"helm.sh/helm/v3/pkg/kube"
@@ -114,7 +113,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return r.ssaStatus(ctx, obj)
 	}
 
-	target, current, err := r.renderResources(ctx, obj, renderer, converter)
+	target, current, err := r.renderResources(ctx, obj, spec, renderer, converter)
 	if err != nil {
 		return r.ssaStatus(ctx, obj)
 	}
@@ -193,7 +192,7 @@ func (r *Reconciler) Spec(ctx context.Context, obj Object) (*Spec, error) {
 }
 
 func (r *Reconciler) renderResources(
-	ctx context.Context, obj Object, renderer Renderer, converter ResourceToInfoConverter,
+	ctx context.Context, obj Object, spec *Spec, renderer Renderer, converter ResourceToInfoConverter,
 ) ([]*resource.Info, []*resource.Info, error) {
 	resourceCondition := newResourcesCondition(obj)
 	status := obj.GetStatus()
@@ -201,7 +200,7 @@ func (r *Reconciler) renderResources(
 	var err error
 	var target, current kube.ResourceList
 
-	if target, err = r.renderTargetResources(ctx, renderer, converter, obj); err != nil {
+	if target, err = r.renderTargetResources(ctx, renderer, converter, obj, spec); err != nil {
 		return nil, nil, err
 	}
 
@@ -314,7 +313,7 @@ func (r *Reconciler) deleteResources(
 }
 
 func (r *Reconciler) renderTargetResources(
-	ctx context.Context, renderer Renderer, converter ResourceToInfoConverter, obj Object,
+	ctx context.Context, renderer Renderer, converter ResourceToInfoConverter, obj Object, spec *Spec,
 ) ([]*resource.Info, error) {
 	if !obj.GetDeletionTimestamp().IsZero() {
 		// if we are deleting the resources,
@@ -326,12 +325,7 @@ func (r *Reconciler) renderTargetResources(
 
 	status := obj.GetStatus()
 
-	manifest, err := renderer.Render(ctx, obj)
-	if err != nil {
-		return nil, err
-	}
-
-	targetResources, err := internal.ParseManifestStringToObjects(string(manifest))
+	targetResources, err := r.ManifestParser.Parse(ctx, renderer, obj, spec)
 	if err != nil {
 		r.Event(obj, "Warning", "ManifestParsing", err.Error())
 		obj.SetStatus(status.WithState(StateError).WithErr(err))

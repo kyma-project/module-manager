@@ -25,6 +25,7 @@ const (
 	EventRecorderDefault      = "declarative.kyma-project.io/events"
 	DefaultSkipReconcileLabel = "declarative.kyma-project.io/skip-reconciliation"
 	DefaultCacheKey           = "declarative.kyma-project.io/cache-key"
+	DefaultInMemoryParseTTL   = 24 * time.Hour
 )
 
 func DefaultOptions() *Options {
@@ -44,6 +45,7 @@ func DefaultOptions() *Options {
 		WithClientCacheKeyFromLabelOrResource(DefaultCacheKey),
 		WithManifestCache(os.TempDir()),
 		WithSkipReconcileOn(SkipReconcileOnDefaultLabelPresentAndTrue),
+		WithManifestParser(NewInMemoryCachedManifestParser(DefaultInMemoryParseTTL)),
 	)
 }
 
@@ -56,6 +58,7 @@ type Options struct {
 	SpecResolver
 	ClientCache
 	ClientCacheKeyFn
+	ManifestParser
 	ManifestCache
 	CustomReadyCheck ReadyCheck
 
@@ -246,6 +249,18 @@ type WithManifestCache ManifestCache
 
 func (o WithManifestCache) Apply(options *Options) {
 	options.ManifestCache = ManifestCache(o)
+}
+
+func WithManifestParser(parser ManifestParser) WithManifestParserOption {
+	return WithManifestParserOption{ManifestParser: parser}
+}
+
+type WithManifestParserOption struct {
+	ManifestParser
+}
+
+func (o WithManifestParserOption) Apply(options *Options) {
+	options.ManifestParser = o.ManifestParser
 }
 
 type WithCustomReadyCheckOption struct {

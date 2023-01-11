@@ -157,19 +157,11 @@ func (m *ManifestSpecResolver) getValuesFromConfig(
 	}
 
 	// filter config for install
-	chartConfig, chartValues, err := parseChartConfigAndValues(configs, name)
+	chartValues, err := parseChartConfigAndValues(configs, name)
 	if err != nil {
 		return nil, err
 	}
-	values := make(map[string]any, len(chartConfig)+len(chartValues))
-	for k, v := range chartConfig {
-		values[k] = v
-	}
-	for k, v := range chartValues {
-		values[k] = v
-	}
-
-	return values, nil
+	return chartValues, nil
 }
 
 func parseInstallConfigs(decodedConfig interface{}) ([]interface{}, error) {
@@ -248,54 +240,43 @@ func (m *ManifestSpecResolver) getChartInfoForInstall(
 
 func parseChartConfigAndValues(
 	configs []interface{}, name string,
-) (map[string]interface{}, map[string]interface{}, error) {
-	configString, valuesString, err := getConfigAndValuesForInstall(configs, name)
+) (map[string]interface{}, error) {
+	valuesString, err := getConfigAndValuesForInstall(configs, name)
 	if err != nil {
-		return nil, nil, fmt.Errorf("manifest encountered an error while parsing chart config: %w", err)
+		return nil, fmt.Errorf("manifest encountered an error while parsing chart config: %w", err)
 	}
 
-	config := map[string]interface{}{}
-	if err := strvals.ParseInto(configString, config); err != nil {
-		return nil, nil, err
-	}
 	values := map[string]interface{}{}
 	if err := strvals.ParseInto(valuesString, values); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return config, values, nil
+	return values, nil
 }
 
 func getConfigAndValuesForInstall(configs []interface{}, name string) (
-	string, string, error,
+	string, error,
 ) {
 	var defaultOverrides string
-	var clientConfig string
 
 	for _, config := range configs {
 		mappedConfig, configExists := config.(map[string]interface{})
 		if !configExists {
-			return "", "", fmt.Errorf(
+			return "", fmt.Errorf(
 				"reading install %s resulted in an error for "+v1alpha1.ManifestKind, "config object",
 			)
 		}
 		if mappedConfig["name"] == name {
 			defaultOverrides, configExists = mappedConfig["overrides"].(string)
 			if !configExists {
-				return "", "", fmt.Errorf(
+				return "", fmt.Errorf(
 					"reading install %s resulted in an error for "+v1alpha1.ManifestKind, "config object overrides",
-				)
-			}
-			clientConfig, configExists = mappedConfig["clientConfig"].(string)
-			if !configExists {
-				return "", "", fmt.Errorf(
-					"reading install %s resulted in an error for "+v1alpha1.ManifestKind, "chart config",
 				)
 			}
 			break
 		}
 	}
-	return clientConfig, defaultOverrides, nil
+	return defaultOverrides, nil
 }
 
 func (m *ManifestSpecResolver) lookupKeyChain(
