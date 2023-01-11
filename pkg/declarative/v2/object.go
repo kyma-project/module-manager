@@ -25,7 +25,7 @@ type Status struct {
 	// Value can be one of ("Ready", "Processing", "Error", "Deleting").
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Enum=Processing;Deleting;Ready;Error
-	State State `json:"state"`
+	State State `json:"state,omitempty"`
 
 	// Conditions contain a set of conditionals to determine the State of Status.
 	// If all Conditions are met, the State is expected to be in StateReady.
@@ -39,7 +39,7 @@ type Status struct {
 	// All resources that are synced are considered for orphan removal on configuration changes,
 	// and it is used to determine effective differences from one state to the next.
 	// +listType=atomic
-	Synced        []Resource `json:"synced"`
+	Synced        []Resource `json:"synced,omitempty"`
 	LastOperation `json:"lastOperation,omitempty"`
 }
 

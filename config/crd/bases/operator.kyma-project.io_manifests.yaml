@@ -335,9 +335,6 @@ spec:
                   type: object
                 type: array
                 x-kubernetes-list-type: atomic
-            required:
-            - state
-            - synced
             type: object
         type: object
     served: true

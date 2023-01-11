@@ -300,7 +300,7 @@ func (r *Reconciler) deleteResources(
 	}
 
 	if err := NewConcurrentCleanup(clnt).Run(ctx, diff); errors.Is(err, ErrDeletionNotFinished) {
-		r.Event(obj, "Normal", "Deletion", ErrDeletionNotFinished.Error())
+		r.Event(obj, "Normal", "Deletion", err.Error())
 		return err
 	} else if err != nil {
 		r.Event(obj, "Warning", "Deletion", err.Error())
