@@ -75,15 +75,6 @@ func (h *Helm) Initialize(obj Object) error {
 	}
 	h.chart = loadedChart
 
-	crds, err := getCRDs(h.clnt, h.chart.CRDObjects())
-	if err != nil {
-		h.recorder.Event(obj, "Warning", "CRDParsing", err.Error())
-		meta.SetStatusCondition(&status.Conditions, h.prerequisiteCondition(obj))
-		obj.SetStatus(status.WithState(StateError).WithErr(err))
-		return err
-	}
-	h.crds = crds
-
 	return nil
 }
 
@@ -96,6 +87,15 @@ func (h *Helm) EnsurePrerequisites(ctx context.Context, obj Object) error {
 		return nil
 	}
 
+	crds, err := getCRDs(h.clnt, h.chart.CRDObjects())
+	if err != nil {
+		h.recorder.Event(obj, "Warning", "CRDParsing", err.Error())
+		meta.SetStatusCondition(&status.Conditions, h.prerequisiteCondition(obj))
+		obj.SetStatus(status.WithState(StateError).WithErr(err))
+		return err
+	}
+	h.crds = crds
+
 	if err := installCRDs(h.clnt, h.crds); err != nil {
 		h.recorder.Event(obj, "Warning", "CRDInstallation", err.Error())
 		meta.SetStatusCondition(&status.Conditions, h.prerequisiteCondition(obj))
@@ -103,7 +103,7 @@ func (h *Helm) EnsurePrerequisites(ctx context.Context, obj Object) error {
 		return fmt.Errorf("crds could not be installed: %w", err)
 	}
 
-	err := h.crdChecker.Run(ctx, h.crds)
+	err = h.crdChecker.Run(ctx, h.crds)
 
 	if errors.Is(err, ErrResourcesNotReady) {
 		h.recorder.Event(obj, "Normal", "CRDReadyCheck", "crds are not yet ready...")
