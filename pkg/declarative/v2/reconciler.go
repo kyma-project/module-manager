@@ -164,7 +164,9 @@ func (r *Reconciler) initialize(obj Object) error {
 		newResourcesCondition(obj),
 		newInstallationCondition(obj),
 	} {
-		meta.SetStatusCondition(&status.Conditions, condition)
+		if meta.FindStatusCondition(status.Conditions, condition.Type) == nil {
+			meta.SetStatusCondition(&status.Conditions, condition)
+		}
 	}
 
 	if status.Synced == nil {
