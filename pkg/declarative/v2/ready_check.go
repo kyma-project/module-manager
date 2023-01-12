@@ -18,7 +18,7 @@ import (
 var ErrResourcesNotReady = errors.New("resources are not ready")
 
 type ReadyCheck interface {
-	Run(ctx context.Context, resources []*resource.Info) error
+	Run(ctx context.Context, clnt Client, obj Object, resources []*resource.Info) error
 }
 
 type HelmReadyCheck struct {
@@ -30,11 +30,11 @@ func NewHelmReadyCheck(factory kube.Factory) ReadyCheck {
 	return &HelmReadyCheck{clientSet: clientSet}
 }
 
-func NewExistsReadyCheck(client client.Reader) ReadyCheck {
-	return &ExistsReadyCheck{Reader: client}
+func NewExistsReadyCheck() ReadyCheck {
+	return &ExistsReadyCheck{}
 }
 
-func (c *HelmReadyCheck) Run(ctx context.Context, resources []*resource.Info) error {
+func (c *HelmReadyCheck) Run(ctx context.Context, _ Client, _ Object, resources []*resource.Info) error {
 	start := time.Now()
 	logger := log.FromContext(ctx)
 	logger.V(internal.TraceLogLevel).Info("ReadyCheck", "resources", len(resources))
@@ -83,17 +83,15 @@ func (c *HelmReadyCheck) Run(ctx context.Context, resources []*resource.Info) er
 	return nil
 }
 
-type ExistsReadyCheck struct {
-	client.Reader
-}
+type ExistsReadyCheck struct{}
 
-func (c *ExistsReadyCheck) Run(ctx context.Context, resources []*resource.Info) error {
+func (c *ExistsReadyCheck) Run(ctx context.Context, clnt Client, _ Object, resources []*resource.Info) error {
 	for i := range resources {
 		obj, ok := resources[i].Object.(client.Object)
 		if !ok {
 			return errors.New("object in resource info is not a valid client object")
 		}
-		if err := c.Get(ctx, client.ObjectKeyFromObject(obj), obj); client.IgnoreNotFound(err) != nil {
+		if err := clnt.Get(ctx, client.ObjectKeyFromObject(obj), obj); client.IgnoreNotFound(err) != nil {
 			return err
 		}
 	}

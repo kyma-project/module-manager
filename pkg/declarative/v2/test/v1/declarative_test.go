@@ -311,7 +311,7 @@ func StartDeclarativeReconcilerForRun(
 			// readiness check will not work without dedicated control loops in envtest. E.g. by default
 			// deployments are not started or set to ready. However we can check if the resource was created by
 			// the reconciler.
-			WithCustomReadyCheck(NewExistsReadyCheck(testClient)),
+			WithCustomReadyCheck(NewExistsReadyCheck()),
 			WithCustomResourceLabels(labels.Set{testRunLabel: runID}),
 			WithPeriodicConsistencyCheck(2*time.Second),
 		)...,

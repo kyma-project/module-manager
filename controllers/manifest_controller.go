@@ -47,13 +47,15 @@ func SetupWithManager(
 }
 
 func ManifestReconciler(
-	mgr manager.Manager, codec *types.Codec, insecure bool, checkInterval time.Duration,
+	mgr manager.Manager, codec *types.Codec, insecure bool,
+	checkInterval time.Duration,
 ) *declarative.Reconciler {
 	return declarative.NewFromManager(
 		mgr, &v1alpha1.Manifest{},
 		declarative.WithSpecResolver(
 			internalv1alpha1.NewManifestSpecResolver(codec, insecure),
 		),
+		declarative.WithCustomReadyCheck(internalv1alpha1.NewManifestCustomResourceReadyCheck()),
 		declarative.WithRemoteTargetCluster(
 			(&internalv1alpha1.RemoteClusterLookup{KCP: &types.ClusterInfo{
 				Client: mgr.GetClient(),

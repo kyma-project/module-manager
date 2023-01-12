@@ -147,7 +147,7 @@ var _ = BeforeSuite(
 			declarative.WithClientCacheKeyFromLabelOrResource(labels.KymaName),
 			declarative.WithPostRun{internalv1alpha1.PostRunCreateCR},
 			declarative.WithPreDelete{internalv1alpha1.PreDeleteDeleteCR},
-			declarative.WithCustomReadyCheck(declarative.NewExistsReadyCheck(k8sManager.GetClient())),
+			declarative.WithCustomReadyCheck(declarative.NewExistsReadyCheck()),
 		)
 
 		err = ctrl.NewControllerManagedBy(k8sManager).

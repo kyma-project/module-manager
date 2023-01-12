@@ -103,7 +103,7 @@ func (h *Helm) EnsurePrerequisites(ctx context.Context, obj Object) error {
 		return fmt.Errorf("crds could not be installed: %w", err)
 	}
 
-	err = h.crdChecker.Run(ctx, h.crds)
+	err = h.crdChecker.Run(ctx, h.clnt, obj, h.crds)
 
 	if errors.Is(err, ErrResourcesNotReady) {
 		h.recorder.Event(obj, "Normal", "CRDReadyCheck", "crds are not yet ready...")
