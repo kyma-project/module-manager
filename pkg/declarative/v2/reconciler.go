@@ -135,17 +135,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return r.ssaStatus(ctx, obj)
 	}
 
-	go r.asyncResources(ctx, clnt, obj, target)
+	if err := r.syncResources(ctx, clnt, obj, target); err != nil {
+		return r.ssaStatus(ctx, obj)
+	}
 
 	return r.CtrlOnSuccess, nil
-}
-
-func (r *Reconciler) asyncResources(ctx context.Context, clnt Client, obj Object, target []*resource.Info) {
-	if err := r.syncResources(ctx, clnt, obj, target); err != nil {
-		if _, err := r.ssaStatus(ctx, obj); err != nil {
-			log.FromContext(ctx).Error(err, "async synchronization failed")
-		}
-	}
 }
 
 func (r *Reconciler) partialObjectMetadata(obj Object) *metav1.PartialObjectMetadata {
