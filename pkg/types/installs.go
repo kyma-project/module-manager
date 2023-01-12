@@ -42,25 +42,20 @@ type ChartFlags struct {
 // ImageSpec defines OCI Image specifications.
 type ImageSpec struct {
 	// Repo defines the Image repo
-	// +kubebuilder:validation:Optional
-	Repo string `json:"repo"`
+	Repo string `json:"repo,omitempty"`
 
 	// Name defines the Image name
-	// +kubebuilder:validation:Optional
-	Name string `json:"name"`
+	Name string `json:"name,omitempty"`
 
 	// Ref is either a sha value, tag or version
-	// +kubebuilder:validation:Optional
-	Ref string `json:"ref"`
+	Ref string `json:"ref,omitempty"`
 
 	// Type defines the chart as "oci-ref"
-	// +kubebuilder:validation:Optional
-	Type RefTypeMetadata `json:"type"`
+	Type RefTypeMetadata `json:"type,omitempty"`
 
 	// CredSecretSelector is on optional field, for OCI image saved in private registry,
 	// use it to indicate the secret which contains registry credentials,
 	// must exist in the namespace same as manifest
-	// +kubebuilder:validation:Optional
 	CredSecretSelector *metav1.LabelSelector `json:"credSecretSelector,omitempty"`
 }
 
