@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"reflect"
 
-	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/kube"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -40,8 +39,7 @@ type Helm struct {
 	chartPath string
 	values    any
 
-	chart *chart.Chart
-	crds  kube.ResourceList
+	crds kube.ResourceList
 
 	crdChecker ReadyCheck
 }
@@ -66,15 +64,6 @@ func (h *Helm) Initialize(obj Object) error {
 		return ErrConditionsNotYetRegistered
 	}
 
-	loadedChart, err := loader.Load(h.chartPath)
-	if err != nil {
-		h.recorder.Event(obj, "Warning", "ChartLoading", err.Error())
-		meta.SetStatusCondition(&status.Conditions, h.prerequisiteCondition(obj))
-		obj.SetStatus(status.WithState(StateError).WithErr(err))
-		return err
-	}
-	h.chart = loadedChart
-
 	return nil
 }
 
@@ -87,7 +76,15 @@ func (h *Helm) EnsurePrerequisites(ctx context.Context, obj Object) error {
 		return nil
 	}
 
-	crds, err := getCRDs(h.clnt, h.chart.CRDObjects())
+	chrt, err := loader.Load(h.chartPath)
+	if err != nil {
+		h.recorder.Event(obj, "Warning", "ChartLoading", err.Error())
+		meta.SetStatusCondition(&status.Conditions, h.prerequisiteCondition(obj))
+		obj.SetStatus(status.WithState(StateError).WithErr(err))
+		return err
+	}
+
+	crds, err := getCRDs(h.clnt, chrt.CRDObjects())
 	if err != nil {
 		h.recorder.Event(obj, "Warning", "CRDParsing", err.Error())
 		meta.SetStatusCondition(&status.Conditions, h.prerequisiteCondition(obj))
@@ -160,7 +157,15 @@ func (h *Helm) Render(ctx context.Context, obj Object) ([]byte, error) {
 		valuesAsMap = map[string]any{}
 	}
 
-	release, err := h.clnt.Install().RunWithContext(ctx, h.chart, valuesAsMap)
+	chrt, err := loader.Load(h.chartPath)
+	if err != nil {
+		h.recorder.Event(obj, "Warning", "ChartLoading", err.Error())
+		meta.SetStatusCondition(&status.Conditions, h.prerequisiteCondition(obj))
+		obj.SetStatus(status.WithState(StateError).WithErr(err))
+		return nil, err
+	}
+
+	release, err := h.clnt.Install().RunWithContext(ctx, chrt, valuesAsMap)
 	if err != nil {
 		h.recorder.Event(obj, "Warning", "HelmRenderRun", err.Error())
 		obj.SetStatus(status.WithState(StateError).WithErr(err))
