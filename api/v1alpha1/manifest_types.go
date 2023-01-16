@@ -17,6 +17,9 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"fmt"
+
+	declarative "github.com/kyma-project/module-manager/pkg/declarative/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -25,15 +28,6 @@ import (
 )
 
 const ManifestKind = "Manifest"
-
-func (m *Manifest) SetObservedGeneration() *Manifest {
-	m.Status.ObservedGeneration = m.Generation
-	return m
-}
-
-func (m *Manifest) IsSpecUpdated() bool {
-	return m.Status.ObservedGeneration != m.Generation
-}
 
 // InstallInfo defines installation information.
 type InstallInfo struct {
@@ -48,59 +42,26 @@ type InstallInfo struct {
 // ManifestSpec defines the specification of Manifest.
 type ManifestSpec struct {
 	// Remote indicates if Manifest should be installed on a remote cluster
-	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:=true
-	Remote bool `json:"remote"`
+	Remote bool `json:"remote,omitempty"`
 
 	// Config specifies OCI image configuration for Manifest
-	// +kubebuilder:validation:Optional
-	Config types.ImageSpec `json:"config"`
+	Config types.ImageSpec `json:"config,omitempty"`
 
 	// Installs specifies a list of installations for Manifest
 	Installs []InstallInfo `json:"installs"`
 
 	//+kubebuilder:pruning:PreserveUnknownFields
-	// +kubebuilder:validation:Optional
+	//+kubebuilder:validation:XEmbeddedResource
 	// Resource specifies a resource to be watched for state updates
-	Resource unstructured.Unstructured `json:"resource"`
+	Resource unstructured.Unstructured `json:"resource,omitempty"`
 
 	// CRDs specifies the custom resource definitions' ImageSpec
-	// +kubebuilder:validation:Optional
-	CRDs types.ImageSpec `json:"crds"`
+	CRDs types.ImageSpec `json:"crds,omitempty"`
 }
-
-// +kubebuilder:validation:Enum=Processing;Deleting;Ready;Error
-type ManifestState string
-
-// Valid Helm States.
-const (
-	// ManifestStateReady signifies Manifest is ready.
-	ManifestStateReady ManifestState = "Ready"
-
-	// ManifestStateProcessing signifies Manifest is reconciling.
-	ManifestStateProcessing ManifestState = "Processing"
-
-	// ManifestStateError signifies an error for Manifest.
-	ManifestStateError ManifestState = "Error"
-
-	// ManifestStateDeleting signifies Manifest is being deleted.
-	ManifestStateDeleting ManifestState = "Deleting"
-)
 
 // ManifestStatus defines the observed state of Manifest.
-type ManifestStatus struct {
-	// State signifies current state of Manifest
-	// +kubebuilder:validation:Enum=Ready;Processing;Error;Deleting;
-	State ManifestState `json:"state"`
-
-	// Conditions is a list of status conditions to indicate the status of Manifest
-	// +kubebuilder:validation:Optional
-	Conditions []ManifestCondition `json:"conditions"`
-
-	// ObservedGeneration
-	// +kubebuilder:validation:Optional
-	ObservedGeneration int64 `json:"observedGeneration"`
-}
+type ManifestStatus declarative.Status
 
 // InstallItem describes install information for ManifestCondition.
 type InstallItem struct {
@@ -117,53 +78,6 @@ type InstallItem struct {
 	Overrides string `json:"overrides"`
 }
 
-// ManifestCondition describes condition information for Manifest.
-type ManifestCondition struct {
-	// Type of ManifestCondition
-	Type ManifestConditionType `json:"type"`
-
-	// Status of the ManifestCondition
-	// +kubebuilder:validation:Enum=True;False;Unknown
-	Status ManifestConditionStatus `json:"status"`
-
-	// Human-readable message indicating details about the last status transition.
-	// +kubebuilder:validation:Optional
-	Message string `json:"message"`
-
-	// Machine-readable text indicating the reason for the condition's last transition.
-	// +kubebuilder:validation:Optional
-	Reason string `json:"reason"`
-
-	// Timestamp for when Manifest last transitioned from one status to another.
-	// +kubebuilder:validation:Optional
-	LastTransitionTime *metav1.Time `json:"lastTransitionTime"`
-
-	// InstallInfo contains a list of installations for Manifest
-	// +kubebuilder:validation:Optional
-	InstallInfo InstallItem `json:"installInfo"`
-}
-
-type ManifestConditionType string
-
-const (
-	// ConditionTypeReady represents ManifestConditionType Ready.
-	ConditionTypeReady ManifestConditionType = "Ready"
-)
-
-type ManifestConditionStatus string
-
-// Valid ManifestCondition Status.
-const (
-	// ConditionStatusTrue signifies ManifestConditionStatus true.
-	ConditionStatusTrue ManifestConditionStatus = "True"
-
-	// ConditionStatusFalse signifies ManifestConditionStatus false.
-	ConditionStatusFalse ManifestConditionStatus = "False"
-
-	// ConditionStatusUnknown signifies ManifestConditionStatus unknown.
-	ConditionStatusUnknown ManifestConditionStatus = "Unknown"
-)
-
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:printcolumn:name="State",type=string,JSONPath=".status.state"
@@ -172,14 +86,26 @@ const (
 // Manifest is the Schema for the manifests API.
 type Manifest struct {
 	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// Spec specifies the content and configuration for Manifest
-	Spec ManifestSpec `json:"spec"`
+	Spec ManifestSpec `json:"spec,omitempty"`
 
 	// Status signifies the current status of the Manifest
 	// +kubebuilder:validation:Optional
-	Status ManifestStatus `json:"status"`
+	Status ManifestStatus `json:"status,omitempty"`
+}
+
+func (m *Manifest) ComponentName() string {
+	return fmt.Sprintf("manifest-%s", m.Name)
+}
+
+func (m *Manifest) GetStatus() declarative.Status {
+	return declarative.Status(m.Status)
+}
+
+func (m *Manifest) SetStatus(status declarative.Status) {
+	m.Status = ManifestStatus(status)
 }
 
 //+kubebuilder:object:root=true

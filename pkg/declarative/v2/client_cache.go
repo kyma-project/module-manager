@@ -2,13 +2,11 @@ package v2
 
 import (
 	"sync"
-
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type ClientCache interface {
 	GetClientFromCache(key any) Client
-	SetClientInCache(key client.ObjectKey, client Client)
+	SetClientInCache(key any, client Client)
 }
 
 type MemoryClientCache struct {
@@ -30,6 +28,6 @@ func (r *MemoryClientCache) GetClientFromCache(key any) Client {
 	return value.(Client)
 }
 
-func (r *MemoryClientCache) SetClientInCache(key client.ObjectKey, client Client) {
+func (r *MemoryClientCache) SetClientInCache(key any, client Client) {
 	r.cache.Store(key, client)
 }

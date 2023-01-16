@@ -122,7 +122,11 @@ var _ = Describe(
 				testv1.TestAPISpec{ManifestName: "custom-client"},
 				DefaultSpec(filepath.Join(testSamplesDir, "module-chart"), map[string]any{}, RenderModeHelm),
 				[]Option{WithRemoteTargetCluster(
-					func(context.Context, Object) (client.Client, error) { return testClient, nil },
+					func(context.Context, Object) (*types.ClusterInfo, error) {
+						return &types.ClusterInfo{
+							Config: cfg,
+						}, nil
+					},
 				)},
 				nil,
 			),
@@ -196,7 +200,7 @@ var _ = Describe(
 					EventuallyDeclarativeStatusShould(
 						ctx, key,
 						HaveSyncedResources(oldAmount),
-						BeInState(State(types.StateReady)),
+						BeInState(StateReady),
 					)
 					source.ValuesFn = func(_ context.Context, _ Object) any {
 						return map[string]any{"autoscaling": map[string]any{"enabled": true}}
@@ -204,7 +208,7 @@ var _ = Describe(
 					EventuallyDeclarativeStatusShould(
 						ctx, key,
 						HaveSyncedResources(oldAmount+1),
-						BeInState(State(types.StateReady)),
+						BeInState(StateReady),
 					)
 					source.ValuesFn = func(_ context.Context, _ Object) any {
 						return map[string]any{"autoscaling": map[string]any{"enabled": false}}
@@ -212,7 +216,7 @@ var _ = Describe(
 					EventuallyDeclarativeStatusShould(
 						ctx, key,
 						HaveSyncedResources(oldAmount),
-						BeInState(State(types.StateReady)),
+						BeInState(StateReady),
 					)
 				},
 			),
@@ -307,7 +311,7 @@ func StartDeclarativeReconcilerForRun(
 			// readiness check will not work without dedicated control loops in envtest. E.g. by default
 			// deployments are not started or set to ready. However we can check if the resource was created by
 			// the reconciler.
-			WithCustomReadyCheck(NewExistsReadyCheck(testClient)),
+			WithCustomReadyCheck(NewExistsReadyCheck()),
 			WithCustomResourceLabels(labels.Set{testRunLabel: runID}),
 			WithPeriodicConsistencyCheck(2*time.Second),
 		)...,

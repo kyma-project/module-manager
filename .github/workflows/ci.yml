@@ -93,12 +93,15 @@ jobs:
       - name: Override Kustomize Controller Image TAG in Pull Request to PR Image
         if: github.event_name == 'pull_request'
         run: |
-          wget -qO - "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          wget --header="Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -qO - "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
           mv kustomize /usr/local/bin/
           cd $(go env GOPATH)/src/github.com/${{ github.repository }}/config/manager
           kustomize edit set image controller="*:PR-${{ github.event.pull_request.number }}"
       - name: Set up k3d
-        run: wget -qO - https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | TAG=$K3D_VERSION bash
+        run: |
+          wget --header="Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -qO - https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | TAG=$K3D_VERSION bash
       - id: kyma
         uses: jakobmoellersap/kyma-cli-action@v0.0.1-alpha1
         with:

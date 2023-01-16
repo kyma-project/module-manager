@@ -1,8 +1,9 @@
-package descriptor
+package internal
 
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -17,13 +18,13 @@ import (
 	"github.com/google/go-containerregistry/pkg/crane"
 	"k8s.io/apimachinery/pkg/util/yaml"
 
-	"github.com/kyma-project/module-manager/pkg/util"
-
 	"github.com/google/go-containerregistry/pkg/authn"
 	yaml2 "sigs.k8s.io/yaml"
 )
 
-func GetPathFromExtractedTarGz(imageSpec types.ImageSpec,
+func GetPathFromExtractedTarGz(
+	ctx context.Context,
+	imageSpec types.ImageSpec,
 	insecureRegistry bool,
 	keyChain authn.Keychain,
 ) (string, error) {
@@ -31,7 +32,7 @@ func GetPathFromExtractedTarGz(imageSpec types.ImageSpec,
 
 	// check existing dir
 	// if dir exists return existing dir
-	installPath := util.GetFsChartPath(imageSpec)
+	installPath := GetFsChartPath(imageSpec)
 	dir, err := os.Open(installPath)
 	if err != nil && !os.IsNotExist(err) {
 		return "", fmt.Errorf("opening dir for installs caused an error %s: %w", imageRef, err)
@@ -41,7 +42,7 @@ func GetPathFromExtractedTarGz(imageSpec types.ImageSpec,
 	}
 
 	// pull image layer
-	layer, err := pullLayer(insecureRegistry, imageRef, keyChain)
+	layer, err := pullLayer(ctx, insecureRegistry, imageRef, keyChain)
 	if err != nil {
 		return "", err
 	}
@@ -63,8 +64,10 @@ func GetPathFromExtractedTarGz(imageSpec types.ImageSpec,
 func writeTarGzContent(installPath string, tarReader *tar.Reader, layerReference string) error {
 	// create dir for uncompressed chart
 	if err := os.MkdirAll(installPath, fs.ModePerm); err != nil {
-		return fmt.Errorf("failure in MkdirAll() while extracting TarGz for installPath %s: %w",
-			layerReference, err)
+		return fmt.Errorf(
+			"failure in MkdirAll() while extracting TarGz for installPath %s: %w",
+			layerReference, err,
+		)
 	}
 
 	for {
@@ -77,14 +80,16 @@ func writeTarGzContent(installPath string, tarReader *tar.Reader, layerReference
 		}
 
 		destDir, destFile := path.Split(header.Name)
-		destinationPath, err := util.CleanFilePathJoin(installPath, destDir)
+		destinationPath, err := CleanFilePathJoin(installPath, destDir)
 		if err != nil {
 			return err
 		}
 
 		if err := os.MkdirAll(destinationPath, fs.ModePerm); err != nil {
-			return fmt.Errorf("failure in MkdirAll() while extracting TarGz for destinationPath %s: %w",
-				layerReference, err)
+			return fmt.Errorf(
+				"failure in MkdirAll() while extracting TarGz for destinationPath %s: %w",
+				layerReference, err,
+			)
 		}
 		if err = handleExtractedHeaderFile(header, tarReader, destFile, destinationPath, layerReference); err != nil {
 			return err
@@ -93,13 +98,14 @@ func writeTarGzContent(installPath string, tarReader *tar.Reader, layerReference
 	return nil
 }
 
-func handleExtractedHeaderFile(header *tar.Header,
+func handleExtractedHeaderFile(
+	header *tar.Header,
 	reader io.Reader,
 	file, destinationPath, layerReference string,
 ) error {
 	switch header.Typeflag {
 	case tar.TypeDir:
-		if err := os.MkdirAll(destinationPath, util.OthersReadExecuteFilePermission); err != nil {
+		if err := os.MkdirAll(destinationPath, OthersReadExecuteFilePermission); err != nil {
 			return fmt.Errorf("failure in Mkdir() storage while extracting TarGz %s: %w", layerReference, err)
 		}
 	case tar.TypeReg:
@@ -114,20 +120,24 @@ func handleExtractedHeaderFile(header *tar.Header,
 		}
 		return outFile.Close()
 	default:
-		return fmt.Errorf("unknown type encountered while extracting TarGz %v in %s",
-			header.Typeflag, destinationPath)
+		return fmt.Errorf(
+			"unknown type encountered while extracting TarGz %v in %s",
+			header.Typeflag, destinationPath,
+		)
 	}
 	return nil
 }
 
-func DecodeUncompressedLayer(imageSpec types.ImageSpec,
+func DecodeUncompressedYAMLLayer(
+	ctx context.Context,
+	imageSpec types.ImageSpec,
 	insecureRegistry bool,
 	keyChain authn.Keychain,
 	fileDestPath string,
 ) (interface{}, error) {
 	imageRef := fmt.Sprintf("%s/%s@%s", imageSpec.Repo, imageSpec.Name, imageSpec.Ref)
 	// check existing file
-	decodedFile, err := util.GetYamlFileContent(fileDestPath)
+	decodedFile, err := GetYamlFileContent(fileDestPath)
 	if err == nil {
 		return decodedFile, nil
 	} else if !os.IsNotExist(err) {
@@ -136,7 +146,7 @@ func DecodeUncompressedLayer(imageSpec types.ImageSpec,
 
 	// proceed only if file was not found
 	// yaml is not compressed
-	layer, err := pullLayer(insecureRegistry, imageRef, keyChain)
+	layer, err := pullLayer(ctx, insecureRegistry, imageRef, keyChain)
 	if err != nil {
 		return nil, err
 	}
@@ -148,16 +158,16 @@ func DecodeUncompressedLayer(imageSpec types.ImageSpec,
 	return writeYamlContent(blob, imageRef, fileDestPath)
 }
 
-func pullLayer(insecureRegistry bool, imageRef string, keyChain authn.Keychain) (v1.Layer, error) {
+func pullLayer(ctx context.Context, insecureRegistry bool, imageRef string, keyChain authn.Keychain) (v1.Layer, error) {
 	if insecureRegistry {
 		return crane.PullLayer(imageRef, crane.Insecure, crane.WithAuthFromKeychain(keyChain))
 	}
-	return crane.PullLayer(imageRef, crane.WithAuthFromKeychain(keyChain))
+	return crane.PullLayer(imageRef, crane.WithAuthFromKeychain(keyChain), crane.WithContext(ctx))
 }
 
 func writeYamlContent(blob io.ReadCloser, layerReference string, filePath string) (interface{}, error) {
 	var decodedConfig interface{}
-	err := yaml.NewYAMLOrJSONDecoder(blob, util.YamlDecodeBufferSize).Decode(&decodedConfig)
+	err := yaml.NewYAMLOrJSONDecoder(blob, YamlDecodeBufferSize).Decode(&decodedConfig)
 	if err != nil {
 		return nil, fmt.Errorf("yaml blob decoding resulted in an error %s: %w", layerReference, err)
 	}
@@ -168,5 +178,5 @@ func writeYamlContent(blob io.ReadCloser, layerReference string, filePath string
 	}
 
 	// close file
-	return decodedConfig, util.WriteToFile(filePath, bytes)
+	return decodedConfig, WriteToFile(filePath, bytes)
 }

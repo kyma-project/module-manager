@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"sync"
 
+	"github.com/kyma-project/module-manager/internal"
 	"github.com/kyma-project/module-manager/pkg/types"
-	"github.com/kyma-project/module-manager/pkg/util"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/kube"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -16,7 +16,7 @@ func getCRDs(clnt Client, crdFiles []chart.CRD) (kube.ResourceList, error) {
 	for i := range crdFiles {
 		crdManifest.Write(append(bytes.TrimPrefix(crdFiles[i].File.Data, []byte("---\n")), '\n'))
 	}
-	crdsObjects, err := util.ParseManifestStringToObjects(crdManifest.String())
+	crdsObjects, err := internal.ParseManifestStringToObjects(crdManifest.String())
 	if err != nil {
 		return nil, err
 	}

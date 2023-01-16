@@ -18,14 +18,18 @@ type ClusterClient struct {
 	DefaultClient client.Client
 }
 
-func (cc *ClusterClient) GetRESTConfig(ctx context.Context, kymaOwner string, namespace string,
+func (cc *ClusterClient) GetRESTConfig(
+	ctx context.Context, kymaOwner string, namespace string,
 ) (*rest.Config, error) {
 	kubeConfigSecretList := &v1.SecretList{}
 	groupResource := v1.SchemeGroupVersion.WithResource(string(v1.ResourceSecrets)).GroupResource()
-	err := cc.DefaultClient.List(ctx, kubeConfigSecretList, &client.ListOptions{
-		LabelSelector: k8slabels.SelectorFromSet(
-			k8slabels.Set{labels.ComponentOwner: kymaOwner}), Namespace: namespace,
-	})
+	err := cc.DefaultClient.List(
+		ctx, kubeConfigSecretList, &client.ListOptions{
+			LabelSelector: k8slabels.SelectorFromSet(
+				k8slabels.Set{labels.KymaName: kymaOwner},
+			), Namespace: namespace,
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -37,8 +41,10 @@ func (cc *ClusterClient) GetRESTConfig(ctx context.Context, kymaOwner string, na
 	}
 
 	kubeConfigSecret := kubeConfigSecretList.Items[0]
-	if err := cc.DefaultClient.Get(ctx, client.ObjectKey{Name: kymaOwner, Namespace: namespace},
-		&kubeConfigSecret); err != nil {
+	if err := cc.DefaultClient.Get(
+		ctx, client.ObjectKey{Name: kymaOwner, Namespace: namespace},
+		&kubeConfigSecret,
+	); err != nil {
 		return nil, err
 	}
 

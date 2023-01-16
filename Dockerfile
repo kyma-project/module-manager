@@ -13,7 +13,7 @@ RUN go mod download
 COPY main.go main.go
 COPY api api/
 COPY pkg pkg/
-COPY internal/pkg internal/pkg/
+COPY internal internal/
 COPY controllers controllers/
 
 # Build

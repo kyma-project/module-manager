@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/kyma-project/module-manager/internal"
 	"github.com/kyma-project/module-manager/pkg/types"
-	"github.com/kyma-project/module-manager/pkg/util"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -40,7 +40,7 @@ func ConcurrentSSA(clnt client.Client, owner client.FieldOwner) SSA {
 func (c *concurrentDefaultSSA) Run(ctx context.Context, resources []*resource.Info) error {
 	ssaStart := time.Now()
 	logger := log.FromContext(ctx, "owner", c.owner)
-	logger.V(util.TraceLogLevel).Info("ServerSideApply", "resources", len(resources))
+	logger.V(internal.TraceLogLevel).Info("ServerSideApply", "resources", len(resources))
 
 	// The Runtime Complexity of this Branch is N as only ServerSideApplier Patch is required
 	results := make(chan error, len(resources))
@@ -61,7 +61,7 @@ func (c *concurrentDefaultSSA) Run(ctx context.Context, resources []*resource.In
 	if errs != nil {
 		return fmt.Errorf("ServerSideApply failed (after %s): %w", ssaFinish, types.NewMultiError(errs))
 	}
-	logger.V(util.DebugLogLevel).Info("ServerSideApply finished", "time", ssaFinish)
+	logger.V(internal.DebugLogLevel).Info("ServerSideApply finished", "time", ssaFinish)
 	return nil
 }
 
@@ -76,13 +76,13 @@ func (c *concurrentDefaultSSA) serverSideApply(
 	// this converts unstructured to typed objects if possible, leveraging native APIs
 	resource.Object = c.convertUnstructuredToTyped(resource.Object, resource.Mapping)
 
-	logger.V(util.TraceLogLevel).Info(
+	logger.V(internal.TraceLogLevel).Info(
 		fmt.Sprintf("apply %s", resource.ObjectName()),
 	)
 
 	results <- c.serverSideApplyResourceInfo(ctx, resource)
 
-	logger.V(util.TraceLogLevel).Info(
+	logger.V(internal.TraceLogLevel).Info(
 		fmt.Sprintf("apply %s finished", resource.ObjectName()),
 		"time", time.Since(start),
 	)

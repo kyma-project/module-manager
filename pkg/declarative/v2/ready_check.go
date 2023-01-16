@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/kyma-project/module-manager/internal"
 	"github.com/kyma-project/module-manager/pkg/types"
-	"github.com/kyma-project/module-manager/pkg/util"
 	"helm.sh/helm/v3/pkg/kube"
 	"k8s.io/cli-runtime/pkg/resource"
 	"k8s.io/client-go/kubernetes"
@@ -18,7 +18,7 @@ import (
 var ErrResourcesNotReady = errors.New("resources are not ready")
 
 type ReadyCheck interface {
-	Run(ctx context.Context, resources []*resource.Info) error
+	Run(ctx context.Context, clnt Client, obj Object, resources []*resource.Info) error
 }
 
 type HelmReadyCheck struct {
@@ -30,17 +30,17 @@ func NewHelmReadyCheck(factory kube.Factory) ReadyCheck {
 	return &HelmReadyCheck{clientSet: clientSet}
 }
 
-func NewExistsReadyCheck(client client.Reader) ReadyCheck {
-	return &ExistsReadyCheck{Reader: client}
+func NewExistsReadyCheck() ReadyCheck {
+	return &ExistsReadyCheck{}
 }
 
-func (c *HelmReadyCheck) Run(ctx context.Context, resources []*resource.Info) error {
+func (c *HelmReadyCheck) Run(ctx context.Context, _ Client, _ Object, resources []*resource.Info) error {
 	start := time.Now()
 	logger := log.FromContext(ctx)
-	logger.V(util.TraceLogLevel).Info("ReadyCheck", "resources", len(resources))
+	logger.V(internal.TraceLogLevel).Info("ReadyCheck", "resources", len(resources))
 	checker := kube.NewReadyChecker(
 		c.clientSet, func(format string, args ...interface{}) {
-			logger.V(util.DebugLogLevel).Info(fmt.Sprintf(format, args...))
+			logger.V(internal.DebugLogLevel).Info(fmt.Sprintf(format, args...))
 		}, kube.PausedAsReady(false), kube.CheckJobs(true),
 	)
 
@@ -75,7 +75,7 @@ func (c *HelmReadyCheck) Run(ctx context.Context, resources []*resource.Info) er
 		return types.NewMultiError(errs)
 	}
 
-	logger.V(util.DebugLogLevel).Info(
+	logger.V(internal.DebugLogLevel).Info(
 		"ReadyCheck finished",
 		"resources", len(resources), "time", time.Since(start),
 	)
@@ -83,17 +83,15 @@ func (c *HelmReadyCheck) Run(ctx context.Context, resources []*resource.Info) er
 	return nil
 }
 
-type ExistsReadyCheck struct {
-	client.Reader
-}
+type ExistsReadyCheck struct{}
 
-func (c *ExistsReadyCheck) Run(ctx context.Context, resources []*resource.Info) error {
+func (c *ExistsReadyCheck) Run(ctx context.Context, clnt Client, _ Object, resources []*resource.Info) error {
 	for i := range resources {
 		obj, ok := resources[i].Object.(client.Object)
 		if !ok {
 			return errors.New("object in resource info is not a valid client object")
 		}
-		if err := c.Get(ctx, client.ObjectKeyFromObject(obj), obj); client.IgnoreNotFound(err) != nil {
+		if err := clnt.Get(ctx, client.ObjectKeyFromObject(obj), obj); client.IgnoreNotFound(err) != nil {
 			return err
 		}
 	}

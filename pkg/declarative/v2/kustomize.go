@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/kyma-project/module-manager/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/kustomize/api/krusty"
 	"sigs.k8s.io/kustomize/kyaml/filesys"
@@ -62,14 +61,14 @@ func (k *Kustomize) Render(_ context.Context, obj Object) ([]byte, error) {
 	resMap, err := k.kustomizer.Run(k.fs, k.path)
 	if err != nil {
 		k.recorder.Event(obj, "Warning", "KustomizeRenderRun", err.Error())
-		obj.SetStatus(status.WithState(State(types.StateError)).WithErr(err))
+		obj.SetStatus(status.WithState(StateError).WithErr(err))
 		return nil, err
 	}
 
 	manifest, err := resMap.AsYaml()
 	if err != nil {
 		k.recorder.Event(obj, "Warning", "KustomizeYAMLConversion", err.Error())
-		obj.SetStatus(status.WithState(State(types.StateError)).WithErr(err))
+		obj.SetStatus(status.WithState(StateError).WithErr(err))
 	}
 
 	return manifest, err

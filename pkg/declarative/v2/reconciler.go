@@ -3,11 +3,10 @@ package v2
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	manifestClient "github.com/kyma-project/module-manager/pkg/client"
-	manifestLabels "github.com/kyma-project/module-manager/pkg/labels"
 	"github.com/kyma-project/module-manager/pkg/types"
-	"github.com/kyma-project/module-manager/pkg/util"
 	"helm.sh/helm/v3/pkg/kube"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -18,7 +17,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 var (
@@ -28,7 +26,7 @@ var (
 	ErrObjectHasEmptyState                       = errors.New("object has an empty state")
 )
 
-func NewFromManager(mgr manager.Manager, prototype Object, options ...Option) reconcile.Reconciler {
+func NewFromManager(mgr manager.Manager, prototype Object, options ...Option) *Reconciler {
 	r := &Reconciler{}
 	r.prototype = prototype
 	r.Options = DefaultOptions().Apply(WithManager(mgr)).Apply(options...)
@@ -89,8 +87,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return r.ssaStatus(ctx, obj)
 	}
 
-	if controllerutil.AddFinalizer(obj, r.Finalizer) {
-		return r.ssa(ctx, obj)
+	if obj.GetDeletionTimestamp().IsZero() {
+		objMeta := r.partialObjectMetadata(obj)
+		if controllerutil.AddFinalizer(objMeta, r.Finalizer) {
+			return r.ssa(ctx, objMeta)
+		}
 	}
 
 	spec, err := r.Spec(ctx, obj)
@@ -112,7 +113,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return r.ssaStatus(ctx, obj)
 	}
 
-	target, current, err := r.renderResources(ctx, obj, renderer, converter)
+	target, current, err := r.renderResources(ctx, obj, spec, renderer, converter)
 	if err != nil {
 		return r.ssaStatus(ctx, obj)
 	}
@@ -128,7 +129,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		if controllerutil.RemoveFinalizer(obj, r.Finalizer) {
 			return ctrl.Result{}, r.Update(ctx, obj) // no SSA since delete does not work for finalizers.
 		}
-		msg := "waiting as other finalizers are present"
+		msg := fmt.Sprintf("waiting as other finalizers are present: %s", obj.GetFinalizers())
 		r.Event(obj, "Normal", "FinalizerRemoval", msg)
 		obj.SetStatus(obj.GetStatus().WithState(StateDeleting).WithOperation(msg))
 		return r.ssaStatus(ctx, obj)
@@ -139,6 +140,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	return r.CtrlOnSuccess, nil
+}
+
+func (r *Reconciler) partialObjectMetadata(obj Object) *metav1.PartialObjectMetadata {
+	objMeta := &metav1.PartialObjectMetadata{}
+	objMeta.SetName(obj.GetName())
+	objMeta.SetNamespace(obj.GetNamespace())
+	objMeta.SetGroupVersionKind(obj.GetObjectKind().GroupVersionKind())
+	objMeta.SetFinalizers(obj.GetFinalizers())
+	return objMeta
 }
 
 func (r *Reconciler) initialize(obj Object) error {
@@ -153,7 +163,9 @@ func (r *Reconciler) initialize(obj Object) error {
 		newResourcesCondition(obj),
 		newInstallationCondition(obj),
 	} {
-		meta.SetStatusCondition(&status.Conditions, condition)
+		if meta.FindStatusCondition(status.Conditions, condition.Type) == nil {
+			meta.SetStatusCondition(&status.Conditions, condition)
+		}
 	}
 
 	if status.Synced == nil {
@@ -180,7 +192,7 @@ func (r *Reconciler) Spec(ctx context.Context, obj Object) (*Spec, error) {
 }
 
 func (r *Reconciler) renderResources(
-	ctx context.Context, obj Object, renderer Renderer, converter ResourceToInfoConverter,
+	ctx context.Context, obj Object, spec *Spec, renderer Renderer, converter ResourceToInfoConverter,
 ) ([]*resource.Info, []*resource.Info, error) {
 	resourceCondition := newResourcesCondition(obj)
 	status := obj.GetStatus()
@@ -188,7 +200,7 @@ func (r *Reconciler) renderResources(
 	var err error
 	var target, current kube.ResourceList
 
-	if target, err = r.renderTargetResources(ctx, renderer, converter, obj); err != nil {
+	if target, err = r.renderTargetResources(ctx, renderer, converter, obj, spec); err != nil {
 		return nil, nil, err
 	}
 
@@ -250,8 +262,8 @@ func (r *Reconciler) checkTargetReadiness(
 		resourceReadyCheck = NewHelmReadyCheck(clnt)
 	}
 
-	if err := resourceReadyCheck.Run(ctx, target); errors.Is(err, ErrResourcesNotReady) {
-		waitingMsg := "waiting for resources to become ready"
+	if err := resourceReadyCheck.Run(ctx, clnt, obj, target); errors.Is(err, ErrResourcesNotReady) {
+		waitingMsg := fmt.Sprintf("waiting for resources to become ready: %s", err.Error())
 		r.Event(obj, "Normal", "ResourceReadyCheck", waitingMsg)
 		obj.SetStatus(status.WithState(StateProcessing).WithOperation(waitingMsg))
 		return err
@@ -289,7 +301,7 @@ func (r *Reconciler) deleteResources(
 	}
 
 	if err := NewConcurrentCleanup(clnt).Run(ctx, diff); errors.Is(err, ErrDeletionNotFinished) {
-		r.Event(obj, "Normal", "Deletion", ErrDeletionNotFinished.Error())
+		r.Event(obj, "Normal", "Deletion", err.Error())
 		return err
 	} else if err != nil {
 		r.Event(obj, "Warning", "Deletion", err.Error())
@@ -301,7 +313,7 @@ func (r *Reconciler) deleteResources(
 }
 
 func (r *Reconciler) renderTargetResources(
-	ctx context.Context, renderer Renderer, converter ResourceToInfoConverter, obj Object,
+	ctx context.Context, renderer Renderer, converter ResourceToInfoConverter, obj Object, spec *Spec,
 ) ([]*resource.Info, error) {
 	if !obj.GetDeletionTimestamp().IsZero() {
 		// if we are deleting the resources,
@@ -313,12 +325,7 @@ func (r *Reconciler) renderTargetResources(
 
 	status := obj.GetStatus()
 
-	manifest, err := renderer.Render(ctx, obj)
-	if err != nil {
-		return nil, err
-	}
-
-	targetResources, err := util.ParseManifestStringToObjects(string(manifest))
+	targetResources, err := r.ManifestParser.Parse(ctx, renderer, obj, spec)
 	if err != nil {
 		r.Event(obj, "Warning", "ManifestParsing", err.Error())
 		obj.SetStatus(status.WithState(StateError).WithErr(err))
@@ -386,7 +393,7 @@ func (r *Reconciler) getTargetClient(
 ) (Client, error) {
 	var err error
 
-	clientsCacheKey := cacheKeyFromObject(ctx, obj)
+	clientsCacheKey := r.ClientCacheKeyFn(ctx, obj)
 
 	clnt := r.GetClientFromCache(clientsCacheKey)
 
@@ -395,8 +402,8 @@ func (r *Reconciler) getTargetClient(
 			Config: r.Config,
 			Client: r.Client,
 		}
-		if r.TargetClient != nil {
-			cluster.Client, err = r.TargetClient(ctx, obj)
+		if r.TargetCluster != nil {
+			cluster, err = r.TargetCluster(ctx, obj)
 		}
 		if err != nil {
 			return nil, err
@@ -440,39 +447,11 @@ func (r *Reconciler) getTargetClient(
 	return clnt, nil
 }
 
-func cacheKeyFromObject(ctx context.Context, resource client.Object) client.ObjectKey {
-	logger := log.FromContext(ctx)
-
-	if resource == nil {
-		return client.ObjectKey{}
-	}
-
-	label, err := util.GetResourceLabel(resource, manifestLabels.CacheKey)
-	objectKey := client.ObjectKeyFromObject(resource)
-	var labelErr *types.LabelNotFoundError
-	if errors.As(err, &labelErr) {
-		logger.V(util.DebugLogLevel).Info(
-			manifestLabels.CacheKey+" missing on resource, it will be cached "+
-				"based on resource name and namespace.",
-			"resource", objectKey,
-		)
-		return objectKey
-	}
-
-	logger.V(util.DebugLogLevel).Info(
-		"resource will be cached based on "+manifestLabels.CacheKey,
-		"resource", objectKey,
-		"label", manifestLabels.CacheKey,
-		"labelValue", label,
-	)
-
-	return client.ObjectKey{Name: label, Namespace: resource.GetNamespace()}
-}
-
 func (r *Reconciler) ssaStatus(ctx context.Context, obj client.Object) (ctrl.Result, error) {
+	obj.SetUID("")
 	obj.SetManagedFields(nil)
 	obj.SetResourceVersion("")
-	//TODO: replace the SubResourcePatchOptions with  client.ForceOwnership, r.FieldOwner in later compatible version
+	// TODO: replace the SubResourcePatchOptions with  client.ForceOwnership, r.FieldOwner in later compatible version
 	return ctrl.Result{Requeue: true}, r.Status().Patch(
 		ctx, obj, client.Apply, subResourceOpts(client.ForceOwnership, r.FieldOwner),
 	)
@@ -483,6 +462,7 @@ func subResourceOpts(opts ...client.PatchOption) client.SubResourcePatchOption {
 }
 
 func (r *Reconciler) ssa(ctx context.Context, obj client.Object) (ctrl.Result, error) {
+	obj.SetUID("")
 	obj.SetManagedFields(nil)
 	obj.SetResourceVersion("")
 	return ctrl.Result{Requeue: true}, r.Patch(ctx, obj, client.Apply, client.ForceOwnership, r.FieldOwner)

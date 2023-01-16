@@ -2,10 +2,12 @@ package v2
 
 import (
 	"context"
+	"errors"
 	"os"
 	"time"
 
-	"github.com/kyma-project/module-manager/pkg/util"
+	"github.com/kyma-project/module-manager/internal"
+	"github.com/kyma-project/module-manager/pkg/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -22,6 +24,8 @@ const (
 	FieldOwnerDefault         = "declarative.kyma-project.io/applier"
 	EventRecorderDefault      = "declarative.kyma-project.io/events"
 	DefaultSkipReconcileLabel = "declarative.kyma-project.io/skip-reconciliation"
+	DefaultCacheKey           = "declarative.kyma-project.io/cache-key"
+	DefaultInMemoryParseTTL   = 24 * time.Hour
 )
 
 func DefaultOptions() *Options {
@@ -32,13 +36,16 @@ func DefaultOptions() *Options {
 		WithFieldOwner(FieldOwnerDefault),
 		WithPostRenderTransform(
 			managedByDeclarativeV2,
+			watchedByOwnedBy,
 			kymaComponentTransform,
 			disclaimerTransform,
 		),
 		WithPermanentConsistencyCheck(false),
 		WithSingletonClientCache(NewMemorySingletonClientCache()),
+		WithClientCacheKeyFromLabelOrResource(DefaultCacheKey),
 		WithManifestCache(os.TempDir()),
 		WithSkipReconcileOn(SkipReconcileOnDefaultLabelPresentAndTrue),
+		WithManifestParser(NewInMemoryCachedManifestParser(DefaultInMemoryParseTTL)),
 	)
 }
 
@@ -46,10 +53,12 @@ type Options struct {
 	record.EventRecorder
 	Config *rest.Config
 	client.Client
-	TargetClient ClientFn
+	TargetCluster ClusterFn
 
 	SpecResolver
 	ClientCache
+	ClientCacheKeyFn
+	ManifestParser
 	ManifestCache
 	CustomReadyCheck ReadyCheck
 
@@ -211,11 +220,7 @@ func (o WithPeriodicConsistencyCheck) Apply(options *Options) {
 type WithPermanentConsistencyCheck bool
 
 func (o WithPermanentConsistencyCheck) Apply(options *Options) {
-	if o {
-		options.CtrlOnSuccess = ctrl.Result{Requeue: true}
-	} else {
-		options.CtrlOnSuccess = ctrl.Result{}
-	}
+	options.CtrlOnSuccess = ctrl.Result{Requeue: bool(o)}
 }
 
 type WithSingletonClientCacheOption struct {
@@ -246,6 +251,18 @@ func (o WithManifestCache) Apply(options *Options) {
 	options.ManifestCache = ManifestCache(o)
 }
 
+func WithManifestParser(parser ManifestParser) WithManifestParserOption {
+	return WithManifestParserOption{ManifestParser: parser}
+}
+
+type WithManifestParserOption struct {
+	ManifestParser
+}
+
+func (o WithManifestParserOption) Apply(options *Options) {
+	options.ManifestParser = o.ManifestParser
+}
+
 type WithCustomReadyCheckOption struct {
 	ReadyCheck
 }
@@ -258,18 +275,18 @@ func (o WithCustomReadyCheckOption) Apply(options *Options) {
 	options.CustomReadyCheck = o
 }
 
-type ClientFn func(context.Context, Object) (client.Client, error)
+type ClusterFn func(context.Context, Object) (*types.ClusterInfo, error)
 
-func WithRemoteTargetCluster(clientFn ClientFn) WithRemoteTargetClusterOption {
-	return WithRemoteTargetClusterOption{ClientFn: clientFn}
+func WithRemoteTargetCluster(configFn ClusterFn) WithRemoteTargetClusterOption {
+	return WithRemoteTargetClusterOption{ClusterFn: configFn}
 }
 
 type WithRemoteTargetClusterOption struct {
-	ClientFn func(context.Context, Object) (client.Client, error)
+	ClusterFn
 }
 
 func (o WithRemoteTargetClusterOption) Apply(options *Options) {
-	options.TargetClient = o.ClientFn
+	options.TargetCluster = o.ClusterFn
 }
 
 func WithSkipReconcileOn(skipReconcile SkipReconcile) WithSkipReconcileOnOption {
@@ -281,7 +298,7 @@ type SkipReconcile func(context.Context, Object) (skip bool)
 // SkipReconcileOnDefaultLabelPresentAndTrue determines SkipReconcile by checking if DefaultSkipReconcileLabel is true.
 func SkipReconcileOnDefaultLabelPresentAndTrue(ctx context.Context, object Object) bool {
 	log.FromContext(ctx, "skip-label", DefaultSkipReconcileLabel).
-		V(util.DebugLogLevel).Info("resource gets skipped because of label")
+		V(internal.DebugLogLevel).Info("resource gets skipped because of label")
 	return object.GetLabels() != nil && object.GetLabels()[DefaultSkipReconcileLabel] == "true"
 }
 
@@ -291,4 +308,46 @@ type WithSkipReconcileOnOption struct {
 
 func (o WithSkipReconcileOnOption) Apply(options *Options) {
 	options.ShouldSkip = o.skipReconcile
+}
+
+type ClientCacheKeyFn func(ctx context.Context, obj Object) any
+
+func WithClientCacheKeyFromLabelOrResource(label string) WithClientCacheKeyOption {
+	cacheKey := func(ctx context.Context, resource Object) any {
+		logger := log.FromContext(ctx)
+
+		if resource == nil {
+			return client.ObjectKey{}
+		}
+
+		label, err := internal.GetResourceLabel(resource, label)
+		objectKey := client.ObjectKeyFromObject(resource)
+		var labelErr *types.LabelNotFoundError
+		if errors.As(err, &labelErr) {
+			logger.V(internal.DebugLogLevel).Info(
+				label+" missing on resource, it will be cached "+
+					"based on resource name and namespace.",
+				"resource", objectKey,
+			)
+			return objectKey
+		}
+
+		logger.V(internal.DebugLogLevel).Info(
+			"resource will be cached based on "+label,
+			"resource", objectKey,
+			"label", label,
+			"labelValue", label,
+		)
+
+		return client.ObjectKey{Name: label, Namespace: resource.GetNamespace()}
+	}
+	return WithClientCacheKeyOption{ClientCacheKeyFn: cacheKey}
+}
+
+type WithClientCacheKeyOption struct {
+	ClientCacheKeyFn
+}
+
+func (o WithClientCacheKeyOption) Apply(options *Options) {
+	options.ClientCacheKeyFn = o.ClientCacheKeyFn
 }

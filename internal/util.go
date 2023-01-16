@@ -1,10 +1,10 @@
-package util
+package internal
 
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -14,75 +14,23 @@ import (
 	"path/filepath"
 	"strings"
 
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	yamlUtil "k8s.io/apimachinery/pkg/util/yaml"
-
+	opLabels "github.com/kyma-project/module-manager/pkg/labels"
 	"github.com/kyma-project/module-manager/pkg/types"
-
-	"github.com/pkg/errors"
-	"helm.sh/helm/v3/pkg/kube"
 	v1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/cli-runtime/pkg/resource"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
+	yamlUtil "k8s.io/apimachinery/pkg/util/yaml"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 )
 
 const (
-	ManifestDir                     = "manifest"
-	manifestFile                    = "manifest.yaml"
-	configFileName                  = "installConfig.yaml"
 	YamlDecodeBufferSize            = 2048
 	OthersReadExecuteFilePermission = 0o755
 	DebugLogLevel                   = 2
 	TraceLogLevel                   = 3
 )
-
-func GetNamespaceObjBytes(clientNs string) ([]byte, error) {
-	namespace := v1.Namespace{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "v1",
-			Kind:       "Namespace",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name: clientNs,
-			Labels: map[string]string{
-				"name": clientNs,
-			},
-		},
-	}
-	return yaml.Marshal(namespace)
-}
-
-func FilterExistingResources(resources kube.ResourceList) (kube.ResourceList, error) {
-	existingResources := kube.ResourceList{}
-	errs := make([]error, 0, len(resources))
-	for i := range resources {
-		info := resources[i]
-		helper := resource.NewHelper(info.Client, info.Mapping)
-		_, err := helper.Get(info.Namespace, info.Name)
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				continue
-			}
-			errs = append(errs, errors.Wrapf(err,
-				"could not get information about the resource %s / %s", info.Name, info.Namespace))
-			continue
-		}
-
-		// TODO: Adapt standard labels / annotations here
-
-		existingResources.Append(info)
-	}
-
-	if len(errs) > 0 {
-		return existingResources, types.NewMultiError(errs)
-	}
-
-	return existingResources, nil
-}
 
 func CleanFilePathJoin(root, destDir string) (string, error) {
 	// On Windows, this is a drive separator. On UNIX-like, this is the path list separator.
@@ -142,14 +90,6 @@ func ParseManifestStringToObjects(manifest string) (*types.ManifestResources, er
 
 func GetFsChartPath(imageSpec types.ImageSpec) string {
 	return filepath.Join(os.TempDir(), fmt.Sprintf("%s-%s", imageSpec.Name, imageSpec.Ref))
-}
-
-func GetConfigFilePath(config types.ImageSpec) string {
-	return filepath.Join(os.TempDir(), filepath.Join(config.Ref, configFileName))
-}
-
-func GetFsManifestChartPath(imageChartPath string) string {
-	return filepath.Join(imageChartPath, ManifestDir, manifestFile)
 }
 
 func GetYamlFileContent(filePath string) (interface{}, error) {
@@ -220,20 +160,16 @@ func CalculateHash(interfaceToBeHashed any) (uint32, error) {
 	return h.Sum32(), nil
 }
 
-// Transform applies the passed object transformations to the manifest string passed.
-func Transform(ctx context.Context, manifestStringified string,
-	object types.BaseCustomObject, transforms []types.ObjectTransform,
-) (*types.ManifestResources, error) {
-	objects, err := ParseManifestStringToObjects(manifestStringified)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, transform := range transforms {
-		if err = transform(ctx, object, objects); err != nil {
-			return nil, err
-		}
-	}
-
-	return objects, nil
+func GetCacheFunc() cache.NewCacheFunc {
+	return cache.BuilderWithOptions(
+		cache.Options{
+			SelectorsByObject: cache.SelectorsByObject{
+				&v1.Secret{}: {
+					Label: labels.SelectorFromSet(
+						labels.Set{opLabels.ManagedBy: opLabels.LifecycleManager},
+					),
+				},
+			},
+		},
+	)
 }

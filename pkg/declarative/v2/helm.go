@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/kyma-project/module-manager/pkg/types"
-	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/kube"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -41,8 +39,7 @@ type Helm struct {
 	chartPath string
 	values    any
 
-	chart *chart.Chart
-	crds  kube.ResourceList
+	crds kube.ResourceList
 
 	crdChecker ReadyCheck
 }
@@ -67,24 +64,6 @@ func (h *Helm) Initialize(obj Object) error {
 		return ErrConditionsNotYetRegistered
 	}
 
-	loadedChart, err := loader.Load(h.chartPath)
-	if err != nil {
-		h.recorder.Event(obj, "Warning", "ChartLoading", err.Error())
-		meta.SetStatusCondition(&status.Conditions, h.prerequisiteCondition(obj))
-		obj.SetStatus(status.WithState(State(types.StateError)).WithErr(err))
-		return err
-	}
-	h.chart = loadedChart
-
-	crds, err := getCRDs(h.clnt, h.chart.CRDObjects())
-	if err != nil {
-		h.recorder.Event(obj, "Warning", "CRDParsing", err.Error())
-		meta.SetStatusCondition(&status.Conditions, h.prerequisiteCondition(obj))
-		obj.SetStatus(status.WithState(State(types.StateError)).WithErr(err))
-		return err
-	}
-	h.crds = crds
-
 	return nil
 }
 
@@ -97,14 +76,31 @@ func (h *Helm) EnsurePrerequisites(ctx context.Context, obj Object) error {
 		return nil
 	}
 
+	chrt, err := loader.Load(h.chartPath)
+	if err != nil {
+		h.recorder.Event(obj, "Warning", "ChartLoading", err.Error())
+		meta.SetStatusCondition(&status.Conditions, h.prerequisiteCondition(obj))
+		obj.SetStatus(status.WithState(StateError).WithErr(err))
+		return err
+	}
+
+	crds, err := getCRDs(h.clnt, chrt.CRDObjects())
+	if err != nil {
+		h.recorder.Event(obj, "Warning", "CRDParsing", err.Error())
+		meta.SetStatusCondition(&status.Conditions, h.prerequisiteCondition(obj))
+		obj.SetStatus(status.WithState(StateError).WithErr(err))
+		return err
+	}
+	h.crds = crds
+
 	if err := installCRDs(h.clnt, h.crds); err != nil {
 		h.recorder.Event(obj, "Warning", "CRDInstallation", err.Error())
 		meta.SetStatusCondition(&status.Conditions, h.prerequisiteCondition(obj))
-		obj.SetStatus(status.WithState(State(types.StateError)).WithErr(err))
+		obj.SetStatus(status.WithState(StateError).WithErr(err))
 		return fmt.Errorf("crds could not be installed: %w", err)
 	}
 
-	err := h.crdChecker.Run(ctx, h.crds)
+	err = h.crdChecker.Run(ctx, h.clnt, obj, h.crds)
 
 	if errors.Is(err, ErrResourcesNotReady) {
 		h.recorder.Event(obj, "Normal", "CRDReadyCheck", "crds are not yet ready...")
@@ -116,7 +112,7 @@ func (h *Helm) EnsurePrerequisites(ctx context.Context, obj Object) error {
 	if err != nil {
 		h.recorder.Event(obj, "Warning", "CRDReadyCheck", err.Error())
 		meta.SetStatusCondition(&status.Conditions, h.prerequisiteCondition(obj))
-		obj.SetStatus(status.WithState(State(types.StateError)).WithErr(err))
+		obj.SetStatus(status.WithState(StateError).WithErr(err))
 		return fmt.Errorf("crds could not be checked for readiness: %w", err)
 	}
 
@@ -140,7 +136,7 @@ func (h *Helm) RemovePrerequisites(ctx context.Context, obj Object) error {
 		return err
 	} else if err != nil {
 		h.recorder.Event(obj, "Warning", "CRDsUninstallation", err.Error())
-		obj.SetStatus(status.WithState(State(types.StateError)).WithErr(err))
+		obj.SetStatus(status.WithState(StateError).WithErr(err))
 		return err
 	}
 	return nil
@@ -161,10 +157,18 @@ func (h *Helm) Render(ctx context.Context, obj Object) ([]byte, error) {
 		valuesAsMap = map[string]any{}
 	}
 
-	release, err := h.clnt.Install().RunWithContext(ctx, h.chart, valuesAsMap)
+	chrt, err := loader.Load(h.chartPath)
+	if err != nil {
+		h.recorder.Event(obj, "Warning", "ChartLoading", err.Error())
+		meta.SetStatusCondition(&status.Conditions, h.prerequisiteCondition(obj))
+		obj.SetStatus(status.WithState(StateError).WithErr(err))
+		return nil, err
+	}
+
+	release, err := h.clnt.Install().RunWithContext(ctx, chrt, valuesAsMap)
 	if err != nil {
 		h.recorder.Event(obj, "Warning", "HelmRenderRun", err.Error())
-		obj.SetStatus(status.WithState(State(types.StateError)).WithErr(err))
+		obj.SetStatus(status.WithState(StateError).WithErr(err))
 		return nil, err
 	}
 	return []byte(release.Manifest), nil
