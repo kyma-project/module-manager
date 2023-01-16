@@ -2,6 +2,7 @@ package v1alpha1
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/kyma-project/module-manager/api/v1alpha1"
 	"github.com/kyma-project/module-manager/internal"
@@ -40,9 +41,13 @@ func (r *RemoteClusterLookup) ConfigResolver(ctx context.Context, obj declarativ
 	} else {
 		restConfigGetter = func() (*rest.Config, error) {
 			// evaluate remote rest config from secret
-			return (&custom.ClusterClient{DefaultClient: r.KCP.Client}).GetRESTConfig(
+			config, err := (&custom.ClusterClient{DefaultClient: r.KCP.Client}).GetRESTConfig(
 				ctx, kymaOwnerLabel, manifest.GetNamespace(),
 			)
+			if err != nil {
+				return nil, fmt.Errorf("could not resolve remote cluster rest config: %w", err)
+			}
+			return config, nil
 		}
 	}
 

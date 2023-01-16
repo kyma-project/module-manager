@@ -33,19 +33,19 @@ func (cc *ClusterClient) GetRESTConfig(
 	if err != nil {
 		return nil, err
 	}
+	var kubeConfigSecret *v1.Secret
 	if len(kubeConfigSecretList.Items) < 1 {
-		return nil, errors.NewNotFound(groupResource, "remote cluster kubeconfig")
+		if err := cc.DefaultClient.Get(
+			ctx, client.ObjectKey{Name: kymaOwner, Namespace: namespace},
+			kubeConfigSecret,
+		); err != nil {
+			return nil, err
+		}
+	} else {
+		kubeConfigSecret = &kubeConfigSecretList.Items[0]
 	}
 	if len(kubeConfigSecretList.Items) > 1 {
 		return nil, errors.NewConflict(groupResource, kymaOwner, fmt.Errorf("more than one instance found"))
-	}
-
-	kubeConfigSecret := kubeConfigSecretList.Items[0]
-	if err := cc.DefaultClient.Get(
-		ctx, client.ObjectKey{Name: kymaOwner, Namespace: namespace},
-		&kubeConfigSecret,
-	); err != nil {
-		return nil, err
 	}
 
 	restConfig, err := clientcmd.RESTConfigFromKubeConfig(kubeConfigSecret.Data["config"])
