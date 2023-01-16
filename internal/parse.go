@@ -133,11 +133,12 @@ func DecodeUncompressedYAMLLayer(
 	imageSpec types.ImageSpec,
 	insecureRegistry bool,
 	keyChain authn.Keychain,
-	fileDestPath string,
 ) (interface{}, error) {
+	configFilePath := GetConfigFilePath(imageSpec)
+
 	imageRef := fmt.Sprintf("%s/%s@%s", imageSpec.Repo, imageSpec.Name, imageSpec.Ref)
 	// check existing file
-	decodedFile, err := GetYamlFileContent(fileDestPath)
+	decodedFile, err := GetYamlFileContent(configFilePath)
 	if err == nil {
 		return decodedFile, nil
 	} else if !os.IsNotExist(err) {
@@ -155,7 +156,7 @@ func DecodeUncompressedYAMLLayer(
 		return nil, fmt.Errorf("fetching blob for uncompressed layer %s: %w", imageRef, err)
 	}
 
-	return writeYamlContent(blob, imageRef, fileDestPath)
+	return writeYamlContent(blob, imageRef, configFilePath)
 }
 
 func pullLayer(ctx context.Context, insecureRegistry bool, imageRef string, keyChain authn.Keychain) (v1.Layer, error) {

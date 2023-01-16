@@ -30,6 +30,8 @@ const (
 	OthersReadExecuteFilePermission = 0o755
 	DebugLogLevel                   = 2
 	TraceLogLevel                   = 3
+	configFileName                  = "installConfig.yaml"
+	configsFolder                   = "configs"
 )
 
 func CleanFilePathJoin(root, destDir string) (string, error) {
@@ -90,6 +92,10 @@ func ParseManifestStringToObjects(manifest string) (*types.ManifestResources, er
 
 func GetFsChartPath(imageSpec types.ImageSpec) string {
 	return filepath.Join(os.TempDir(), fmt.Sprintf("%s-%s", imageSpec.Name, imageSpec.Ref))
+}
+
+func GetConfigFilePath(config types.ImageSpec) string {
+	return filepath.Join(os.TempDir(), configsFolder, config.Ref, configFileName)
 }
 
 func GetYamlFileContent(filePath string) (interface{}, error) {
