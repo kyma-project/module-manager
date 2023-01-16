@@ -141,7 +141,7 @@ func (m *ManifestSpecResolver) getValuesFromConfig(
 ) (map[string]any, error) {
 	var configs []any
 	if config.Type.NotEmpty() { //nolint:nestif
-		decodedConfig, err := internal.DecodeUncompressedYAMLLayer(ctx, config, m.Insecure, keyChain, name)
+		decodedConfig, err := internal.DecodeUncompressedYAMLLayer(ctx, config, m.Insecure, keyChain)
 		if err != nil {
 			// if EOF error, we should proceed without config
 			if !errors.Is(err, io.EOF) {
