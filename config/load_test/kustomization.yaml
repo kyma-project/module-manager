@@ -28,7 +28,7 @@ patches:
   - patch: |-
       - op: add
         path: /spec/template/spec/containers/0/args/-
-        value: --max-concurrent-reconciles=200            
+        value: --max-concurrent-reconciles=10            
       - op: add
         path: /spec/template/spec/containers/0/args/-
         value: --rate-limiter-burst=500      
@@ -52,7 +52,16 @@ patches:
         value: --check-ready-states=true        
       - op: add
         path: /spec/template/spec/containers/0/args/-
-        value: --cache-sync-timeout=10m
+        value: --cache-sync-timeout=60m      
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: --failure-base-delay=5ms         
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: --failure-max-delay=30s      
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: --requeue-success-interval=60m
       - op: replace
         path: /spec/template/spec/containers/0/imagePullPolicy
         value: Always
@@ -74,9 +83,9 @@ components:
   - ../crd
   - ../rbac
   # [WATCHER] To enable the watcher, uncomment all the sections with [WATCHER]
-  - ../watcher
+#  - ../watcher
   # [ISTIO] To enable istio, uncomment all sections with 'ISTIO'.
-  - ../istio
+#  - ../istio
   # [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix including the one in
   # crd/kustomization.yaml
   #- ../webhook

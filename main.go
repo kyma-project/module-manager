@@ -60,7 +60,7 @@ const (
 	rateLimiterBurstDefault       = 200
 	rateLimiterFrequencyDefault   = 30
 	failureBaseDelayDefault       = 1 * time.Second
-	failureMaxDelayDefault        = 1000 * time.Second
+	failureMaxDelayDefault        = 30 * time.Second
 	port                          = 9443
 	clientQPSDefault              = 150
 	clientBurstDefault            = 150
