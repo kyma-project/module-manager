@@ -18,6 +18,7 @@ type ManifestParser interface {
 
 func NewInMemoryCachedManifestParser(ttl time.Duration) *InMemoryManifestCache {
 	cache := ttlcache.New[string, types.ManifestResources]()
+	go cache.Start()
 	return &InMemoryManifestCache{Cache: cache, TTL: ttl}
 }
 
