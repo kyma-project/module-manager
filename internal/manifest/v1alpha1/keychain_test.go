@@ -25,9 +25,7 @@ var _ = Describe(
 					repo, "digest",
 					credSecretLabel(),
 				)
-				keychain, err := v1alpha1.GetAuthnKeychain(
-					ctx, imageSpecWithCredSelect, k8sClient, metav1.NamespaceDefault,
-				)
+				keychain, err := v1alpha1.GetAuthnKeychain(ctx, imageSpecWithCredSelect, k8sClient)
 				Expect(err).ToNot(HaveOccurred())
 				dig := &TestRegistry{target: repo, registry: repo}
 				authenticator, err := keychain.Resolve(dig)
