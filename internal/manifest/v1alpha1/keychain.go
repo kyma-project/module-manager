@@ -12,24 +12,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func GetAuthnKeychain(
-	ctx context.Context,
-	spec types.ImageSpec,
-	clnt client.Client,
-	namespace string,
-) (authn.Keychain, error) {
-	secretList, err := getCredSecrets(ctx, spec.CredSecretSelector, clnt, namespace)
+func GetAuthnKeychain(ctx context.Context, spec types.ImageSpec, clnt client.Client) (authn.Keychain, error) {
+	secretList, err := getCredSecrets(ctx, spec.CredSecretSelector, clnt)
 	if err != nil {
 		return nil, err
 	}
 	return authnK8s.NewFromPullSecrets(ctx, secretList.Items)
 }
 
-func getCredSecrets(
-	ctx context.Context,
+func getCredSecrets(ctx context.Context,
 	credSecretSelector *metav1.LabelSelector,
 	clusterClient client.Client,
-	namespace string,
 ) (corev1.SecretList, error) {
 	secretList := corev1.SecretList{}
 	selector, err := metav1.LabelSelectorAsSelector(credSecretSelector)
@@ -39,7 +32,6 @@ func getCredSecrets(
 	err = clusterClient.List(
 		ctx, &secretList, &client.ListOptions{
 			LabelSelector: selector,
-			Namespace:     namespace,
 		},
 	)
 	if err != nil {

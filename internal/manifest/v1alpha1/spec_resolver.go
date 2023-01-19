@@ -62,7 +62,7 @@ func (m *ManifestSpecResolver) Spec(ctx context.Context, obj declarative.Object)
 		return nil, err
 	}
 
-	keyChain, err := m.lookupKeyChain(ctx, manifest.Spec.Config, obj.GetNamespace())
+	keyChain, err := m.lookupKeyChain(ctx, manifest.Spec.Config)
 	if err != nil {
 		return nil, err
 	}
@@ -279,15 +279,11 @@ func getConfigAndValuesForInstall(configs []interface{}, name string) (
 	return defaultOverrides, nil
 }
 
-func (m *ManifestSpecResolver) lookupKeyChain(
-	ctx context.Context,
-	imageSpec types.ImageSpec,
-	namespace string,
-) (authn.Keychain, error) {
+func (m *ManifestSpecResolver) lookupKeyChain(ctx context.Context, imageSpec types.ImageSpec) (authn.Keychain, error) {
 	var keyChain authn.Keychain
 	var err error
 	if imageSpec.CredSecretSelector != nil {
-		if keyChain, err = GetAuthnKeychain(ctx, imageSpec, m.KCP, namespace); err != nil {
+		if keyChain, err = GetAuthnKeychain(ctx, imageSpec, m.KCP); err != nil {
 			return nil, err
 		}
 	} else {
