@@ -23,23 +23,19 @@ func (cc *ClusterClient) GetRESTConfig(
 ) (*rest.Config, error) {
 	kubeConfigSecretList := &v1.SecretList{}
 	groupResource := v1.SchemeGroupVersion.WithResource(string(v1.ResourceSecrets)).GroupResource()
+	labelSelector := k8slabels.SelectorFromSet(k8slabels.Set{labels.KymaName: kymaOwner})
 	err := cc.DefaultClient.List(
-		ctx, kubeConfigSecretList, &client.ListOptions{
-			LabelSelector: k8slabels.SelectorFromSet(
-				k8slabels.Set{labels.KymaName: kymaOwner},
-			), Namespace: namespace,
-		},
+		ctx, kubeConfigSecretList, &client.ListOptions{LabelSelector: labelSelector, Namespace: namespace},
 	)
 	if err != nil {
 		return nil, err
 	}
-	var kubeConfigSecret *v1.Secret
+	kubeConfigSecret := &v1.Secret{}
 	if len(kubeConfigSecretList.Items) < 1 {
-		if err := cc.DefaultClient.Get(
-			ctx, client.ObjectKey{Name: kymaOwner, Namespace: namespace},
-			kubeConfigSecret,
-		); err != nil {
-			return nil, err
+		key := client.ObjectKey{Name: kymaOwner, Namespace: namespace}
+		if err := cc.DefaultClient.Get(ctx, key, kubeConfigSecret); err != nil {
+			return nil, fmt.Errorf("could not get secret (containing kubeconfig) by key (%s) or selector (%s)",
+				key, labelSelector.String())
 		}
 	} else {
 		kubeConfigSecret = &kubeConfigSecretList.Items[0]

@@ -15,7 +15,7 @@ import (
 
 const customResourceStatePath = "status.state"
 
-var ErrCustomResourceNotFound = errors.New("custom resource not found")
+var ErrCustomResourceStateNotFound = errors.New("custom resource state not found")
 
 // NewManifestCustomResourceReadyCheck creates a readiness check that verifies that the Resource in the Manifest
 // returns the ready state, if not it returns not ready.
@@ -33,15 +33,15 @@ func (c *ManifestCustomResourceReadyCheck) Run(
 	if err := clnt.Get(ctx, client.ObjectKeyFromObject(res), res); err != nil {
 		return err
 	}
-	state, found, err := unstructured.NestedString(res.Object, strings.Split(customResourceStatePath, ".")...)
+	state, stateExists, err := unstructured.NestedString(res.Object, strings.Split(customResourceStatePath, ".")...)
 	if err != nil {
 		return fmt.Errorf(
-			"could not get state from custom resource %s at path %s",
+			"could not get state from custom resource %s at path %s to determine readiness",
 			res.GetName(), customResourceStatePath,
 		)
 	}
-	if !found {
-		return ErrCustomResourceNotFound
+	if !stateExists {
+		return ErrCustomResourceStateNotFound
 	}
 
 	if state := declarative.State(state); state != declarative.StateReady {
