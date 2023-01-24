@@ -46,7 +46,7 @@ spec:
                 description: Config specifies OCI image configuration for Manifest
                 properties:
                   credSecretSelector:
-                    description: CredSecretSelector is on optional field, for OCI
+                    description: CredSecretSelector is an optional field, for OCI
                       image saved in private registry, use it to indicate the secret
                       which contains registry credentials, must exist in the namespace
                       same as manifest
@@ -115,7 +115,7 @@ spec:
                 description: CRDs specifies the custom resource definitions' ImageSpec
                 properties:
                   credSecretSelector:
-                    description: CredSecretSelector is on optional field, for OCI
+                    description: CredSecretSelector is an optional field, for OCI
                       image saved in private registry, use it to indicate the secret
                       which contains registry credentials, must exist in the namespace
                       same as manifest
@@ -199,7 +199,6 @@ spec:
                   type: object
                 type: array
               remote:
-                default: true
                 description: Remote indicates if Manifest should be installed on a
                   remote cluster
                 type: boolean
@@ -211,6 +210,7 @@ spec:
                 x-kubernetes-preserve-unknown-fields: true
             required:
             - installs
+            - remote
             type: object
           status:
             description: Status signifies the current status of the Manifest

@@ -42,8 +42,7 @@ type InstallInfo struct {
 // ManifestSpec defines the specification of Manifest.
 type ManifestSpec struct {
 	// Remote indicates if Manifest should be installed on a remote cluster
-	// +kubebuilder:default:=true
-	Remote bool `json:"remote,omitempty"`
+	Remote bool `json:"remote"`
 
 	// Config specifies OCI image configuration for Manifest
 	Config types.ImageSpec `json:"config,omitempty"`

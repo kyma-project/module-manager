@@ -53,7 +53,7 @@ type ImageSpec struct {
 	// Type defines the chart as "oci-ref"
 	Type RefTypeMetadata `json:"type,omitempty"`
 
-	// CredSecretSelector is on optional field, for OCI image saved in private registry,
+	// CredSecretSelector is an optional field, for OCI image saved in private registry,
 	// use it to indicate the secret which contains registry credentials,
 	// must exist in the namespace same as manifest
 	CredSecretSelector *metav1.LabelSelector `json:"credSecretSelector,omitempty"`
