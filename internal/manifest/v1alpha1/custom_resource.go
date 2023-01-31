@@ -14,7 +14,9 @@ import (
 
 const CustomResourceManager = "resource.kyma-project.io/finalizer"
 
-var ErrWaitingForAsyncCustomResourceDeletion = errors.New("deletion of custom resource was triggered and is now waiting to be completed")
+var ErrWaitingForAsyncCustomResourceDeletion = errors.New(
+	"deletion of custom resource was triggered and is now waiting to be completed",
+)
 
 // PostRunCreateCR is a hook for creating the manifest default custom resource if not available in the cluster
 // It is used to provide the controller with default data in the Runtime.
