@@ -294,7 +294,7 @@ func (r *Reconciler) deleteResources(
 		for _, preDelete := range r.PreDeletes {
 			if err := preDelete(ctx, clnt, r.Client, obj); err != nil {
 				r.Event(obj, "Warning", "PreDelete", err.Error())
-				// we do not set a status here since it will be deleting if timestamp is set to zero.
+				// we do not set a status here since it will be deleting if timestamp is set.
 				return err
 			}
 		}
