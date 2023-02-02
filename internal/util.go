@@ -186,8 +186,8 @@ func JoinYAMLDocuments(yamlDocs [][]byte) string {
 		return ""
 	}
 	var res bytes.Buffer
-	for i, yd := range yamlDocs {
-		if len(yd) == 0 {
+	for i, ydoc := range yamlDocs {
+		if len(ydoc) == 0 {
 			continue
 		}
 
@@ -196,7 +196,7 @@ func JoinYAMLDocuments(yamlDocs [][]byte) string {
 			res.Write([]byte("---\n"))
 		}
 
-		trimmed := bytes.TrimSpace(yd)                       // get rid of all the surrounding whitespaces
+		trimmed := bytes.TrimSpace(ydoc)                     // get rid of all the surrounding whitespaces
 		trimmed = bytes.TrimPrefix(trimmed, []byte("---\n")) // get rid of the leading marker, if any
 		trimmed = bytes.TrimSuffix(trimmed, []byte("---"))   // get rid of the trailing marker, if any
 		trimmed = bytes.TrimSpace(trimmed)                   // get rid of any remaining surrounding whitespaces

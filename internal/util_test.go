@@ -9,6 +9,7 @@ import (
 
 //nolint:funlen
 func Test_JoinYAMLDocuments(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		yamlDocs [][]byte
