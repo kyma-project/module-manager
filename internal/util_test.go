@@ -1,4 +1,4 @@
-package internal
+package internal_test
 
 import (
 	"testing"
@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+//nolint:funlen
 func Test_JoinYAMLDocuments(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -125,20 +126,20 @@ func Test_JoinYAMLDocuments(t *testing.T) {
 	}
 
 	for _, testCase := range tests {
-		tc := testCase
+		tcase := testCase
 		t.Run(
-			tc.name, func(t *testing.T) {
+			tcase.name, func(t *testing.T) {
 				assertions := assert.New(t)
 				t.Parallel()
-				actual := JoinYAMLDocuments(tc.yamlDocs)
-				assertions.Equal(tc.expected, actual)
+				actual := JoinYAMLDocuments(tcase.yamlDocs)
+				assertions.Equal(tcase.expected, actual)
 			},
 		)
 	}
 }
 
 func toByteSlice(ls ...string) [][]byte {
-	var res [][]byte
+	res := [][]byte{}
 	for _, s := range ls {
 		res = append(res, []byte(s))
 	}
@@ -155,9 +156,9 @@ key22: "value2"`
 	yamlWithoutMarkers3 = `key31: 333
 key32: "value3"`
 
-	el         = "  \n"    //empty line with some spaces to simulate poorly formatted file
-	marker     = "\n---\n" //standard marker between two documents
-	leadmarker = "---\n"   //marker at the beginning of the document
+	el         = "  \n"    // empty line with some spaces to simulate poorly formatted file
+	marker     = "\n---\n" // standard marker between two documents
+	leadmarker = "---\n"   // marker at the beginning of the document
 
 	twoDocsExpectedOutput   = yamlWithoutMarkers1 + marker + yamlWithoutMarkers2 + "\n"
 	threeDocsExpectedOutput = yamlWithoutMarkers1 + marker + yamlWithoutMarkers2 + marker + yamlWithoutMarkers3 + "\n"

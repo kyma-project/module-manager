@@ -179,27 +179,27 @@ func GetCacheFunc() cache.NewCacheFunc {
 	)
 }
 
-// JoinYAMLDocuments joins provided documents by replacing any leading/trailing markers and whitespaces with a single YAML marker between any two documents
+// JoinYAMLDocuments joins provided documents by replacing any leading/trailing markers and whitespaces
+// with a single YAML marker between any two documents.
 func JoinYAMLDocuments(yamlDocs [][]byte) string {
-	if yamlDocs == nil || len(yamlDocs) == 0 {
+	if len(yamlDocs) == 0 {
 		return ""
 	}
 	var res bytes.Buffer
 	for i, yd := range yamlDocs {
-		if yd == nil || len(yd) == 0 {
+		if len(yd) == 0 {
 			continue
 		}
 
 		if i > 0 {
-			//Insert YAML document marker
+			//Previous document ends with a newline!
 			res.Write([]byte("---\n"))
 		}
 
-		trimmed := bytes.TrimSpace(yd)                       //get rid of all the surrounding whitespaces
-		trimmed = bytes.TrimPrefix(trimmed, []byte("---\n")) //get rid of the leading marker, if any
-		trimmed = bytes.TrimSuffix(trimmed, []byte("---"))   //get rid of the trailing marker, if any
-		trimmed = bytes.TrimSpace(trimmed)                   //get rid of any remaining surrounding whitespaces
-		res.Write(append(trimmed, []byte("\n")...))          //ensure single newline at the end
+		trimmed = bytes.TrimPrefix(trimmed, []byte("---\n")) // get rid of the leading marker, if any
+		trimmed = bytes.TrimSuffix(trimmed, []byte("---"))   // get rid of the trailing marker, if any
+		trimmed = bytes.TrimSpace(trimmed)                   // get rid of any remaining surrounding whitespaces
+		res.Write(append(trimmed, []byte("\n")...))          // ensure single newline at the end
 	}
 	return res.String()
 }
