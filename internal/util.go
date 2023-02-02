@@ -75,7 +75,6 @@ func ParseManifestStringToObjects(manifest string) (*types.ManifestResources, er
 
 			return nil, fmt.Errorf("invalid YAML doc: %w", err)
 		}
-
 		rawBytes = bytes.TrimSpace(rawBytes)
 		unstructuredObj := unstructured.Unstructured{}
 		if err := yaml.Unmarshal(rawBytes, &unstructuredObj); err != nil {
@@ -178,4 +177,30 @@ func GetCacheFunc() cache.NewCacheFunc {
 			},
 		},
 	)
+}
+
+// JoinYAMLDocuments joins provided documents by replacing any leading/trailing markers and whitespaces
+// with a single YAML marker between any two documents.
+func JoinYAMLDocuments(yamlDocs [][]byte) string {
+	if len(yamlDocs) == 0 {
+		return ""
+	}
+	var res bytes.Buffer
+	for i, ydoc := range yamlDocs {
+		if len(ydoc) == 0 {
+			continue
+		}
+
+		if i > 0 {
+			//Previous document ends with a newline!
+			res.Write([]byte("---\n"))
+		}
+
+		trimmed := bytes.TrimSpace(ydoc)                     // get rid of all the surrounding whitespaces
+		trimmed = bytes.TrimPrefix(trimmed, []byte("---\n")) // get rid of the leading marker, if any
+		trimmed = bytes.TrimSuffix(trimmed, []byte("---"))   // get rid of the trailing marker, if any
+		trimmed = bytes.TrimSpace(trimmed)                   // get rid of any remaining surrounding whitespaces
+		res.Write(append(trimmed, []byte("\n")...))          // ensure single newline at the end
+	}
+	return res.String()
 }

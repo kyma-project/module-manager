@@ -1,7 +1,6 @@
 package v2
 
 import (
-	"bytes"
 	"sync"
 
 	"github.com/kyma-project/module-manager/internal"
@@ -12,11 +11,14 @@ import (
 )
 
 func getCRDs(clnt Client, crdFiles []chart.CRD) (kube.ResourceList, error) {
-	var crdManifest bytes.Buffer
-	for i := range crdFiles {
-		crdManifest.Write(append(bytes.TrimPrefix(crdFiles[i].File.Data, []byte("---\n")), '\n'))
+	var crdDocs [][]byte
+	for _, crdFile := range crdFiles {
+		if crdFile.File != nil {
+			crdDocs = append(crdDocs, crdFile.File.Data)
+		}
 	}
-	crdsObjects, err := internal.ParseManifestStringToObjects(crdManifest.String())
+	crdManifest := internal.JoinYAMLDocuments(crdDocs)
+	crdsObjects, err := internal.ParseManifestStringToObjects(crdManifest)
 	if err != nil {
 		return nil, err
 	}
