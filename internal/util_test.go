@@ -3,6 +3,7 @@ package internal_test
 import (
 	"testing"
 
+	"github.com/kyma-project/module-manager/internal"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -131,7 +132,7 @@ func Test_JoinYAMLDocuments(t *testing.T) {
 			tcase.name, func(t *testing.T) {
 				assertions := assert.New(t)
 				t.Parallel()
-				actual := JoinYAMLDocuments(tcase.yamlDocs)
+				actual := internal.JoinYAMLDocuments(tcase.yamlDocs)
 				assertions.Equal(tcase.expected, actual)
 			},
 		)
