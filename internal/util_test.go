@@ -140,9 +140,9 @@ func Test_JoinYAMLDocuments(t *testing.T) {
 }
 
 func toByteSlice(ls ...string) [][]byte {
-	res := [][]byte{}
-	for _, s := range ls {
-		res = append(res, []byte(s))
+	res := make([][]byte, len(ls))
+	for i, s := range ls {
+		res[i] = []byte(s)
 	}
 	return res
 }
