@@ -52,8 +52,9 @@ type ManifestSpec struct {
 
 	//+kubebuilder:pruning:PreserveUnknownFields
 	//+kubebuilder:validation:XEmbeddedResource
+	//+nullable
 	// Resource specifies a resource to be watched for state updates
-	Resource unstructured.Unstructured `json:"resource,omitempty"`
+	Resource *unstructured.Unstructured `json:"resource,omitempty"`
 
 	// CRDs specifies the custom resource definitions' ImageSpec
 	CRDs types.ImageSpec `json:"crds,omitempty"`

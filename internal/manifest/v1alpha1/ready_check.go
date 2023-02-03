@@ -29,6 +29,9 @@ func (c *ManifestCustomResourceReadyCheck) Run(
 	ctx context.Context, clnt declarative.Client, obj declarative.Object, _ []*resource.Info,
 ) error {
 	manifest := obj.(*manifestv1alpha1.Manifest)
+	if manifest.Spec.Resource == nil {
+		return nil
+	}
 	res := manifest.Spec.Resource.DeepCopy()
 	if err := clnt.Get(ctx, client.ObjectKeyFromObject(res), res); err != nil {
 		return err
