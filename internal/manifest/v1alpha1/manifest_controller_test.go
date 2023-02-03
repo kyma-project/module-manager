@@ -332,7 +332,7 @@ func installManifest(manifest *v1alpha1.Manifest, installSpecByte []byte, crdSpe
 	manifest.Spec.CRDs = crdSpec
 	if remote {
 		manifest.Spec.Remote = true
-		manifest.Spec.Resource = unstructured.Unstructured{
+		manifest.Spec.Resource = &unstructured.Unstructured{
 			Object: map[string]interface{}{
 				"apiVersion": "operator.kyma-project.io/v1alpha1",
 				"kind":       "SampleCRD",

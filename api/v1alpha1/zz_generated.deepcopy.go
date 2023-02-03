@@ -128,7 +128,10 @@ func (in *ManifestSpec) DeepCopyInto(out *ManifestSpec) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	in.Resource.DeepCopyInto(&out.Resource)
+	if in.Resource != nil {
+		in, out := &in.Resource, &out.Resource
+		*out = (*in).DeepCopy()
+	}
 	in.CRDs.DeepCopyInto(&out.CRDs)
 }
 

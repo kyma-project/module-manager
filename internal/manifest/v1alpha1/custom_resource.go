@@ -24,10 +24,10 @@ func PostRunCreateCR(
 	ctx context.Context, skr declarative.Client, kcp client.Client, obj declarative.Object,
 ) error {
 	manifest := obj.(*manifestv1alpha1.Manifest)
-	resource := manifest.Spec.Resource.DeepCopy()
-	if resource.Object == nil {
+	if manifest.Spec.Resource == nil {
 		return nil
 	}
+	resource := manifest.Spec.Resource.DeepCopy()
 
 	if err := skr.Create(
 		ctx, resource, client.FieldOwner(CustomResourceManager),
@@ -61,10 +61,10 @@ func PreDeleteDeleteCR(
 	ctx context.Context, skr declarative.Client, kcp client.Client, obj declarative.Object,
 ) error {
 	manifest := obj.(*manifestv1alpha1.Manifest)
-	resource := manifest.Spec.Resource.DeepCopy()
-	if resource.Object == nil {
+	if manifest.Spec.Resource == nil {
 		return nil
 	}
+	resource := manifest.Spec.Resource.DeepCopy()
 
 	propagation := v1.DeletePropagationBackground
 	err := skr.Delete(ctx, resource, &client.DeleteOptions{PropagationPolicy: &propagation})

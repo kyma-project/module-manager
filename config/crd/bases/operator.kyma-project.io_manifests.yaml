@@ -205,6 +205,7 @@ spec:
               resource:
                 description: Resource specifies a resource to be watched for state
                   updates
+                nullable: true
                 type: object
                 x-kubernetes-embedded-resource: true
                 x-kubernetes-preserve-unknown-fields: true
