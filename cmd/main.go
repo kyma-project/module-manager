@@ -18,6 +18,7 @@ package main
 
 import (
 	"flag"
+	"github.com/kyma-project/module-manager/internal/controller"
 	"net/http"
 	"net/http/pprof"
 	"os"
@@ -25,7 +26,6 @@ import (
 	"time"
 
 	manifestv1alpha1 "github.com/kyma-project/module-manager/api/v1alpha1"
-	"github.com/kyma-project/module-manager/controllers"
 	"github.com/kyma-project/module-manager/internal"
 	"github.com/kyma-project/module-manager/pkg/labels"
 	"github.com/kyma-project/module-manager/pkg/types"

@@ -36,7 +36,7 @@ The Module Manager repository offers the following components:
 | System Component                                          | Stability                                                                                         |
 |-----------------------------------------------------------|---------------------------------------------------------------------------------------------------|
 | [Manifest](api/v1alpha1/manifest_types.go)       | Alpha-Grade - do not rely on automation and watch upstream as close as possible                   |
-| [Controller](controllers/manifest_controller.go) | In active development - expect bugs and fast-paced development                                    |
+| [Controller](internal/controllers/manifest_controller.go) | In active development - expect bugs and fast-paced development                                    |
 | [Library](pkg)                                   | In active development - expect bugs and fast-paced development. Detailed documentation to follow. |
 
 ## Operator specification

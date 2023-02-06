@@ -2,10 +2,10 @@ package controllers
 
 import (
 	"fmt"
+	internalv1alpha1 "github.com/kyma-project/module-manager/internal/manifest/v1alpha1"
 	"time"
 
 	"github.com/kyma-project/module-manager/api/v1alpha1"
-	internalv1alpha1 "github.com/kyma-project/module-manager/internal/manifest/v1alpha1"
 	declarative "github.com/kyma-project/module-manager/pkg/declarative/v2"
 	"github.com/kyma-project/module-manager/pkg/labels"
 	"github.com/kyma-project/module-manager/pkg/types"
@@ -57,7 +57,7 @@ func ManifestReconciler(
 		),
 		declarative.WithCustomReadyCheck(internalv1alpha1.NewManifestCustomResourceReadyCheck()),
 		declarative.WithRemoteTargetCluster(
-			(&internalv1alpha1.RemoteClusterLookup{KCP: &types.ClusterInfo{
+			(&RemoteClusterLookup{KCP: &types.ClusterInfo{
 				Client: mgr.GetClient(),
 				Config: mgr.GetConfig(),
 			}}).ConfigResolver,
