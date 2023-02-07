@@ -30,8 +30,6 @@ const (
 	OthersReadExecuteFilePermission = 0o755
 	DebugLogLevel                   = 2
 	TraceLogLevel                   = 3
-	configFileName                  = "installConfig.yaml"
-	configsFolder                   = "configs"
 )
 
 func CleanFilePathJoin(root, destDir string) (string, error) {
@@ -63,8 +61,8 @@ func CleanFilePathJoin(root, destDir string) (string, error) {
 	return filepath.ToSlash(newPath), nil
 }
 
-func ParseManifestStringToObjects(manifest string) (*types.ManifestResources, error) {
-	objects := &types.ManifestResources{}
+func ParseManifestStringToObjects(manifest string) (*ManifestResources, error) {
+	objects := &ManifestResources{}
 	reader := yamlUtil.NewYAMLReader(bufio.NewReader(strings.NewReader(manifest)))
 	for {
 		rawBytes, err := reader.Read()
@@ -87,14 +85,6 @@ func ParseManifestStringToObjects(manifest string) (*types.ManifestResources, er
 
 		objects.Items = append(objects.Items, &unstructuredObj)
 	}
-}
-
-func GetFsChartPath(imageSpec types.ImageSpec) string {
-	return filepath.Join(os.TempDir(), fmt.Sprintf("%s-%s", imageSpec.Name, imageSpec.Ref))
-}
-
-func GetConfigFilePath(config types.ImageSpec) string {
-	return filepath.Join(os.TempDir(), configsFolder, config.Ref, configFileName)
 }
 
 func GetYamlFileContent(filePath string) (interface{}, error) {
@@ -192,7 +182,6 @@ func JoinYAMLDocuments(yamlDocs [][]byte) string {
 		}
 
 		if i > 0 {
-			//Previous document ends with a newline!
 			res.Write([]byte("---\n"))
 		}
 

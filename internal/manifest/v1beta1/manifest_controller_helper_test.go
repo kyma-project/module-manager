@@ -1,4 +1,4 @@
-package v1alpha1_test
+package v1beta1_test
 
 import (
 	"fmt"
@@ -12,16 +12,15 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/partial"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/types"
-	"github.com/kyma-project/module-manager/internal"
+	"github.com/kyma-project/module-manager/api/v1beta1"
+	internalv1beta1 "github.com/kyma-project/module-manager/internal/manifest/v1beta1"
 	_ "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/uuid"
 
-	"github.com/kyma-project/module-manager/api/v1alpha1"
 	"github.com/kyma-project/module-manager/pkg/labels"
-	manifestTypes "github.com/kyma-project/module-manager/pkg/types"
 )
 
 type mockLayer struct {
@@ -106,8 +105,8 @@ func PushToRemoteOCIRegistry(layerName string, ociLayerType OCILayerType) {
 	Expect(gotHash).To(Equal(digest))
 }
 
-func createOCIImageSpec(name, repo string, ociLayerType OCILayerType) manifestTypes.ImageSpec {
-	imageSpec := manifestTypes.ImageSpec{
+func createOCIImageSpec(name, repo string, ociLayerType OCILayerType) v1beta1.ImageSpec {
+	imageSpec := v1beta1.ImageSpec{
 		Name: name,
 		Repo: repo,
 		Type: "oci-ref",
@@ -119,8 +118,8 @@ func createOCIImageSpec(name, repo string, ociLayerType OCILayerType) manifestTy
 	return imageSpec
 }
 
-func NewTestManifest(prefix string) *v1alpha1.Manifest {
-	return &v1alpha1.Manifest{
+func NewTestManifest(prefix string) *v1beta1.Manifest {
+	return &v1beta1.Manifest{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-%d", prefix, rand.Intn(999999)),
 			Namespace: metav1.NamespaceDefault,
@@ -131,20 +130,20 @@ func NewTestManifest(prefix string) *v1alpha1.Manifest {
 	}
 }
 
-func deleteHelmChartResources(imageSpec manifestTypes.ImageSpec) {
-	chartYamlPath := filepath.Join(internal.GetFsChartPath(imageSpec), "Chart.yaml")
+func deleteHelmChartResources(imageSpec v1beta1.ImageSpec) {
+	chartYamlPath := filepath.Join(internalv1beta1.GetFsChartPath(imageSpec), "Chart.yaml")
 	Expect(os.RemoveAll(chartYamlPath)).Should(Succeed())
-	valuesYamlPath := filepath.Join(internal.GetFsChartPath(imageSpec), "values.yaml")
+	valuesYamlPath := filepath.Join(internalv1beta1.GetFsChartPath(imageSpec), "values.yaml")
 	Expect(os.RemoveAll(valuesYamlPath)).Should(Succeed())
-	templatesPath := filepath.Join(internal.GetFsChartPath(imageSpec), "templates")
+	templatesPath := filepath.Join(internalv1beta1.GetFsChartPath(imageSpec), "templates")
 	Expect(os.RemoveAll(templatesPath)).Should(Succeed())
 }
 
-func verifyHelmResourcesDeletion(imageSpec manifestTypes.ImageSpec) {
-	_, err := os.Stat(filepath.Join(internal.GetFsChartPath(imageSpec), "Chart.yaml"))
+func verifyHelmResourcesDeletion(imageSpec v1beta1.ImageSpec) {
+	_, err := os.Stat(filepath.Join(internalv1beta1.GetFsChartPath(imageSpec), "Chart.yaml"))
 	Expect(os.IsNotExist(err)).To(BeTrue())
-	_, err = os.Stat(filepath.Join(internal.GetFsChartPath(imageSpec), "values.yaml"))
+	_, err = os.Stat(filepath.Join(internalv1beta1.GetFsChartPath(imageSpec), "values.yaml"))
 	Expect(os.IsNotExist(err)).To(BeTrue())
-	_, err = os.Stat(filepath.Join(internal.GetFsChartPath(imageSpec), "templates"))
+	_, err = os.Stat(filepath.Join(internalv1beta1.GetFsChartPath(imageSpec), "templates"))
 	Expect(os.IsNotExist(err)).To(BeTrue())
 }

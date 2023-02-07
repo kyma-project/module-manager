@@ -1,4 +1,4 @@
-package client
+package v2
 
 import (
 	"fmt"
@@ -25,8 +25,6 @@ import (
 	"k8s.io/client-go/restmapper"
 	"k8s.io/kubectl/pkg/util/openapi"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/kyma-project/module-manager/pkg/types"
 )
 
 const (
@@ -76,7 +74,7 @@ type SingletonClients struct {
 	unstructuredRESTClientCache map[string]resource.RESTClient
 }
 
-func NewSingletonClients(info *types.ClusterInfo, logger logr.Logger) (*SingletonClients, error) {
+func NewSingletonClients(info *ClusterInfo, logger logr.Logger) (*SingletonClients, error) {
 	if err := setKubernetesDefaults(info.Config); err != nil {
 		return nil, err
 	}

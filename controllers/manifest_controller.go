@@ -4,11 +4,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/kyma-project/module-manager/api/v1alpha1"
-	internalv1alpha1 "github.com/kyma-project/module-manager/internal/manifest/v1alpha1"
+	"github.com/kyma-project/module-manager/api/v1beta1"
+	internalv1beta1 "github.com/kyma-project/module-manager/internal/manifest/v1beta1"
 	declarative "github.com/kyma-project/module-manager/pkg/declarative/v2"
 	"github.com/kyma-project/module-manager/pkg/labels"
-	"github.com/kyma-project/module-manager/pkg/types"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -23,13 +22,17 @@ import (
 func SetupWithManager(
 	mgr manager.Manager,
 	eventChannel source.Source,
-	codec *types.Codec,
 	options controller.Options,
 	insecure bool,
 	checkInterval time.Duration,
 ) error {
+	codec, err := v1beta1.NewCodec()
+	if err != nil {
+		return fmt.Errorf("unable to initialize codec: %w", err)
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha1.Manifest{}).
+		For(&v1beta1.Manifest{}).
 		Watches(&source.Kind{Type: &v1.Secret{}}, handler.Funcs{}).
 		Watches(
 			eventChannel, &handler.Funcs{
@@ -47,24 +50,24 @@ func SetupWithManager(
 }
 
 func ManifestReconciler(
-	mgr manager.Manager, codec *types.Codec, insecure bool,
+	mgr manager.Manager, codec *v1beta1.Codec, insecure bool,
 	checkInterval time.Duration,
 ) *declarative.Reconciler {
 	return declarative.NewFromManager(
-		mgr, &v1alpha1.Manifest{},
+		mgr, &v1beta1.Manifest{},
 		declarative.WithSpecResolver(
-			internalv1alpha1.NewManifestSpecResolver(codec, insecure),
+			internalv1beta1.NewManifestSpecResolver(codec, insecure),
 		),
-		declarative.WithCustomReadyCheck(internalv1alpha1.NewManifestCustomResourceReadyCheck()),
+		declarative.WithCustomReadyCheck(internalv1beta1.NewManifestCustomResourceReadyCheck()),
 		declarative.WithRemoteTargetCluster(
-			(&internalv1alpha1.RemoteClusterLookup{KCP: &types.ClusterInfo{
+			(&internalv1beta1.RemoteClusterLookup{KCP: &declarative.ClusterInfo{
 				Client: mgr.GetClient(),
 				Config: mgr.GetConfig(),
 			}}).ConfigResolver,
 		),
 		declarative.WithClientCacheKeyFromLabelOrResource(labels.KymaName),
-		declarative.WithPostRun{internalv1alpha1.PostRunCreateCR},
-		declarative.WithPreDelete{internalv1alpha1.PreDeleteDeleteCR},
+		declarative.WithPostRun{internalv1beta1.PostRunCreateCR},
+		declarative.WithPreDelete{internalv1beta1.PreDeleteDeleteCR},
 		declarative.WithPeriodicConsistencyCheck(checkInterval),
 	)
 }

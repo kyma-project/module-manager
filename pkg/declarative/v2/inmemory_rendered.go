@@ -8,28 +8,27 @@ import (
 
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/kyma-project/module-manager/internal"
-	"github.com/kyma-project/module-manager/pkg/types"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 type ManifestParser interface {
-	Parse(ctx context.Context, renderer Renderer, obj Object, spec *Spec) (*types.ManifestResources, error)
+	Parse(ctx context.Context, renderer Renderer, obj Object, spec *Spec) (*internal.ManifestResources, error)
 }
 
 func NewInMemoryCachedManifestParser(ttl time.Duration) *InMemoryManifestCache {
-	cache := ttlcache.New[string, types.ManifestResources]()
+	cache := ttlcache.New[string, internal.ManifestResources]()
 	go cache.Start()
 	return &InMemoryManifestCache{Cache: cache, TTL: ttl}
 }
 
 type InMemoryManifestCache struct {
 	TTL time.Duration
-	*ttlcache.Cache[string, types.ManifestResources]
+	*ttlcache.Cache[string, internal.ManifestResources]
 }
 
 func (c *InMemoryManifestCache) Parse(
 	ctx context.Context, renderer Renderer, obj Object, spec *Spec,
-) (*types.ManifestResources, error) {
+) (*internal.ManifestResources, error) {
 	file := filepath.Join(manifest, spec.Path, spec.ManifestName)
 	hashedValues, _ := internal.CalculateHash(spec.Values)
 	hash := fmt.Sprintf("%v", hashedValues)
@@ -39,7 +38,7 @@ func (c *InMemoryManifestCache) Parse(
 	if item != nil {
 		resources := item.Value()
 
-		copied := &types.ManifestResources{
+		copied := &internal.ManifestResources{
 			Items: make([]*unstructured.Unstructured, 0, len(resources.Items)),
 			Blobs: resources.Blobs,
 		}
@@ -62,7 +61,7 @@ func (c *InMemoryManifestCache) Parse(
 
 	c.Cache.Set(key, *resources, c.TTL)
 
-	copied := &types.ManifestResources{
+	copied := &internal.ManifestResources{
 		Items: make([]*unstructured.Unstructured, 0, len(resources.Items)),
 		Blobs: resources.Blobs,
 	}

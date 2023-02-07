@@ -24,16 +24,17 @@ import (
 	"strings"
 	"time"
 
-	manifestv1alpha1 "github.com/kyma-project/module-manager/api/v1alpha1"
-	"github.com/kyma-project/module-manager/controllers"
-	"github.com/kyma-project/module-manager/internal"
-	"github.com/kyma-project/module-manager/pkg/labels"
-	"github.com/kyma-project/module-manager/pkg/types"
 	listener "github.com/kyma-project/runtime-watcher/listener/pkg/event"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
+
+	manifestv1alpha1 "github.com/kyma-project/module-manager/api/v1alpha1"
+	manifestv1beta1 "github.com/kyma-project/module-manager/api/v1beta1"
+	"github.com/kyma-project/module-manager/controllers"
+	"github.com/kyma-project/module-manager/internal"
+	"github.com/kyma-project/module-manager/pkg/labels"
 
 	apiExtensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 
@@ -45,8 +46,9 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 
-	"github.com/kyma-project/module-manager/pkg/log"
 	ctrl "sigs.k8s.io/controller-runtime"
+
+	"github.com/kyma-project/module-manager/pkg/log"
 )
 
 var (
@@ -75,6 +77,7 @@ func init() {
 	utilruntime.Must(apiExtensionsv1.AddToScheme(scheme))
 
 	utilruntime.Must(manifestv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(manifestv1beta1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
@@ -147,12 +150,6 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 		os.Exit(1)
 	}
 	signals := ctrl.SetupSignalHandler()
-	codec, err := types.NewCodec()
-	if err != nil {
-		setupLog.Error(err, "unable to initialize codec")
-		os.Exit(1)
-	}
-
 	runnableListener, eventChannel := listener.RegisterListenerComponent(
 		flagVar.listenerAddr, strings.ToLower(labels.OperatorName),
 	)
@@ -164,7 +161,7 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 	}
 
 	if err := controllers.SetupWithManager(
-		mgr, eventChannel, codec, controller.Options{
+		mgr, eventChannel, controller.Options{
 			RateLimiter: internal.ManifestRateLimiter(
 				flagVar.failureBaseDelay, flagVar.failureMaxDelay,
 				flagVar.rateLimiterFrequency,
@@ -183,9 +180,13 @@ func setupWithManager(flagVar *FlagVar, newCacheFunc cache.NewCacheFunc, scheme 
 			setupLog.Error(err, "unable to create webhook", "webhook", "Manifest")
 			os.Exit(1)
 		}
-	}
 
-	//+kubebuilder:scaffold:builder
+		if err = (&manifestv1beta1.Manifest{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "Manifest")
+			os.Exit(1)
+		}
+		//+kubebuilder:scaffold:builder
+	}
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")
 		os.Exit(1)

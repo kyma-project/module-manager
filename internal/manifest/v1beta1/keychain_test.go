@@ -1,10 +1,10 @@
-package v1alpha1_test
+package v1beta1_test
 
 import (
 	"os"
 
-	"github.com/kyma-project/module-manager/internal/manifest/v1alpha1"
-	manifestTypes "github.com/kyma-project/module-manager/pkg/types"
+	"github.com/kyma-project/module-manager/api/v1beta1"
+	internalv1beta1 "github.com/kyma-project/module-manager/internal/manifest/v1beta1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -25,7 +25,7 @@ var _ = Describe(
 					repo, "digest",
 					credSecretLabel(),
 				)
-				keychain, err := v1alpha1.GetAuthnKeychain(ctx, imageSpecWithCredSelect, k8sClient)
+				keychain, err := internalv1beta1.GetAuthnKeychain(ctx, imageSpecWithCredSelect, k8sClient)
 				Expect(err).ToNot(HaveOccurred())
 				dig := &TestRegistry{target: repo, registry: repo}
 				authenticator, err := keychain.Resolve(dig)
@@ -42,8 +42,8 @@ var _ = Describe(
 func createOCIImageSpecWithCredSelect(
 	name, repo, digest string,
 	credSecretSelector metav1.LabelSelector,
-) manifestTypes.ImageSpec {
-	imageSpec := manifestTypes.ImageSpec{
+) v1beta1.ImageSpec {
+	imageSpec := v1beta1.ImageSpec{
 		Name:               name,
 		Repo:               repo,
 		Type:               "oci-ref",

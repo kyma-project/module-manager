@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	manifestClient "github.com/kyma-project/module-manager/pkg/client"
-	"github.com/kyma-project/module-manager/pkg/types"
 	"helm.sh/helm/v3/pkg/kube"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -398,7 +396,7 @@ func (r *Reconciler) getTargetClient(
 	clnt := r.GetClientFromCache(clientsCacheKey)
 
 	if clnt == nil {
-		cluster := &types.ClusterInfo{
+		cluster := &ClusterInfo{
 			Config: r.Config,
 			Client: r.Client,
 		}
@@ -408,7 +406,7 @@ func (r *Reconciler) getTargetClient(
 		if err != nil {
 			return nil, err
 		}
-		clnt, err = manifestClient.NewSingletonClients(cluster, log.FromContext(ctx))
+		clnt, err = NewSingletonClients(cluster, log.FromContext(ctx))
 		if err != nil {
 			return nil, err
 		}

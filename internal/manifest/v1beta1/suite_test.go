@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1_test
+package v1beta1_test
 
 import (
 	"context"
@@ -25,8 +25,10 @@ import (
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/registry"
+	"github.com/kyma-project/module-manager/api/v1alpha1"
+	"github.com/kyma-project/module-manager/api/v1beta1"
 	"github.com/kyma-project/module-manager/internal"
-	internalv1alpha1 "github.com/kyma-project/module-manager/internal/manifest/v1alpha1"
+	internalv1beta1 "github.com/kyma-project/module-manager/internal/manifest/v1beta1"
 	declarative "github.com/kyma-project/module-manager/pkg/declarative/v2"
 	"github.com/kyma-project/module-manager/pkg/labels"
 	. "github.com/onsi/ginkgo/v2"
@@ -44,9 +46,7 @@ import (
 
 	//+kubebuilder:scaffold:imports
 
-	"github.com/kyma-project/module-manager/api/v1alpha1"
 	"github.com/kyma-project/module-manager/pkg/log"
-	"github.com/kyma-project/module-manager/pkg/types"
 )
 
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
@@ -107,6 +107,7 @@ var _ = BeforeSuite(
 
 		//+kubebuilder:scaffold:scheme
 
+		Expect(v1beta1.AddToScheme(scheme.Scheme)).To(Succeed())
 		Expect(v1alpha1.AddToScheme(scheme.Scheme)).To(Succeed())
 		metricsBindAddress, found := os.LookupEnv("metrics-bind-address")
 		if !found {
@@ -121,7 +122,7 @@ var _ = BeforeSuite(
 			},
 		)
 		Expect(err).ToNot(HaveOccurred())
-		codec, err := types.NewCodec()
+		codec, err := v1beta1.NewCodec()
 		Expect(err).ToNot(HaveOccurred())
 
 		var authUser *envtest.AuthenticatedUser
@@ -134,24 +135,24 @@ var _ = BeforeSuite(
 		Expect(err).NotTo(HaveOccurred())
 
 		reconciler = declarative.NewFromManager(
-			k8sManager, &v1alpha1.Manifest{},
+			k8sManager, &v1beta1.Manifest{},
 			declarative.WithSpecResolver(
-				internalv1alpha1.NewManifestSpecResolver(codec, true),
+				internalv1beta1.NewManifestSpecResolver(codec, true),
 			),
 			declarative.WithPermanentConsistencyCheck(true),
 			declarative.WithRemoteTargetCluster(
-				func(_ context.Context, _ declarative.Object) (*types.ClusterInfo, error) {
-					return &types.ClusterInfo{Config: authUser.Config()}, nil
+				func(_ context.Context, _ declarative.Object) (*declarative.ClusterInfo, error) {
+					return &declarative.ClusterInfo{Config: authUser.Config()}, nil
 				},
 			),
 			declarative.WithClientCacheKeyFromLabelOrResource(labels.KymaName),
-			declarative.WithPostRun{internalv1alpha1.PostRunCreateCR},
-			declarative.WithPreDelete{internalv1alpha1.PreDeleteDeleteCR},
+			declarative.WithPostRun{internalv1beta1.PostRunCreateCR},
+			declarative.WithPreDelete{internalv1beta1.PreDeleteDeleteCR},
 			declarative.WithCustomReadyCheck(declarative.NewExistsReadyCheck()),
 		)
 
 		err = ctrl.NewControllerManagedBy(k8sManager).
-			For(&v1alpha1.Manifest{}).
+			For(&v1beta1.Manifest{}).
 			Watches(&source.Kind{Type: &v1.Secret{}}, handler.Funcs{}).
 			WithOptions(
 				controller.Options{

@@ -1,4 +1,4 @@
-package internal
+package v1beta1
 
 import (
 	"archive/tar"
@@ -12,8 +12,8 @@ import (
 	"path"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
-
-	"github.com/kyma-project/module-manager/pkg/types"
+	"github.com/kyma-project/module-manager/api/v1beta1"
+	"github.com/kyma-project/module-manager/internal"
 
 	"github.com/google/go-containerregistry/pkg/crane"
 	"k8s.io/apimachinery/pkg/util/yaml"
@@ -24,7 +24,7 @@ import (
 
 func GetPathFromExtractedTarGz(
 	ctx context.Context,
-	imageSpec types.ImageSpec,
+	imageSpec v1beta1.ImageSpec,
 	insecureRegistry bool,
 	keyChain authn.Keychain,
 ) (string, error) {
@@ -80,7 +80,7 @@ func writeTarGzContent(installPath string, tarReader *tar.Reader, layerReference
 		}
 
 		destDir, destFile := path.Split(header.Name)
-		destinationPath, err := CleanFilePathJoin(installPath, destDir)
+		destinationPath, err := internal.CleanFilePathJoin(installPath, destDir)
 		if err != nil {
 			return err
 		}
@@ -105,7 +105,7 @@ func handleExtractedHeaderFile(
 ) error {
 	switch header.Typeflag {
 	case tar.TypeDir:
-		if err := os.MkdirAll(destinationPath, OthersReadExecuteFilePermission); err != nil {
+		if err := os.MkdirAll(destinationPath, internal.OthersReadExecuteFilePermission); err != nil {
 			return fmt.Errorf("failure in Mkdir() storage while extracting TarGz %s: %w", layerReference, err)
 		}
 	case tar.TypeReg:
@@ -130,7 +130,7 @@ func handleExtractedHeaderFile(
 
 func DecodeUncompressedYAMLLayer(
 	ctx context.Context,
-	imageSpec types.ImageSpec,
+	imageSpec v1beta1.ImageSpec,
 	insecureRegistry bool,
 	keyChain authn.Keychain,
 ) (interface{}, error) {
@@ -138,7 +138,7 @@ func DecodeUncompressedYAMLLayer(
 
 	imageRef := fmt.Sprintf("%s/%s@%s", imageSpec.Repo, imageSpec.Name, imageSpec.Ref)
 	// check existing file
-	decodedFile, err := GetYamlFileContent(configFilePath)
+	decodedFile, err := internal.GetYamlFileContent(configFilePath)
 	if err == nil {
 		return decodedFile, nil
 	} else if !os.IsNotExist(err) {
@@ -168,7 +168,7 @@ func pullLayer(ctx context.Context, insecureRegistry bool, imageRef string, keyC
 
 func writeYamlContent(blob io.ReadCloser, layerReference string, filePath string) (interface{}, error) {
 	var decodedConfig interface{}
-	err := yaml.NewYAMLOrJSONDecoder(blob, YamlDecodeBufferSize).Decode(&decodedConfig)
+	err := yaml.NewYAMLOrJSONDecoder(blob, internal.YamlDecodeBufferSize).Decode(&decodedConfig)
 	if err != nil {
 		return nil, fmt.Errorf("yaml blob decoding resulted in an error %s: %w", layerReference, err)
 	}
@@ -179,5 +179,5 @@ func writeYamlContent(blob io.ReadCloser, layerReference string, filePath string
 	}
 
 	// close file
-	return decodedConfig, WriteToFile(filePath, bytes)
+	return decodedConfig, internal.WriteToFile(filePath, bytes)
 }

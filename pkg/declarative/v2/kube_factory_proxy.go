@@ -1,4 +1,4 @@
-package client
+package v2
 
 import (
 	"helm.sh/helm/v3/pkg/kube"

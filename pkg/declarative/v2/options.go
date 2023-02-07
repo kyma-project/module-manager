@@ -275,7 +275,7 @@ func (o WithCustomReadyCheckOption) Apply(options *Options) {
 	options.CustomReadyCheck = o
 }
 
-type ClusterFn func(context.Context, Object) (*types.ClusterInfo, error)
+type ClusterFn func(context.Context, Object) (*ClusterInfo, error)
 
 func WithRemoteTargetCluster(configFn ClusterFn) WithRemoteTargetClusterOption {
 	return WithRemoteTargetClusterOption{ClusterFn: configFn}
@@ -297,9 +297,13 @@ type SkipReconcile func(context.Context, Object) (skip bool)
 
 // SkipReconcileOnDefaultLabelPresentAndTrue determines SkipReconcile by checking if DefaultSkipReconcileLabel is true.
 func SkipReconcileOnDefaultLabelPresentAndTrue(ctx context.Context, object Object) bool {
-	log.FromContext(ctx, "skip-label", DefaultSkipReconcileLabel).
-		V(internal.DebugLogLevel).Info("resource gets skipped because of label")
-	return object.GetLabels() != nil && object.GetLabels()[DefaultSkipReconcileLabel] == "true"
+	if object.GetLabels() != nil && object.GetLabels()[DefaultSkipReconcileLabel] == "true" {
+		log.FromContext(ctx, "skip-label", DefaultSkipReconcileLabel).
+			V(internal.DebugLogLevel).Info("resource gets skipped because of label")
+		return true
+	}
+
+	return false
 }
 
 type WithSkipReconcileOnOption struct {

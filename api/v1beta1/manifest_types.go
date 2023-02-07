@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1beta1
 
 import (
 	"fmt"
@@ -41,7 +41,7 @@ func (i InstallInfo) Raw() []byte {
 	return i.Source.Raw
 }
 
-// ManifestSpec defines the specification of Manifest.
+// ManifestSpec defines the desired state of Manifest.
 type ManifestSpec struct {
 	// Remote indicates if Manifest should be installed on a remote cluster
 	Remote bool `json:"remote"`
@@ -57,44 +57,21 @@ type ManifestSpec struct {
 	//+nullable
 	// Resource specifies a resource to be watched for state updates
 	Resource *unstructured.Unstructured `json:"resource,omitempty"`
-
-	// CRDs specifies the custom resource definitions' ImageSpec
-	CRDs ImageSpec `json:"crds,omitempty"`
 }
 
 // ManifestStatus defines the observed state of Manifest.
 type ManifestStatus declarative.Status
 
-// InstallItem describes install information for ManifestCondition.
-type InstallItem struct {
-	// ChartName defines the name for InstallItem
-	// +kubebuilder:validation:Optional
-	ChartName string `json:"chartName"`
-
-	// ClientConfig defines the client config for InstallItem
-	// +kubebuilder:validation:Optional
-	ClientConfig string `json:"clientConfig"`
-
-	// Overrides defines the overrides for InstallItem
-	// +kubebuilder:validation:Optional
-	Overrides string `json:"overrides"`
-}
-
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
-//+kubebuilder:printcolumn:name="State",type=string,JSONPath=".status.state"
-//+kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
+//+kubebuilder:storageversion
 
 // Manifest is the Schema for the manifests API.
 type Manifest struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	// Spec specifies the content and configuration for Manifest
-	Spec ManifestSpec `json:"spec,omitempty"`
-
-	// Status signifies the current status of the Manifest
-	// +kubebuilder:validation:Optional
+	Spec   ManifestSpec   `json:"spec,omitempty"`
 	Status ManifestStatus `json:"status,omitempty"`
 }
 
@@ -115,7 +92,7 @@ func (m *Manifest) SetStatus(status declarative.Status) {
 // ManifestList contains a list of Manifest.
 type ManifestList struct {
 	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata"`
+	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []Manifest `json:"items"`
 }
 

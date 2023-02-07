@@ -9,7 +9,6 @@ import (
 
 	. "github.com/kyma-project/module-manager/pkg/declarative/v2"
 	testv1 "github.com/kyma-project/module-manager/pkg/declarative/v2/test/v1"
-	"github.com/kyma-project/module-manager/pkg/types"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"golang.org/x/time/rate"
@@ -122,8 +121,8 @@ var _ = Describe(
 				testv1.TestAPISpec{ManifestName: "custom-client"},
 				DefaultSpec(filepath.Join(testSamplesDir, "module-chart"), map[string]any{}, RenderModeHelm),
 				[]Option{WithRemoteTargetCluster(
-					func(context.Context, Object) (*types.ClusterInfo, error) {
-						return &types.ClusterInfo{
+					func(context.Context, Object) (*ClusterInfo, error) {
+						return &ClusterInfo{
 							Config: cfg,
 						}, nil
 					},

@@ -1,10 +1,10 @@
-package v1alpha1
+package v1beta1
 
 import (
 	"context"
 	"errors"
 
-	manifestv1alpha1 "github.com/kyma-project/module-manager/api/v1alpha1"
+	manifestv1beta1 "github.com/kyma-project/module-manager/api/v1beta1"
 	declarative "github.com/kyma-project/module-manager/pkg/declarative/v2"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -23,7 +23,7 @@ var ErrWaitingForAsyncCustomResourceDeletion = errors.New(
 func PostRunCreateCR(
 	ctx context.Context, skr declarative.Client, kcp client.Client, obj declarative.Object,
 ) error {
-	manifest := obj.(*manifestv1alpha1.Manifest)
+	manifest := obj.(*manifestv1beta1.Manifest)
 	if manifest.Spec.Resource == nil {
 		return nil
 	}
@@ -60,7 +60,7 @@ func PostRunCreateCR(
 func PreDeleteDeleteCR(
 	ctx context.Context, skr declarative.Client, kcp client.Client, obj declarative.Object,
 ) error {
-	manifest := obj.(*manifestv1alpha1.Manifest)
+	manifest := obj.(*manifestv1beta1.Manifest)
 	if manifest.Spec.Resource == nil {
 		return nil
 	}

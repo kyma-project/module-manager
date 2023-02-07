@@ -1,4 +1,4 @@
-package v1alpha1
+package v1beta1
 
 import (
 	"context"
@@ -6,13 +6,13 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	authnK8s "github.com/google/go-containerregistry/pkg/authn/kubernetes"
-	"github.com/kyma-project/module-manager/pkg/types"
+	"github.com/kyma-project/module-manager/api/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func GetAuthnKeychain(ctx context.Context, spec types.ImageSpec, clnt client.Client) (authn.Keychain, error) {
+func GetAuthnKeychain(ctx context.Context, spec v1beta1.ImageSpec, clnt client.Client) (authn.Keychain, error) {
 	secretList, err := getCredSecrets(ctx, spec.CredSecretSelector, clnt)
 	if err != nil {
 		return nil, err
@@ -20,7 +20,8 @@ func GetAuthnKeychain(ctx context.Context, spec types.ImageSpec, clnt client.Cli
 	return authnK8s.NewFromPullSecrets(ctx, secretList.Items)
 }
 
-func getCredSecrets(ctx context.Context,
+func getCredSecrets(
+	ctx context.Context,
 	credSecretSelector *metav1.LabelSelector,
 	clusterClient client.Client,
 ) (corev1.SecretList, error) {

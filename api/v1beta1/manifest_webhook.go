@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1beta1
 
 import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -35,24 +35,19 @@ func (m *Manifest) SetupWebhookWithManager(mgr ctrl.Manager) error {
 }
 
 //nolint:lll
-//+kubebuilder:webhook:path=/mutate-operator-kyma-project-io-v1alpha1-manifest,mutating=true,failurePolicy=fail,sideEffects=None,groups=operator.kyma-project.io,resources=manifests,verbs=create;update,versions=v1alpha1,name=mmanifest.kb.io,admissionReviewVersions=v1
+//+kubebuilder:webhook:path=/mutate-operator-kyma-project-io-v1beta1-manifest,mutating=true,failurePolicy=fail,sideEffects=None,groups=operator.kyma-project.io,resources=manifests,verbs=create;update,versions=v1beta1,name=mmanifest.kb.io,admissionReviewVersions=v1
 
 var _ webhook.Defaulter = &Manifest{}
 
 // Default implements webhook.Defaulter so a webhook will be registered for the type.
 func (m *Manifest) Default() {
-	var emptyImageSpec ImageSpec
-	if m.Spec.Config == emptyImageSpec {
-		m.Spec.Config = ImageSpec{}
-	}
-
 	if m.Spec.Installs == nil {
 		m.Spec.Installs = make([]InstallInfo, 0)
 	}
 }
 
 //nolint:lll
-//+kubebuilder:webhook:path=/validate-operator-kyma-project-io-v1alpha1-manifest, mutating=false,failurePolicy=fail,sideEffects=None,groups=operator.kyma-project.io,resources=manifests,verbs=create;update,versions=v1alpha1,name=vmanifest.kb.io,admissionReviewVersions=v1
+//+kubebuilder:webhook:path=/validate-operator-kyma-project-io-v1beta1-manifest,mutating=false,failurePolicy=fail,sideEffects=None,groups=operator.kyma-project.io,resources=manifests,verbs=create;update,versions=v1beta1,name=vmanifest.kb.io,admissionReviewVersions=v1
 
 var _ webhook.Validator = &Manifest{}
 

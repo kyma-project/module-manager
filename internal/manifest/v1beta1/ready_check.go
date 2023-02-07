@@ -1,4 +1,4 @@
-package v1alpha1
+package v1beta1
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	manifestv1alpha1 "github.com/kyma-project/module-manager/api/v1alpha1"
+	manifestv1beta1 "github.com/kyma-project/module-manager/api/v1beta1"
 	declarative "github.com/kyma-project/module-manager/pkg/declarative/v2"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/cli-runtime/pkg/resource"
@@ -28,7 +28,7 @@ type ManifestCustomResourceReadyCheck struct{}
 func (c *ManifestCustomResourceReadyCheck) Run(
 	ctx context.Context, clnt declarative.Client, obj declarative.Object, _ []*resource.Info,
 ) error {
-	manifest := obj.(*manifestv1alpha1.Manifest)
+	manifest := obj.(*manifestv1beta1.Manifest)
 	if manifest.Spec.Resource == nil {
 		return nil
 	}
