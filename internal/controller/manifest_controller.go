@@ -50,18 +50,15 @@ func ManifestReconciler(
 	mgr manager.Manager, codec *types.Codec, insecure bool,
 	checkInterval time.Duration,
 ) *declarative.Reconciler {
+	rcl := &internalv1alpha1.RemoteClusterLookup{KCP: &types.ClusterInfo{
+		Client: mgr.GetClient(),
+		Config: mgr.GetConfig(),
+	}}
 	return declarative.NewFromManager(
 		mgr, &v1alpha1.Manifest{},
-		declarative.WithSpecResolver(
-			internalv1alpha1.NewManifestSpecResolver(codec, insecure),
-		),
+		declarative.WithSpecResolver(internalv1alpha1.NewManifestSpecResolver(codec, insecure)),
 		declarative.WithCustomReadyCheck(internalv1alpha1.NewManifestCustomResourceReadyCheck()),
-		declarative.WithRemoteTargetCluster(
-			(&RemoteClusterLookup{KCP: &types.ClusterInfo{
-				Client: mgr.GetClient(),
-				Config: mgr.GetConfig(),
-			}}).ConfigResolver,
-		),
+		declarative.WithRemoteTargetCluster(rcl.ConfigResolver),
 		declarative.WithClientCacheKeyFromLabelOrResource(labels.KymaName),
 		declarative.WithPostRun{internalv1alpha1.PostRunCreateCR},
 		declarative.WithPreDelete{internalv1alpha1.PreDeleteDeleteCR},
