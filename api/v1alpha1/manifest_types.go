@@ -84,6 +84,7 @@ type InstallItem struct {
 //+kubebuilder:subresource:status
 //+kubebuilder:printcolumn:name="State",type=string,JSONPath=".status.state"
 //+kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
+// +kubebuilder:deprecatedversion:warning="kyma-project.io/v1alpha1 Manifest is deprecated. Use v1beta1 instead."
 
 // Manifest is the Schema for the manifests API.
 type Manifest struct {
