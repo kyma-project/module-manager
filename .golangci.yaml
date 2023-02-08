@@ -23,6 +23,8 @@ linters:
     - structcheck
     - tparallel
     - unparam
+    - unused # TODO Remove once linter is fixed
+    - musttag # TODO Remove once linter is fixed
     - wastedassign
     - ireturn
     - ifshort

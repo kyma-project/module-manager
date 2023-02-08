@@ -14,5 +14,5 @@ configMapGenerator:
 
 images:
 - name: controller
-  newName: eu.gcr.io/kyma-project/module-manager
-  newTag: latest
+  newName: europe-docker.pkg.dev/kyma-project/dev/module-manager
+  newTag: PR-218
