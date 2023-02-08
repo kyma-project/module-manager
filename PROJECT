@@ -20,6 +20,7 @@ resources:
   path: github.com/kyma-project/module-manager/api/v1alpha1
   version: v1alpha1
   webhooks:
+    conversion: true
     defaulting: true
     validation: true
     webhookVersion: v1

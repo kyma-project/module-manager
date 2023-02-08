@@ -9,6 +9,8 @@ import (
 func (m *Manifest) ConvertTo(hub conversion.Hub) error {
 	dst := hub.(*v1beta1.Manifest)
 
+	dst.ObjectMeta = m.ObjectMeta
+
 	dst.Spec.Installs = make([]v1beta1.InstallInfo, 0, len(m.Spec.Installs))
 	for _, install := range m.Spec.Installs {
 		dst.Spec.Installs = append(
@@ -39,6 +41,8 @@ func (m *Manifest) ConvertTo(hub conversion.Hub) error {
 // ConvertFrom converts from the Hub version to this version.
 func (m *Manifest) ConvertFrom(hub conversion.Hub) error {
 	src := hub.(*v1beta1.Manifest)
+
+	m.ObjectMeta = src.ObjectMeta
 
 	m.Spec.Installs = make([]InstallInfo, 0, len(src.Spec.Installs))
 	for _, install := range src.Spec.Installs {

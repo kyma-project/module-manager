@@ -65,21 +65,6 @@ type ManifestSpec struct {
 // ManifestStatus defines the observed state of Manifest.
 type ManifestStatus declarative.Status
 
-// InstallItem describes install information for ManifestCondition.
-type InstallItem struct {
-	// ChartName defines the name for InstallItem
-	// +kubebuilder:validation:Optional
-	ChartName string `json:"chartName"`
-
-	// ClientConfig defines the client config for InstallItem
-	// +kubebuilder:validation:Optional
-	ClientConfig string `json:"clientConfig"`
-
-	// Overrides defines the overrides for InstallItem
-	// +kubebuilder:validation:Optional
-	Overrides string `json:"overrides"`
-}
-
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:printcolumn:name="State",type=string,JSONPath=".status.state"

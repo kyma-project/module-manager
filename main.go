@@ -73,7 +73,6 @@ const (
 //nolint:gochecknoinits
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(manifestv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(apiExtensionsv1.AddToScheme(scheme))
 
 	utilruntime.Must(manifestv1alpha1.AddToScheme(scheme))
