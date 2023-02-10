@@ -18,11 +18,11 @@ require (
 	go.uber.org/zap v1.24.0
 	golang.org/x/time v0.3.0
 	helm.sh/helm/v3 v3.10.3
-	k8s.io/api v0.26.0
+	k8s.io/api v0.26.1
 	k8s.io/apiextensions-apiserver v0.26.0
-	k8s.io/apimachinery v0.26.0
-	k8s.io/cli-runtime v0.26.0
-	k8s.io/client-go v0.26.0
+	k8s.io/apimachinery v0.26.1
+	k8s.io/cli-runtime v0.26.1
+	k8s.io/client-go v0.26.1
 	k8s.io/kubectl v0.26.0
 	sigs.k8s.io/controller-runtime v0.14.1
 	sigs.k8s.io/kustomize/api v0.12.1
